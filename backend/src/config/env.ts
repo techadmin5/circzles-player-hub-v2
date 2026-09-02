@@ -7,7 +7,10 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
   FRONTEND_ORIGIN: z.string().url().default("http://localhost:3000"),
   SESSION_SECRET: z.string().min(32),
-  COOKIE_SECURE: z.coerce.boolean().default(false),
+  COOKIE_SECURE: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
   WIX_CLIENT_ID: z.string().optional(),
 });
 
