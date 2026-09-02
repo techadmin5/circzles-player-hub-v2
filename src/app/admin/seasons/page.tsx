@@ -1,0 +1,1 @@
+import { adminService } from "@/services"; export default async function Page(){const season=await adminService.getCurrentSeason();return <main className="mx-auto max-w-7xl px-4 py-8"><h1 className="font-display text-5xl font-bold">Admin Seasons</h1><div className="game-card mt-5 border-amber-200/20 p-4">{season.name} · {season.status} · create/edit/start/end mocked</div></main>}

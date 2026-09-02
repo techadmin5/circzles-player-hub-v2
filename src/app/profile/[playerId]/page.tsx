@@ -1,0 +1,2 @@
+import { AppShell, PageFrame, PlayerSummary } from "@/components/ui"; import { playerService } from "@/services";
+export default async function Page({params}:{params:Promise<{playerId:string}>}){const {playerId}=await params; const p=await playerService.getProfile(playerId);return <AppShell><PageFrame title={p.displayName} action={<button className="btn btn-primary">Add Friend</button>}><PlayerSummary player={{...p, stats:{ownedPuzzles:12,completed:7,approvedAttempts:13,personalBests:3,podiums:1,seasonRank:22,longestStreak:p.streak}}}/></PageFrame></AppShell>}

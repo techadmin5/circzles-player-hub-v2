@@ -1,0 +1,1 @@
+export default function Page(){return <main className="mx-auto max-w-7xl px-4 py-8"><h1 className="font-display text-5xl font-bold">Audit Log</h1><div className="game-card mt-5 border-amber-200/20 p-4">admin@circzles.in · reviewed submission · 2026-09-01 · mocked audit entry</div></main>}

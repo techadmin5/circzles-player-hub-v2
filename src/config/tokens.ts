@@ -1,0 +1,21 @@
+export const tokens = {
+  colors: {
+    background: "#05070d",
+    surface: "#0b111c",
+    surfaceElevated: "#111a2a",
+    border: "#243043",
+    borderActive: "#2dd4ff",
+    cyan: "#26d9ff",
+    aqua: "#55f2d8",
+    blue: "#377dff",
+    gold: "#f8c84e",
+    danger: "#ff5d73",
+    success: "#4ade80",
+    warning: "#f59e0b",
+    textPrimary: "#f4f8ff",
+    textSecondary: "#b8c5d8",
+    textMuted: "#74839a",
+  },
+  radius: { sm: "6px", md: "8px", lg: "14px" },
+  timing: { fast: "140ms", normal: "200ms", page: "260ms" },
+};

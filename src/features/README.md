@@ -1,0 +1,1 @@
+Feature-specific screens and orchestration components live here when they grow beyond route-level composition. Current route files delegate shared UI to `src/components` and data access to `src/services`.

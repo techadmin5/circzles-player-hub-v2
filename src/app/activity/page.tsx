@@ -1,0 +1,2 @@
+import { InstantTabs } from "@/components/Interactive"; import { ActivityItem, AppShell, PageFrame } from "@/components/ui"; import { activityService } from "@/services";
+export default async function Page(){const items=await activityService.getActivity();return <AppShell><PageFrame title="Activity" action={<InstantTabs tabs={["All","Puzzles","Competitive","Rewards","Economy","Social"]}/>}><div className="grid gap-3">{items.map(i=><ActivityItem key={i.id} event={i}/>)}</div></PageFrame></AppShell>}

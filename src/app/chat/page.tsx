@@ -1,0 +1,2 @@
+import { AppShell, EmptyState, PageFrame } from "@/components/ui";
+export default function Page(){return <AppShell><PageFrame title="Chat"><div className="grid gap-4 lg:grid-cols-[320px_1fr]"><div className="game-card p-4">Conversation list · unread badges · online state</div><div className="game-card min-h-96 p-4">Message area · typing · mute · block · report</div></div><div className="mt-4"><EmptyState title="Coming Soon" body="Chat is feature-flagged off until realtime backend work begins."/></div></PageFrame></AppShell>}

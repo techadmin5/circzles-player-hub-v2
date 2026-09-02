@@ -1,0 +1,2 @@
+import Link from "next/link"; import { AppShell, PageFrame, SubmissionCard } from "@/components/ui"; import { submissionService } from "@/services";
+export default async function Page(){const submissions=await submissionService.getSubmissions();return <AppShell><PageFrame title="Submissions" action={<Link className="btn btn-primary" href="/submissions/new">New Submission</Link>}><div className="grid gap-3">{submissions.map(s=><SubmissionCard key={s.id} submission={s}/>)}</div></PageFrame></AppShell>}
