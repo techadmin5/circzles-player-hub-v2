@@ -40,13 +40,36 @@ These boundaries are good. The backend should replace service implementations wi
 
 ## Target Architecture
 
+- CircZles Player Hub V2 is not a standalone dashboard. It is the gamification engine for the entire CircZles ecosystem.
 - Frontend: Next.js App Router, deployed separately at `dashboard.circzles.in`.
 - Backend: Node.js + TypeScript HTTP API.
 - Database: PostgreSQL as authoritative game-state database.
-- Object storage: provider-independent video/object storage abstraction.
+- Object storage: Cloudinary is suitable for submission videos. Keep the storage boundary abstract enough that PostgreSQL stores only media references and metadata.
 - Auth: V2 session established through a secure Wix member bridge proof of concept.
 - Realtime: future-ready event and notification model, no realtime requirement for first backend release.
-- Wix: retained for main website, existing member identity bridge, commerce integration, and optional coupon integration. Wix CMS must not remain authoritative for game state.
+- Wix: retained for main website, existing member identity bridge, commerce integration, reviews/forms where useful, and optional coupon integration. Wix CMS must not remain authoritative for game state.
+
+## Ecosystem Role
+
+V2 must support secure interaction between:
+
+- `circzles.in`
+- `dashboard.circzles.in`
+- Fastify backend
+- PostgreSQL
+- Cloudinary
+- future commerce integrations
+- future review/form integrations
+
+The same player identity must be usable across the website, dashboard, future commerce, reviews, and website quests. Website-originated missions and dashboard-originated missions should feed the same future game-event and mission engine.
+
+Examples of ecosystem event sources:
+
+- Website: `website.page_visited`, `website.gem_found`, `website.quest_completed`, `website.review_submitted`, `website.cta_completed`
+- Dashboard: `player.login`, `puzzle.added`, `submission.created`, `submission.approved`, `wheel.spun`, `store.purchase`, `friend.added`
+- Commerce: `order.created`, `puzzle.purchased`, `coupon.used`
+
+The backend must validate valuable events before rewarding them. Browser JavaScript may request or report an interaction, but it must not be authoritative for rewards.
 
 ## Bounded Contexts
 
@@ -92,9 +115,22 @@ Existing Wix members map to `users.wix_member_id`. Each ordinary player user has
 Keep provider-specific integrations behind interfaces:
 
 - `AuthBridgeProvider` for Wix member proof/exchange.
-- `ObjectStorageProvider` for signed uploads and playback URLs.
+- `ObjectStorageProvider` for Cloudinary signed uploads, Cloudinary URL/reference storage, and playback URLs.
 - `CommerceProvider` for future Wix coupon/checkout operations.
+- `ReviewProvider` for future verified review/form events.
+- `WebsiteEventProvider` for website quest and CTA events from `circzles.in`.
 - `EventPublisher` for future realtime notifications.
+
+## Submission Media Flow
+
+The intended submission media flow remains:
+
+1. Player uploads video.
+2. Cloudinary stores the video.
+3. Cloudinary URL/reference is returned.
+4. PostgreSQL stores only the Cloudinary URL/reference and submission metadata.
+5. Admin manually reviews the submission.
+6. Approved submission feeds leaderboard and reward processing.
 
 ## Backend Modules
 

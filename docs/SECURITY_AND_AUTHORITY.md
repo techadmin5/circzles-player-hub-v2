@@ -2,7 +2,7 @@
 
 ## Authority Rule
 
-The frontend requests actions. The backend determines results.
+The frontend and website request or report actions. The backend determines results.
 
 Allowed frontend calls:
 
@@ -23,6 +23,30 @@ Disallowed frontend authority:
 - logged-in player ID
 - mission validity
 - submission approval rewards
+- valuable website quest completion
+- hidden gem discovery
+- review completion
+- commerce purchase/coupon completion
+
+## Ecosystem Security Rule
+
+CircZles V2 must accept game-event inputs from the dashboard, the main website, future commerce systems, and future review/form systems, but the browser must not be authoritative for valuable mission rewards.
+
+Examples:
+
+- A low-value `website.page_visited` mission may be recorded when the backend can associate the request with an authenticated player and a valid page-event definition.
+- A valuable `website.gem_found` mission must not trust `gemFound=true` from browser JavaScript.
+- A `website.review_submitted` mission should eventually be verified from the real review/form/order system, not merely from a clicked button.
+
+For valuable ecosystem events, the backend must validate:
+
+- authenticated player
+- valid mission/event
+- valid page/gem/action/order/review
+- eligibility and date window
+- whether already completed
+- idempotency
+- source-system proof or server-side verification
 
 ## Authentication
 
@@ -30,6 +54,7 @@ Disallowed frontend authority:
 - Every admin endpoint requires admin role/permission.
 - Wix handoff tokens must be short-lived, signed, audience-bound, and single-use.
 - Sessions can be revoked.
+- Website, dashboard, commerce, and review integrations must map back to the same V2 player identity before rewards are evaluated.
 
 ## Authorization
 
@@ -72,6 +97,15 @@ Lock wallet row, validate cost/cooldown, debit points, choose reward server-side
 ### Submission Approval
 
 Lock submission row, insert review, update status, insert `submission_reward_grants` once, grant XP/points, update leaderboard, emit events, commit.
+
+Submission video authority:
+
+1. Player uploads video to Cloudinary.
+2. Backend stores Cloudinary URL/reference and submission metadata in PostgreSQL.
+3. Admin manually reviews.
+4. Only approved submissions feed leaderboard/reward processing.
+
+PostgreSQL must not store large video binaries.
 
 ### Mission Claim
 

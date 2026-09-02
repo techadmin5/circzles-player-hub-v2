@@ -4,6 +4,14 @@
 
 Existing Wix members should move from `circzles.in` to `dashboard.circzles.in` and become securely known to the V2 backend.
 
+V2 identity is ecosystem-wide. The same V2 player must be recognizable across:
+
+- `circzles.in`
+- `dashboard.circzles.in`
+- future commerce flows
+- reviews/forms
+- website quests and CTAs
+
 Target journey:
 
 1. User logs into `circzles.in`.
@@ -59,6 +67,8 @@ When `wixMemberId` has no V2 user:
 4. Otherwise generate unique `publicPlayerId`.
 5. Initialize wallet/progression from migrated records or defaults.
 
+This identity mapping must become the anchor for dashboard events, website events, future commerce events, review/form events, and migration reconciliation. Browser-provided player identifiers are never sufficient authentication proof.
+
 ## Existing Account Linking
 
 During migration, imported Wix member IDs should pre-create or stage mappings. First login confirms linkage.
@@ -89,3 +99,4 @@ Duplicate prevention:
 - Should callback exchange happen through POST or one-time URL token?
 - What Wix member fields are reliably available?
 - How will mobile browsers handle the redirect and cookies?
+- Can website quest/review/commerce events be associated with the same V2 player identity without trusting browser-only claims?

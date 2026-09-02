@@ -2,7 +2,9 @@
 
 ## Purpose
 
-Game events connect authoritative backend actions to missions, activity history, notifications, future realtime updates, and analytics.
+Game events connect authoritative backend actions and verified ecosystem events to missions, activity history, notifications, future realtime updates, and analytics.
+
+CircZles Player Hub V2 is the gamification engine for the whole CircZles ecosystem, not just the dashboard. Events may originate from `circzles.in`, `dashboard.circzles.in`, commerce systems, review/form systems, and admin workflows.
 
 ## Event Table
 
@@ -20,7 +22,7 @@ Use `game_events` as an internal append-only stream:
 
 ## Event Types
 
-Core events:
+Dashboard events:
 
 - `player.login`
 - `profile.completed`
@@ -48,6 +50,26 @@ Core events:
 - `season.starting`
 - `season.ending`
 
+Website events:
+
+- `website.page_visited`
+- `website.gem_found`
+- `website.quest_completed`
+- `website.review_submitted`
+- `website.cta_completed`
+
+Commerce events:
+
+- `order.created`
+- `puzzle.purchased`
+- `coupon.used`
+
+Review/form events:
+
+- `review.submitted`
+- `review.verified`
+- `form.submitted`
+
 ## Event Processing
 
 1. Domain service completes authoritative operation in a transaction.
@@ -69,12 +91,34 @@ Mission definitions are data-driven:
 When a game event occurs:
 
 1. Find active missions whose rules match `event_type`.
-2. Filter by date window, player eligibility, puzzle, `level_id`, and other conditions.
+2. Filter by date window, player eligibility, event source, page/action/gem identifiers, puzzle, `level_id`, and other conditions.
 3. Increment or recompute progress for the current period key.
 4. Mark progress `CLAIMABLE` when target is met.
 5. Emit `mission.completed` once per player/mission/period.
 
 Mission claim remains a separate player action unless a mission is configured for auto-claim.
+
+## Website Event Validation
+
+Low-value website missions such as a page visit may record a verified page event when the backend can associate it with an authenticated player session and a valid route/action definition.
+
+Valuable missions must never trust raw browser claims such as:
+
+```json
+{ "gemFound": true }
+```
+
+For events such as `website.gem_found`, `website.quest_completed`, and `website.review_submitted`, the backend must validate:
+
+- authenticated player
+- valid mission/event definition
+- valid page/gem/action identifier
+- eligibility and date window
+- whether already completed
+- idempotency key or deterministic completion key
+- source-system proof where applicable
+
+Review missions should eventually be verified from the real review/form/order system rather than from a dashboard or website button click alone.
 
 ## Activity Strategy
 
