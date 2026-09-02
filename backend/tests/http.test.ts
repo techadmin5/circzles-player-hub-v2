@@ -44,6 +44,19 @@ describe("http auth poc", () => {
     expect(res.json().code).toBe("FORBIDDEN");
   });
 
+  it("preserves known Fastify 4xx errors", async () => {
+    const testEnv = env({ NODE_ENV: "development" });
+    const app = buildApp({ env: testEnv, identity: new IdentityService(new FakeIdentityRepository(), testEnv.SESSION_SECRET), checkDb: async () => {} });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/dev/login",
+      headers: { "content-type": "text/plain" },
+      payload: "not json",
+    });
+    expect(res.statusCode).toBe(415);
+    expect(res.json().code).toBe("FST_ERR_CTP_INVALID_MEDIA_TYPE");
+  });
+
   it("health checks the database connection hook", async () => {
     let checked = false;
     const testEnv = env();

@@ -1,6 +1,7 @@
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import Fastify from "fastify";
+import type { FastifyError } from "fastify";
 import type { Env } from "../config/env.js";
 import type { IdentityService } from "../domain/identity.js";
 import { AppError, unauthorized } from "../domain/errors.js";
@@ -31,6 +32,12 @@ export function buildApp({ env, identity, checkDb }: AppDeps) {
     if (error instanceof AppError) {
       return reply.status(error.statusCode).send({ code: error.code, message: error.message, details: error.details, requestId: request.id });
     }
+    const fastifyError = error as FastifyError;
+    const maybeStatusCode = typeof fastifyError.statusCode === "number" ? fastifyError.statusCode : undefined;
+    if (maybeStatusCode && maybeStatusCode >= 400 && maybeStatusCode < 500) {
+      const maybeCode = typeof fastifyError.code === "string" ? fastifyError.code : "BAD_REQUEST";
+      return reply.status(maybeStatusCode).send({ code: maybeCode, message: fastifyError.message, requestId: request.id });
+    }
     request.log.error(error);
     return reply.status(500).send({ code: "INTERNAL_SERVER_ERROR", message: "Unexpected server error.", requestId: request.id });
   });
@@ -47,6 +54,10 @@ export function buildApp({ env, identity, checkDb }: AppDeps) {
   });
 
   app.post("/api/dev/login", async (request, reply) => {
+    const contentType = request.headers["content-type"];
+    if (contentType && !contentType.toLowerCase().includes("application/json")) {
+      throw new AppError("FST_ERR_CTP_INVALID_MEDIA_TYPE", "Unsupported Media Type: use application/json.", 415);
+    }
     if (env.NODE_ENV === "production") {
       throw new AppError("FORBIDDEN", "Development login is disabled in production.", 403);
     }

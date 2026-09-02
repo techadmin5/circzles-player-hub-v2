@@ -10,6 +10,10 @@ export const playerService = {
     await mockDelay();
     return currentPlayer;
   },
+  async getMockCurrentPlayer() {
+    await mockDelay();
+    return currentPlayer;
+  },
   async getProfile(playerId: string) { await mockDelay(); return players.find((p) => p.publicPlayerId === playerId) ?? currentPlayer; },
   async renameDisplayName(displayName: string) { await mockDelay(); return { ...currentPlayer, displayName }; },
 };
