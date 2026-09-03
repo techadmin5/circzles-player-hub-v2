@@ -1,2 +1,13 @@
-import { AppShell, PageFrame, PlayerSummary, StatCard } from "@/components/ui"; import { playerService } from "@/services";
-export default async function Page(){const p=await playerService.getCurrentPlayer();return <AppShell><PageFrame title="Profile"><div className="grid gap-5"><PlayerSummary player={p}/><div className="grid gap-3 md:grid-cols-4">{Object.entries(p.stats).map(([k,v])=><StatCard key={k} label={k} value={String(v)}/>)}</div><section className="game-card p-5"><h2 className="font-display text-3xl font-bold">Badge Showcase</h2><p className="mt-2 text-[var(--gold)]">{p.badgeShowcase.join(" · ")}</p></section></div></PageFrame></AppShell>}
+import { BadgeShowcase } from "@/components/achievements/BadgeShowcase";
+import { PlayerLobbyHeader } from "@/components/player/PlayerLobbyHeader";
+import { AppShell, PageFrame, StatCard } from "@/components/ui";
+import { playerService } from "@/services";
+
+export default async function Page() {
+  const player = await playerService.getMockCurrentPlayer();
+  return <AppShell><PageFrame title="Profile"><div className="grid gap-5">
+    <PlayerLobbyHeader player={player} />
+    <div className="grid gap-3 md:grid-cols-4">{Object.entries(player.stats).map(([key, value]) => <StatCard key={key} label={key} value={String(value)} />)}</div>
+    <BadgeShowcase badges={player.badgeShowcase} />
+  </div></PageFrame></AppShell>;
+}

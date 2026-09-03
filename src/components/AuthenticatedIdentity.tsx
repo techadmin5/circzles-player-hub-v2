@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { PlayerLobbyHeader } from "@/components/player/PlayerLobbyHeader";
 import { apiClient, ApiClientError } from "@/lib/apiClient";
 import type { PlayerProfile } from "@/types";
-import { PlayerSummary } from "./ui";
 
 interface AuthenticatedIdentityProps {
   fallbackPlayer: PlayerProfile;
@@ -62,11 +62,11 @@ export function AuthenticatedIdentity({ fallbackPlayer, mode }: AuthenticatedIde
   }, [mode]);
 
   return <section className="grid gap-3">
-    <PlayerSummary player={player} />
+    <PlayerLobbyHeader player={player} showDebug={mode === "api" && process.env.NODE_ENV !== "production"} />
     {mode === "api" && <div className="game-card flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between">
       <div>
         <p className="text-sm font-semibold text-[var(--cyan)]">{loading ? "Checking authenticated session" : "Authenticated identity"}</p>
-        <p className="text-sm text-[var(--text-secondary)]">displayName {player.displayName} · publicPlayerId {player.publicPlayerId} · internalId {player.internalId}</p>
+        <p className="text-sm text-[var(--text-secondary)]">Browser session cookie checked with GET /api/me.</p>
         {error && <p className="mt-2 text-sm text-red-200">{error}</p>}
       </div>
       {process.env.NODE_ENV !== "production" && <button className="btn btn-primary" onClick={devLogin}>Development Login</button>}

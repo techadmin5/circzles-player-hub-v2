@@ -1,2 +1,10 @@
-import { AppShell, EmptyState, PageFrame } from "@/components/ui";
-export default function Page(){return <AppShell><PageFrame title="Achievements"><EmptyState title="Achievement Engine Ready" body="Frontend shell is enabled and awaits backend achievement rules."/></PageFrame></AppShell>}
+import { BadgeShowcase } from "@/components/achievements/BadgeShowcase";
+import { AppShell, PageFrame } from "@/components/ui";
+import { playerService } from "@/services";
+
+export default async function Page() {
+  const player = await playerService.getMockCurrentPlayer();
+  return <AppShell><PageFrame title="Achievements">
+    <BadgeShowcase badges={player.badgeShowcase} />
+  </PageFrame></AppShell>;
+}
