@@ -64,29 +64,11 @@ ALTER TABLE "point_transactions" ADD CONSTRAINT "point_transactions_player_id_pl
 ALTER TABLE "wallets" ADD CONSTRAINT "wallets_player_id_players_player_id_fk" FOREIGN KEY ("player_id") REFERENCES "public"."players"("player_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "xp_transactions" ADD CONSTRAINT "xp_transactions_player_id_players_player_id_fk" FOREIGN KEY ("player_id") REFERENCES "public"."players"("player_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "player_progression_player_id_unique" ON "player_progression" USING btree ("player_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "point_transactions_idempotency_key_unique" ON "point_transactions" USING btree ("idempotency_key");--> statement-breakpoint
+CREATE UNIQUE INDEX "point_transactions_player_id_idempotency_key_unique" ON "point_transactions" USING btree ("player_id","idempotency_key");--> statement-breakpoint
 CREATE INDEX "point_transactions_player_created_at_idx" ON "point_transactions" USING btree ("player_id","created_at");--> statement-breakpoint
 CREATE INDEX "point_transactions_source_idx" ON "point_transactions" USING btree ("source_type","source_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "progression_levels_level_unique" ON "progression_levels" USING btree ("progression_level");--> statement-breakpoint
 CREATE UNIQUE INDEX "wallets_player_id_unique" ON "wallets" USING btree ("player_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "xp_transactions_idempotency_key_unique" ON "xp_transactions" USING btree ("idempotency_key");--> statement-breakpoint
+CREATE UNIQUE INDEX "xp_transactions_player_id_idempotency_key_unique" ON "xp_transactions" USING btree ("player_id","idempotency_key");--> statement-breakpoint
 CREATE INDEX "xp_transactions_player_created_at_idx" ON "xp_transactions" USING btree ("player_id","created_at");--> statement-breakpoint
 CREATE INDEX "xp_transactions_source_idx" ON "xp_transactions" USING btree ("source_type","source_id");
---> statement-breakpoint
-INSERT INTO "progression_levels" ("progression_level", "rank_name", "xp_required", "rewards", "active")
-VALUES
-  (1, 'Peasant', 0, '[]'::jsonb, true),
-  (5, 'Farmer', 1200, '[]'::jsonb, true),
-  (10, 'Squire', 3600, '[]'::jsonb, true),
-  (15, 'Knight', 7600, '[]'::jsonb, true),
-  (20, 'Apprentice', 12800, '[]'::jsonb, true),
-  (30, 'Nobleman', 24000, '[]'::jsonb, true),
-  (40, 'Master', 42000, '[]'::jsonb, true),
-  (55, 'Hero', 72000, '[]'::jsonb, true),
-  (75, 'Conqueror', 120000, '[]'::jsonb, true)
-ON CONFLICT ("progression_level") DO UPDATE SET
-  "rank_name" = EXCLUDED."rank_name",
-  "xp_required" = EXCLUDED."xp_required",
-  "rewards" = EXCLUDED."rewards",
-  "active" = EXCLUDED."active",
-  "updated_at" = now();

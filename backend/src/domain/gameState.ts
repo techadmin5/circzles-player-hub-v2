@@ -1,4 +1,4 @@
-import { asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "../db/client.js";
 import { playerProgression, pointTransactions, progressionLevels, wallets, xpTransactions } from "../db/schema.js";
 import { AppError, insufficientPoints, validationFailed } from "./errors.js";
@@ -154,12 +154,15 @@ export class DrizzleGameStateRepository implements GameStateRepository {
   async grantXp(input: XpGrantInput) {
     return this.db.transaction(async (tx) => {
       await ensurePlayerGameStateInTransaction(tx, input.playerId);
+      await lockPlayerProgression(tx, input.playerId);
       if (input.idempotencyKey) {
-        const existing = await tx.select().from(xpTransactions).where(eq(xpTransactions.idempotencyKey, input.idempotencyKey)).limit(1);
-        if (existing[0]) return { transactionId: existing[0].xpTransactionId, idempotent: true, totalXpAfter: existing[0].totalXpAfter, state: await readGameState(tx, input.playerId, existing[0].totalXpAfter) };
+        const existing = await tx.select().from(xpTransactions).where(and(eq(xpTransactions.playerId, input.playerId), eq(xpTransactions.idempotencyKey, input.idempotencyKey))).limit(1);
+        if (existing[0]) {
+          assertXpIdempotencyMatch(existing[0], input);
+          return { transactionId: existing[0].xpTransactionId, idempotent: true, totalXpAfter: existing[0].totalXpAfter, state: await readGameState(tx, input.playerId, existing[0].totalXpAfter) };
+        }
       }
 
-      await lockPlayerProgression(tx, input.playerId);
       const current = await readProgressionCache(tx, input.playerId);
       const totalXpAfter = current.totalXp + input.amount;
       const rank = await levelForXp(tx, totalXpAfter);
@@ -197,12 +200,15 @@ export class DrizzleGameStateRepository implements GameStateRepository {
   private async changePoints(input: PointChangeInput, direction: "CREDIT" | "DEBIT") {
     return this.db.transaction(async (tx) => {
       await ensurePlayerGameStateInTransaction(tx, input.playerId);
+      await lockWallet(tx, input.playerId);
       if (input.idempotencyKey) {
-        const existing = await tx.select().from(pointTransactions).where(eq(pointTransactions.idempotencyKey, input.idempotencyKey)).limit(1);
-        if (existing[0]) return { transactionId: existing[0].transactionId, idempotent: true, balanceAfter: existing[0].balanceAfter };
+        const existing = await tx.select().from(pointTransactions).where(and(eq(pointTransactions.playerId, input.playerId), eq(pointTransactions.idempotencyKey, input.idempotencyKey))).limit(1);
+        if (existing[0]) {
+          assertPointIdempotencyMatch(existing[0], input, direction);
+          return { transactionId: existing[0].transactionId, idempotent: true, balanceAfter: existing[0].balanceAfter };
+        }
       }
 
-      await lockWallet(tx, input.playerId);
       const wallet = await readWallet(tx, input.playerId);
       const balanceAfter = direction === "CREDIT" ? wallet.balance + input.amount : wallet.balance - input.amount;
       if (balanceAfter < 0) throw insufficientPoints();
@@ -301,4 +307,20 @@ function validatePositiveAmount(amount: number, message: string) {
 
 function validateReason(reason: string) {
   if (!reason.trim()) throw validationFailed("Reason is required.");
+}
+
+function assertXpIdempotencyMatch(existing: typeof xpTransactions.$inferSelect, input: XpGrantInput) {
+  if (existing.amount !== input.amount || existing.sourceType !== input.sourceType) {
+    throw new AppError("IDEMPOTENCY_CONFLICT", "Idempotency key was already used for a different XP operation.", 409, {
+      idempotencyKey: input.idempotencyKey,
+    });
+  }
+}
+
+function assertPointIdempotencyMatch(existing: typeof pointTransactions.$inferSelect, input: PointChangeInput, direction: "CREDIT" | "DEBIT") {
+  if (existing.direction !== direction || existing.amount !== input.amount || existing.sourceType !== input.sourceType) {
+    throw new AppError("IDEMPOTENCY_CONFLICT", "Idempotency key was already used for a different Synapse Point operation.", 409, {
+      idempotencyKey: input.idempotencyKey,
+    });
+  }
 }

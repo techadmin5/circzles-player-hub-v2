@@ -51,6 +51,34 @@ describe("game state progression and economy", () => {
     expect(state.totalXp).toBe(500);
   });
 
+  it("same idempotency key can exist for two different players", async () => {
+    const { repo, gameState } = await service();
+    await gameState.grantXp({ playerId: "player-1", amount: 500, reason: "test", sourceType: "test", idempotencyKey: "shared-key" });
+    await gameState.grantXp({ playerId: "player-2", amount: 700, reason: "test", sourceType: "test", idempotencyKey: "shared-key" });
+    await gameState.creditPoints({ playerId: "player-1", amount: 250, reason: "test", sourceType: "test", idempotencyKey: "shared-key" });
+    await gameState.creditPoints({ playerId: "player-2", amount: 350, reason: "test", sourceType: "test", idempotencyKey: "shared-key" });
+    expect(repo.xpTransactions).toHaveLength(2);
+    expect(repo.pointTransactions).toHaveLength(2);
+    expect((await gameState.getPlayerGameState("player-1")).totalXp).toBe(500);
+    expect((await gameState.getPlayerGameState("player-2")).totalXp).toBe(700);
+    expect((await gameState.getPlayerGameState("player-1")).synapsePoints).toBe(250);
+    expect((await gameState.getPlayerGameState("player-2")).synapsePoints).toBe(350);
+  });
+
+  it("reused XP idempotency key with conflicting amount fails", async () => {
+    const { gameState } = await service();
+    await gameState.grantXp({ playerId: "player-1", amount: 500, reason: "test", sourceType: "test", idempotencyKey: "xp-conflict" });
+    await expect(gameState.grantXp({ playerId: "player-1", amount: 501, reason: "test", sourceType: "test", idempotencyKey: "xp-conflict" })).rejects.toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
+    expect((await gameState.getPlayerGameState("player-1")).totalXp).toBe(500);
+  });
+
+  it("reused XP idempotency key with conflicting sourceType fails", async () => {
+    const { gameState } = await service();
+    await gameState.grantXp({ playerId: "player-1", amount: 500, reason: "test", sourceType: "test.a", idempotencyKey: "xp-source-conflict" });
+    await expect(gameState.grantXp({ playerId: "player-1", amount: 500, reason: "test", sourceType: "test.b", idempotencyKey: "xp-source-conflict" })).rejects.toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
+    expect((await gameState.getPlayerGameState("player-1")).totalXp).toBe(500);
+  });
+
   it("point credit updates ledger and wallet", async () => {
     const { repo, gameState } = await service();
     const result = await gameState.creditPoints({ playerId: "player-1", amount: 250, reason: "test", sourceType: "test" });
@@ -81,6 +109,27 @@ describe("game state progression and economy", () => {
     const second = await gameState.creditPoints({ playerId: "player-1", amount: 250, reason: "test", sourceType: "test", idempotencyKey: "pt-1" });
     expect(second.idempotent).toBe(true);
     expect(repo.pointTransactions).toHaveLength(1);
+    expect((await gameState.getPlayerGameState("player-1")).synapsePoints).toBe(250);
+  });
+
+  it("reused point idempotency key with conflicting direction fails", async () => {
+    const { gameState } = await service();
+    await gameState.creditPoints({ playerId: "player-1", amount: 250, reason: "test", sourceType: "test", idempotencyKey: "pt-conflict" });
+    await expect(gameState.debitPoints({ playerId: "player-1", amount: 250, reason: "test", sourceType: "test", idempotencyKey: "pt-conflict" })).rejects.toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
+    expect((await gameState.getPlayerGameState("player-1")).synapsePoints).toBe(250);
+  });
+
+  it("reused point idempotency key with conflicting amount fails", async () => {
+    const { gameState } = await service();
+    await gameState.creditPoints({ playerId: "player-1", amount: 250, reason: "test", sourceType: "test", idempotencyKey: "pt-amount-conflict" });
+    await expect(gameState.creditPoints({ playerId: "player-1", amount: 251, reason: "test", sourceType: "test", idempotencyKey: "pt-amount-conflict" })).rejects.toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
+    expect((await gameState.getPlayerGameState("player-1")).synapsePoints).toBe(250);
+  });
+
+  it("reused point idempotency key with conflicting sourceType fails", async () => {
+    const { gameState } = await service();
+    await gameState.creditPoints({ playerId: "player-1", amount: 250, reason: "test", sourceType: "test.a", idempotencyKey: "pt-source-conflict" });
+    await expect(gameState.creditPoints({ playerId: "player-1", amount: 250, reason: "test", sourceType: "test.b", idempotencyKey: "pt-source-conflict" })).rejects.toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
     expect((await gameState.getPlayerGameState("player-1")).synapsePoints).toBe(250);
   });
 });

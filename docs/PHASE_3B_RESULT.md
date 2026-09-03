@@ -27,7 +27,15 @@ cd backend
 npm run db:migrate
 ```
 
-The migration creates the Phase 3B tables and seeds all nine current rank names with temporary configuration values. These progression thresholds and rewards are development/configuration placeholders, not final business rules.
+The migration creates only the Phase 3B schema. It does not insert temporary progression configuration.
+
+Temporary development progression configuration is inserted by:
+
+```bash
+npm run seed:dev
+```
+
+Those seeded progression thresholds and rewards are development/configuration placeholders, not final business rules.
 
 ## Tables Created
 
@@ -110,7 +118,7 @@ npm test
 npm run build
 ```
 
-After migrating and seeding against Neon:
+Against Neon, run migration and development seed as two explicit steps:
 
 ```bash
 cd backend

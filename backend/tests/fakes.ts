@@ -1,5 +1,5 @@
 import type { IdentityRepository, PlayerDto } from "../src/domain/identity.js";
-import { insufficientPoints } from "../src/domain/errors.js";
+import { AppError, insufficientPoints } from "../src/domain/errors.js";
 import type { GameStateRepository, PlayerGameState, PointChangeInput, ProgressionLevelConfig, XpGrantInput } from "../src/domain/gameState.js";
 
 interface StoredAccount {
@@ -12,8 +12,8 @@ export class FakeGameStateRepository implements GameStateRepository {
   public progressionLevels: ProgressionLevelConfig[] = [];
   public states = new Map<string, { progressionLevel: number; rankName: string; totalXp: number }>();
   public wallets = new Map<string, number>();
-  public xpTransactions: Array<{ xpTransactionId: string; playerId: string; amount: number; totalXpAfter: number; idempotencyKey?: string }> = [];
-  public pointTransactions: Array<{ transactionId: string; playerId: string; amount: number; direction: "CREDIT" | "DEBIT"; balanceAfter: number; idempotencyKey?: string }> = [];
+  public xpTransactions: Array<{ xpTransactionId: string; playerId: string; amount: number; sourceType: string; totalXpAfter: number; idempotencyKey?: string }> = [];
+  public pointTransactions: Array<{ transactionId: string; playerId: string; amount: number; direction: "CREDIT" | "DEBIT"; sourceType: string; balanceAfter: number; idempotencyKey?: string }> = [];
 
   async seedProgressionLevels(levels: ProgressionLevelConfig[]) {
     for (const level of levels) {
@@ -37,14 +37,17 @@ export class FakeGameStateRepository implements GameStateRepository {
 
   async grantXp(input: XpGrantInput) {
     await this.ensurePlayerGameState(input.playerId);
-    const existing = input.idempotencyKey ? this.xpTransactions.find((transaction) => transaction.idempotencyKey === input.idempotencyKey) : undefined;
-    if (existing) return { transactionId: existing.xpTransactionId, idempotent: true, totalXpAfter: existing.totalXpAfter, state: await this.getPlayerGameState(input.playerId) };
+    const existing = input.idempotencyKey ? this.xpTransactions.find((transaction) => transaction.playerId === input.playerId && transaction.idempotencyKey === input.idempotencyKey) : undefined;
+    if (existing) {
+      if (existing.amount !== input.amount || existing.sourceType !== input.sourceType) throw new AppError("IDEMPOTENCY_CONFLICT", "Idempotency key was already used for a different XP operation.", 409);
+      return { transactionId: existing.xpTransactionId, idempotent: true, totalXpAfter: existing.totalXpAfter, state: await this.getPlayerGameState(input.playerId) };
+    }
     const current = this.states.get(input.playerId);
     if (!current) throw new Error("missing state");
     const totalXpAfter = current.totalXp + input.amount;
     const rank = this.levelForXp(totalXpAfter);
     this.states.set(input.playerId, { progressionLevel: rank.progressionLevel, rankName: rank.rankName, totalXp: totalXpAfter });
-    const transaction = { xpTransactionId: `xp-${this.xpTransactions.length + 1}`, playerId: input.playerId, amount: input.amount, totalXpAfter, idempotencyKey: input.idempotencyKey };
+    const transaction = { xpTransactionId: `xp-${this.xpTransactions.length + 1}`, playerId: input.playerId, amount: input.amount, sourceType: input.sourceType, totalXpAfter, idempotencyKey: input.idempotencyKey };
     this.xpTransactions.push(transaction);
     return { transactionId: transaction.xpTransactionId, idempotent: false, totalXpAfter, state: await this.getPlayerGameState(input.playerId) };
   }
@@ -59,13 +62,16 @@ export class FakeGameStateRepository implements GameStateRepository {
 
   private async changePoints(input: PointChangeInput, direction: "CREDIT" | "DEBIT") {
     await this.ensurePlayerGameState(input.playerId);
-    const existing = input.idempotencyKey ? this.pointTransactions.find((transaction) => transaction.idempotencyKey === input.idempotencyKey) : undefined;
-    if (existing) return { transactionId: existing.transactionId, idempotent: true, balanceAfter: existing.balanceAfter };
+    const existing = input.idempotencyKey ? this.pointTransactions.find((transaction) => transaction.playerId === input.playerId && transaction.idempotencyKey === input.idempotencyKey) : undefined;
+    if (existing) {
+      if (existing.direction !== direction || existing.amount !== input.amount || existing.sourceType !== input.sourceType) throw new AppError("IDEMPOTENCY_CONFLICT", "Idempotency key was already used for a different Synapse Point operation.", 409);
+      return { transactionId: existing.transactionId, idempotent: true, balanceAfter: existing.balanceAfter };
+    }
     const current = this.wallets.get(input.playerId) ?? 0;
     const balanceAfter = direction === "CREDIT" ? current + input.amount : current - input.amount;
     if (balanceAfter < 0) throw insufficientPoints();
     this.wallets.set(input.playerId, balanceAfter);
-    const transaction = { transactionId: `pt-${this.pointTransactions.length + 1}`, playerId: input.playerId, amount: input.amount, direction, balanceAfter, idempotencyKey: input.idempotencyKey };
+    const transaction = { transactionId: `pt-${this.pointTransactions.length + 1}`, playerId: input.playerId, amount: input.amount, direction, sourceType: input.sourceType, balanceAfter, idempotencyKey: input.idempotencyKey };
     this.pointTransactions.push(transaction);
     return { transactionId: transaction.transactionId, idempotent: false, balanceAfter };
   }

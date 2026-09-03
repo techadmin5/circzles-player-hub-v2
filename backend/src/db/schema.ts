@@ -89,7 +89,7 @@ export const xpTransactions = pgTable("xp_transactions", {
   metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
-  idempotencyKeyUnique: uniqueIndex("xp_transactions_idempotency_key_unique").on(table.idempotencyKey),
+  playerIdempotencyKeyUnique: uniqueIndex("xp_transactions_player_id_idempotency_key_unique").on(table.playerId, table.idempotencyKey),
   playerCreatedAtIndex: index("xp_transactions_player_created_at_idx").on(table.playerId, table.createdAt),
   sourceIndex: index("xp_transactions_source_idx").on(table.sourceType, table.sourceId),
   amountCheck: check("xp_transactions_amount_check", sql`${table.amount} > 0`),
@@ -118,7 +118,7 @@ export const pointTransactions = pgTable("point_transactions", {
   idempotencyKey: text("idempotency_key"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
-  idempotencyKeyUnique: uniqueIndex("point_transactions_idempotency_key_unique").on(table.idempotencyKey),
+  playerIdempotencyKeyUnique: uniqueIndex("point_transactions_player_id_idempotency_key_unique").on(table.playerId, table.idempotencyKey),
   playerCreatedAtIndex: index("point_transactions_player_created_at_idx").on(table.playerId, table.createdAt),
   sourceIndex: index("point_transactions_source_idx").on(table.sourceType, table.sourceId),
   amountCheck: check("point_transactions_amount_check", sql`${table.amount} > 0`),

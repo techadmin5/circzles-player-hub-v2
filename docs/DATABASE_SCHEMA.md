@@ -145,7 +145,7 @@ Columns: `progression_level_id` PK, `progression_level int unique`, `rank_name`,
 
 Rules: progression level is not puzzle `level_id`.
 
-Phase 3B status: implemented. The migration seeds all nine current rank names with temporary configuration values so backend calculations are data-driven. These seed values are not final business approval.
+Phase 3B status: implemented. `db:migrate` creates the schema only. `seed:dev` inserts all nine current rank names with temporary configuration values so backend calculations are data-driven in development. These seed values are not final business approval.
 
 ### player_progression
 
@@ -163,7 +163,7 @@ Purpose: immutable Synapse Point ledger.
 
 Columns: `transaction_id` PK, `player_id` FK, `amount int`, `direction`, `reason`, `source_type`, `source_id uuid`, `balance_after int`, `metadata jsonb`, `idempotency_key`, `created_at`.
 
-Constraints: `amount > 0`, direction CHECK CREDIT/DEBIT/CORRECTION, unique `idempotency_key`.
+Constraints: `amount > 0`, direction CHECK CREDIT/DEBIT/CORRECTION, unique `(player_id, idempotency_key)`.
 
 Indexes: `(player_id, created_at desc)`, `(source_type, source_id)`.
 
@@ -185,7 +185,7 @@ Purpose: immutable XP ledger.
 
 Columns: `xp_transaction_id` PK, `player_id` FK, `amount int`, `reason`, `source_type`, `source_id uuid`, `total_xp_after bigint`, `idempotency_key`, `created_at`, `metadata jsonb`.
 
-Constraints: `amount > 0`, unique `idempotency_key`.
+Constraints: `amount > 0`, unique `(player_id, idempotency_key)`.
 
 Indexes: `(player_id, created_at desc)`, `(source_type, source_id)`.
 

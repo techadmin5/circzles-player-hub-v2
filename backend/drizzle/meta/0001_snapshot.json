@@ -395,9 +395,15 @@
         }
       },
       "indexes": {
-        "point_transactions_idempotency_key_unique": {
-          "name": "point_transactions_idempotency_key_unique",
+        "point_transactions_player_id_idempotency_key_unique": {
+          "name": "point_transactions_player_id_idempotency_key_unique",
           "columns": [
+            {
+              "expression": "player_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
             {
               "expression": "idempotency_key",
               "isExpression": false,
@@ -847,9 +853,15 @@
         }
       },
       "indexes": {
-        "xp_transactions_idempotency_key_unique": {
-          "name": "xp_transactions_idempotency_key_unique",
+        "xp_transactions_player_id_idempotency_key_unique": {
+          "name": "xp_transactions_player_id_idempotency_key_unique",
           "columns": [
+            {
+              "expression": "player_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
             {
               "expression": "idempotency_key",
               "isExpression": false,
