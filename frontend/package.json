@@ -1,8 +1,0 @@
-{
-  "name": "circzles-frontend-shim",
-  "private": true,
-  "version": "1.0.0",
-  "scripts": {
-    "start": "cd /app && exec /app/node_modules/.bin/next start -p 3000 -H 0.0.0.0"
-  }
-}
