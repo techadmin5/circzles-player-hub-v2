@@ -1,14 +1,17 @@
 import { loadEnv } from "./config/env.js";
 import { createDb } from "./db/client.js";
+import { DrizzleGameStateRepository, GameStateService } from "./domain/gameState.js";
 import { DrizzleIdentityRepository, IdentityService } from "./domain/identity.js";
 import { buildApp } from "./http/app.js";
 
 const env = loadEnv();
 const { pool, db } = createDb(env.DATABASE_URL);
 const identity = new IdentityService(new DrizzleIdentityRepository(db), env.SESSION_SECRET);
+const gameState = new GameStateService(new DrizzleGameStateRepository(db));
 const app = buildApp({
   env,
   identity,
+  gameState,
   checkDb: async () => {
     await pool.query("select 1");
   },

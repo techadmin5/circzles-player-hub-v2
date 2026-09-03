@@ -2,18 +2,28 @@ import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import Fastify from "fastify";
 import type { FastifyError } from "fastify";
+import { z } from "zod";
 import type { Env } from "../config/env.js";
-import type { IdentityService } from "../domain/identity.js";
-import { AppError, unauthorized } from "../domain/errors.js";
+import type { IdentityService, PlayerDto } from "../domain/identity.js";
+import { AppError, forbidden, unauthorized, validationFailed } from "../domain/errors.js";
+import type { GameStateService } from "../domain/gameState.js";
 import { SESSION_COOKIE_NAME } from "../domain/sessions.js";
 
 export interface AppDeps {
   env: Env;
   identity: IdentityService;
+  gameState: GameStateService;
   checkDb: () => Promise<void>;
 }
 
-export function buildApp({ env, identity, checkDb }: AppDeps) {
+const devGrantBodySchema = z.object({
+  amount: z.number().int().positive().max(1_000_000),
+  reason: z.string().trim().min(1).max(200).default("Development test grant"),
+  idempotencyKey: z.string().trim().min(1).max(200).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+}).strict();
+
+export function buildApp({ env, identity, gameState, checkDb }: AppDeps) {
   const app = Fastify({
     logger: env.NODE_ENV === "test" ? false : {
       level: "info",
@@ -48,9 +58,9 @@ export function buildApp({ env, identity, checkDb }: AppDeps) {
   });
 
   app.get("/api/me", async (request, reply) => {
-    const player = await identity.getPlayerForToken(request.cookies[SESSION_COOKIE_NAME]);
-    if (!player) throw unauthorized();
-    return reply.send(player);
+    const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+    await gameState.ensurePlayerGameState(player.internalId);
+    return reply.send(await withGameState(player, gameState));
   });
 
   app.post("/api/dev/login", async (request, reply) => {
@@ -66,6 +76,7 @@ export function buildApp({ env, identity, checkDb }: AppDeps) {
       displayName: "Smokey_OP",
       publicPlayerId: "CZ-8F42KD",
     });
+    await gameState.ensurePlayerGameState(account.player.internalId);
     const session = await identity.createSession(account.userId);
     reply.setCookie(SESSION_COOKIE_NAME, session.token, {
       httpOnly: true,
@@ -74,8 +85,84 @@ export function buildApp({ env, identity, checkDb }: AppDeps) {
       path: "/",
       expires: session.expiresAt,
     });
-    return reply.send(account.player);
+    return reply.send(await withGameState(account.player, gameState));
+  });
+
+  app.post("/api/dev/xp/grant", async (request, reply) => {
+    if (env.NODE_ENV === "production") throw forbidden("Development XP grant is disabled in production.");
+    const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+    const body = parseDevGrantBody(request.body);
+    if (hasPlayerId(request.body)) throw validationFailed("Development grant routes infer player identity from the session.");
+    const result = await gameState.grantXp({
+      playerId: player.internalId,
+      amount: body.amount,
+      reason: body.reason,
+      sourceType: "dev.xp.grant",
+      idempotencyKey: body.idempotencyKey,
+      metadata: body.metadata,
+    });
+    return reply.send({ ...result, player: await withGameState(player, gameState) });
+  });
+
+  app.post("/api/dev/points/credit", async (request, reply) => {
+    if (env.NODE_ENV === "production") throw forbidden("Development point credit is disabled in production.");
+    const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+    const body = parseDevGrantBody(request.body);
+    if (hasPlayerId(request.body)) throw validationFailed("Development grant routes infer player identity from the session.");
+    const result = await gameState.creditPoints({
+      playerId: player.internalId,
+      amount: body.amount,
+      reason: body.reason,
+      sourceType: "dev.points.credit",
+      idempotencyKey: body.idempotencyKey,
+      metadata: body.metadata,
+    });
+    return reply.send({ ...result, player: await withGameState(player, gameState) });
+  });
+
+  app.post("/api/dev/points/debit", async (request, reply) => {
+    if (env.NODE_ENV === "production") throw forbidden("Development point debit is disabled in production.");
+    const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+    const body = parseDevGrantBody(request.body);
+    if (hasPlayerId(request.body)) throw validationFailed("Development grant routes infer player identity from the session.");
+    const result = await gameState.debitPoints({
+      playerId: player.internalId,
+      amount: body.amount,
+      reason: body.reason,
+      sourceType: "dev.points.debit",
+      idempotencyKey: body.idempotencyKey,
+      metadata: body.metadata,
+    });
+    return reply.send({ ...result, player: await withGameState(player, gameState) });
   });
 
   return app;
+}
+
+async function requireCurrentPlayer(identity: IdentityService, token: string | undefined) {
+  const player = await identity.getPlayerForToken(token);
+  if (!player) throw unauthorized();
+  return player;
+}
+
+async function withGameState(player: PlayerDto, gameState: GameStateService): Promise<PlayerDto> {
+  const state = await gameState.getPlayerGameState(player.internalId);
+  return {
+    ...player,
+    progressionLevel: state.progressionLevel,
+    rank: state.rankName,
+    xp: state.totalXp,
+    xpNeeded: state.xpNeeded,
+    synapsePoints: state.synapsePoints,
+  };
+}
+
+function parseDevGrantBody(body: unknown) {
+  const parsed = devGrantBodySchema.safeParse(body);
+  if (!parsed.success) throw validationFailed("Invalid development grant body.", parsed.error.flatten());
+  return parsed.data;
+}
+
+function hasPlayerId(body: unknown) {
+  return typeof body === "object" && body !== null && ("playerId" in body || "internalId" in body || "publicPlayerId" in body);
 }

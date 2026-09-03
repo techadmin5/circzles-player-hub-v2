@@ -1,9 +1,97 @@
 import type { IdentityRepository, PlayerDto } from "../src/domain/identity.js";
+import { insufficientPoints } from "../src/domain/errors.js";
+import type { GameStateRepository, PlayerGameState, PointChangeInput, ProgressionLevelConfig, XpGrantInput } from "../src/domain/gameState.js";
 
 interface StoredAccount {
   userId: string;
   wixMemberId: string;
   player: PlayerDto;
+}
+
+export class FakeGameStateRepository implements GameStateRepository {
+  public progressionLevels: ProgressionLevelConfig[] = [];
+  public states = new Map<string, { progressionLevel: number; rankName: string; totalXp: number }>();
+  public wallets = new Map<string, number>();
+  public xpTransactions: Array<{ xpTransactionId: string; playerId: string; amount: number; totalXpAfter: number; idempotencyKey?: string }> = [];
+  public pointTransactions: Array<{ transactionId: string; playerId: string; amount: number; direction: "CREDIT" | "DEBIT"; balanceAfter: number; idempotencyKey?: string }> = [];
+
+  async seedProgressionLevels(levels: ProgressionLevelConfig[]) {
+    for (const level of levels) {
+      const existingIndex = this.progressionLevels.findIndex((item) => item.progressionLevel === level.progressionLevel);
+      if (existingIndex >= 0) this.progressionLevels[existingIndex] = level;
+      else this.progressionLevels.push(level);
+    }
+    this.progressionLevels.sort((a, b) => a.xpRequired - b.xpRequired);
+  }
+
+  async ensurePlayerGameState(playerId: string) {
+    const initial = this.firstLevel();
+    if (!this.states.has(playerId)) this.states.set(playerId, { progressionLevel: initial.progressionLevel, rankName: initial.rankName, totalXp: 0 });
+    if (!this.wallets.has(playerId)) this.wallets.set(playerId, 0);
+  }
+
+  async getPlayerGameState(playerId: string) {
+    await this.ensurePlayerGameState(playerId);
+    return this.state(playerId);
+  }
+
+  async grantXp(input: XpGrantInput) {
+    await this.ensurePlayerGameState(input.playerId);
+    const existing = input.idempotencyKey ? this.xpTransactions.find((transaction) => transaction.idempotencyKey === input.idempotencyKey) : undefined;
+    if (existing) return { transactionId: existing.xpTransactionId, idempotent: true, totalXpAfter: existing.totalXpAfter, state: await this.getPlayerGameState(input.playerId) };
+    const current = this.states.get(input.playerId);
+    if (!current) throw new Error("missing state");
+    const totalXpAfter = current.totalXp + input.amount;
+    const rank = this.levelForXp(totalXpAfter);
+    this.states.set(input.playerId, { progressionLevel: rank.progressionLevel, rankName: rank.rankName, totalXp: totalXpAfter });
+    const transaction = { xpTransactionId: `xp-${this.xpTransactions.length + 1}`, playerId: input.playerId, amount: input.amount, totalXpAfter, idempotencyKey: input.idempotencyKey };
+    this.xpTransactions.push(transaction);
+    return { transactionId: transaction.xpTransactionId, idempotent: false, totalXpAfter, state: await this.getPlayerGameState(input.playerId) };
+  }
+
+  async creditPoints(input: PointChangeInput) {
+    return this.changePoints(input, "CREDIT");
+  }
+
+  async debitPoints(input: PointChangeInput) {
+    return this.changePoints(input, "DEBIT");
+  }
+
+  private async changePoints(input: PointChangeInput, direction: "CREDIT" | "DEBIT") {
+    await this.ensurePlayerGameState(input.playerId);
+    const existing = input.idempotencyKey ? this.pointTransactions.find((transaction) => transaction.idempotencyKey === input.idempotencyKey) : undefined;
+    if (existing) return { transactionId: existing.transactionId, idempotent: true, balanceAfter: existing.balanceAfter };
+    const current = this.wallets.get(input.playerId) ?? 0;
+    const balanceAfter = direction === "CREDIT" ? current + input.amount : current - input.amount;
+    if (balanceAfter < 0) throw insufficientPoints();
+    this.wallets.set(input.playerId, balanceAfter);
+    const transaction = { transactionId: `pt-${this.pointTransactions.length + 1}`, playerId: input.playerId, amount: input.amount, direction, balanceAfter, idempotencyKey: input.idempotencyKey };
+    this.pointTransactions.push(transaction);
+    return { transactionId: transaction.transactionId, idempotent: false, balanceAfter };
+  }
+
+  private async state(playerId: string): Promise<PlayerGameState> {
+    const state = this.states.get(playerId);
+    if (!state) throw new Error("missing state");
+    const next = this.progressionLevels.find((level) => level.xpRequired > state.totalXp);
+    return {
+      progressionLevel: state.progressionLevel,
+      rankName: state.rankName,
+      totalXp: state.totalXp,
+      xpNeeded: next?.xpRequired ?? state.totalXp,
+      synapsePoints: this.wallets.get(playerId) ?? 0,
+    };
+  }
+
+  private firstLevel() {
+    const level = this.progressionLevels[0];
+    if (!level) throw new Error("progression levels not seeded");
+    return level;
+  }
+
+  private levelForXp(totalXp: number) {
+    return this.progressionLevels.reduce((current, level) => (level.xpRequired <= totalXp ? level : current), this.firstLevel());
+  }
 }
 
 interface StoredSession {

@@ -145,6 +145,8 @@ Columns: `progression_level_id` PK, `progression_level int unique`, `rank_name`,
 
 Rules: progression level is not puzzle `level_id`.
 
+Phase 3B status: implemented. The migration seeds all nine current rank names with temporary configuration values so backend calculations are data-driven. These seed values are not final business approval.
+
 ### player_progression
 
 Purpose: current cached XP progression state.
@@ -152,6 +154,8 @@ Purpose: current cached XP progression state.
 Columns: `player_progression_id` PK, `player_id` FK unique, `total_xp bigint`, `progression_level int`, `rank_name`, `updated_at`.
 
 Consistency: updated transactionally with `xp_transactions`.
+
+Phase 3B status: implemented. One row is ensured per player through idempotent game-state initialization.
 
 ### point_transactions
 
@@ -163,6 +167,8 @@ Constraints: `amount > 0`, direction CHECK CREDIT/DEBIT/CORRECTION, unique `idem
 
 Indexes: `(player_id, created_at desc)`, `(source_type, source_id)`.
 
+Phase 3B status: implemented for internal/domain operations and development-only verification routes.
+
 ### wallets
 
 Purpose: cached current Synapse Point balance.
@@ -170,6 +176,8 @@ Purpose: cached current Synapse Point balance.
 Columns: `wallet_id` PK, `player_id` FK unique, `balance int`, `updated_at`.
 
 Consistency: only updated in same transaction as `point_transactions`; ledger remains source of truth.
+
+Phase 3B status: implemented. One row is ensured per player through idempotent game-state initialization.
 
 ### xp_transactions
 
@@ -180,6 +188,8 @@ Columns: `xp_transaction_id` PK, `player_id` FK, `amount int`, `reason`, `source
 Constraints: `amount > 0`, unique `idempotency_key`.
 
 Indexes: `(player_id, created_at desc)`, `(source_type, source_id)`.
+
+Phase 3B status: implemented for internal/domain operations and development-only verification routes.
 
 ### store_items
 

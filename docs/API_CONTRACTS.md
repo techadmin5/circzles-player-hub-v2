@@ -77,6 +77,20 @@ Response: current player profile DTO with `internalId`, `publicPlayerId`, `displ
 
 Authority: server derives player from session.
 
+Phase 3B status: `progressionLevel`, `rank`, `xp`, `xpNeeded`, and `synapsePoints` are backed by PostgreSQL progression/wallet state for real authenticated API responses. Profile cosmetics, badges, streak, and gameplay stats may still use explicit temporary defaults until their backend systems exist.
+
+### Development-only game-state endpoints
+
+These endpoints exist only for local verification and must return `FORBIDDEN` in production:
+
+- `POST /api/dev/xp/grant`
+- `POST /api/dev/points/credit`
+- `POST /api/dev/points/debit`
+
+Each endpoint derives the player from the authenticated session cookie. The request body may include `amount`, `reason`, optional `idempotencyKey`, and optional `metadata`; it must not include `playerId`, `internalId`, or `publicPlayerId`.
+
+These routes use the same internal XP/economy services as future trusted backend systems. They are not production reward APIs.
+
 ### POST /api/puzzles/claim
 
 Request:

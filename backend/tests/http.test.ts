@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { buildApp } from "../src/http/app.js";
+import { GameStateService, temporaryDevelopmentProgressionLevels } from "../src/domain/gameState.js";
 import { IdentityService } from "../src/domain/identity.js";
-import { FakeIdentityRepository } from "./fakes.js";
+import { FakeGameStateRepository, FakeIdentityRepository } from "./fakes.js";
 import type { Env } from "../src/config/env.js";
 
 function env(overrides: Partial<Env> = {}): Env {
@@ -16,17 +17,32 @@ function env(overrides: Partial<Env> = {}): Env {
   };
 }
 
+async function appWithFakes(overrides: Partial<Env> = {}) {
+  const testEnv = env(overrides);
+  const gameRepo = new FakeGameStateRepository();
+  const gameState = new GameStateService(gameRepo);
+  await gameState.seedProgressionLevels(temporaryDevelopmentProgressionLevels);
+  const identityRepo = new FakeIdentityRepository();
+  const identity = new IdentityService(identityRepo, testEnv.SESSION_SECRET);
+  const app = buildApp({ env: testEnv, identity, gameState, checkDb: async () => {} });
+  return { app, gameRepo, testEnv };
+}
+
+async function login(app: Awaited<ReturnType<typeof appWithFakes>>["app"]) {
+  const res = await app.inject({ method: "POST", url: "/api/dev/login" });
+  return Array.isArray(res.headers["set-cookie"]) ? res.headers["set-cookie"][0] : res.headers["set-cookie"] ?? "";
+}
+
 describe("http auth poc", () => {
   it("GET /api/me requires authentication", async () => {
-    const app = buildApp({ env: env(), identity: new IdentityService(new FakeIdentityRepository(), env().SESSION_SECRET), checkDb: async () => {} });
+    const { app } = await appWithFakes();
     const res = await app.inject({ method: "GET", url: "/api/me" });
     expect(res.statusCode).toBe(401);
     expect(res.json().code).toBe("UNAUTHORIZED");
   });
 
   it("development login creates a session and GET /api/me returns the player", async () => {
-    const testEnv = env({ NODE_ENV: "development" });
-    const app = buildApp({ env: testEnv, identity: new IdentityService(new FakeIdentityRepository(), testEnv.SESSION_SECRET), checkDb: async () => {} });
+    const { app } = await appWithFakes({ NODE_ENV: "development" });
     const login = await app.inject({ method: "POST", url: "/api/dev/login" });
     expect(login.statusCode).toBe(200);
     expect(login.json().publicPlayerId).toBe("CZ-8F42KD");
@@ -34,19 +50,22 @@ describe("http auth poc", () => {
     const me = await app.inject({ method: "GET", url: "/api/me", headers: { cookie: Array.isArray(cookie) ? cookie[0] : cookie ?? "" } });
     expect(me.statusCode).toBe(200);
     expect(me.json().displayName).toBe("Smokey_OP");
+    expect(me.json().progressionLevel).toBe(1);
+    expect(me.json().rank).toBe("Peasant");
+    expect(me.json().xp).toBe(0);
+    expect(me.json().xpNeeded).toBe(1200);
+    expect(me.json().synapsePoints).toBe(0);
   });
 
   it("production cannot use development login", async () => {
-    const testEnv = env({ NODE_ENV: "production", COOKIE_SECURE: true });
-    const app = buildApp({ env: testEnv, identity: new IdentityService(new FakeIdentityRepository(), testEnv.SESSION_SECRET), checkDb: async () => {} });
+    const { app } = await appWithFakes({ NODE_ENV: "production", COOKIE_SECURE: true });
     const res = await app.inject({ method: "POST", url: "/api/dev/login" });
     expect(res.statusCode).toBe(403);
     expect(res.json().code).toBe("FORBIDDEN");
   });
 
   it("preserves known Fastify 4xx errors", async () => {
-    const testEnv = env({ NODE_ENV: "development" });
-    const app = buildApp({ env: testEnv, identity: new IdentityService(new FakeIdentityRepository(), testEnv.SESSION_SECRET), checkDb: async () => {} });
+    const { app } = await appWithFakes({ NODE_ENV: "development" });
     const res = await app.inject({
       method: "POST",
       url: "/api/dev/login",
@@ -59,10 +78,40 @@ describe("http auth poc", () => {
 
   it("health checks the database connection hook", async () => {
     let checked = false;
-    const testEnv = env();
-    const app = buildApp({ env: testEnv, identity: new IdentityService(new FakeIdentityRepository(), testEnv.SESSION_SECRET), checkDb: async () => { checked = true; } });
+    const { testEnv } = await appWithFakes();
+    const gameState = new GameStateService(new FakeGameStateRepository());
+    await gameState.seedProgressionLevels(temporaryDevelopmentProgressionLevels);
+    const app = buildApp({ env: testEnv, identity: new IdentityService(new FakeIdentityRepository(), testEnv.SESSION_SECRET), gameState, checkDb: async () => { checked = true; } });
     const res = await app.inject({ method: "GET", url: "/health" });
     expect(res.statusCode).toBe(200);
     expect(checked).toBe(true);
+  });
+
+  it("development grant endpoints are unavailable in production", async () => {
+    const { app } = await appWithFakes({ NODE_ENV: "production", COOKIE_SECURE: true });
+    const res = await app.inject({ method: "POST", url: "/api/dev/xp/grant", payload: { amount: 100, reason: "test" } });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("development grant endpoints infer player from session and reject selected player ids", async () => {
+    const { app } = await appWithFakes({ NODE_ENV: "development" });
+    const cookie = await login(app);
+    const res = await app.inject({ method: "POST", url: "/api/dev/xp/grant", headers: { cookie }, payload: { playerId: "other-player", amount: 100, reason: "test" } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe("VALIDATION_FAILED");
+  });
+
+  it("/api/me returns DB-backed XP/rank/progressionLevel/Synapse Points", async () => {
+    const { app } = await appWithFakes({ NODE_ENV: "development" });
+    const cookie = await login(app);
+    await app.inject({ method: "POST", url: "/api/dev/xp/grant", headers: { cookie }, payload: { amount: 8000, reason: "test" } });
+    await app.inject({ method: "POST", url: "/api/dev/points/credit", headers: { cookie }, payload: { amount: 500, reason: "test" } });
+    const me = await app.inject({ method: "GET", url: "/api/me", headers: { cookie } });
+    expect(me.statusCode).toBe(200);
+    expect(me.json().xp).toBe(8000);
+    expect(me.json().progressionLevel).toBe(15);
+    expect(me.json().rank).toBe("Knight");
+    expect(me.json().xpNeeded).toBe(12800);
+    expect(me.json().synapsePoints).toBe(500);
   });
 });
