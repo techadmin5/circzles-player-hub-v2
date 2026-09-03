@@ -1,2 +1,14 @@
-import { AppShell, PageFrame } from "@/components/ui";
-export default function Page(){return <AppShell><PageFrame title="Settings"><div className="grid gap-5 lg:grid-cols-2"><section className="game-card grid gap-3 p-5"><h2 className="font-display text-3xl font-bold">Profile Settings</h2>{["First Name","Last Name","Email","Display Name","Country","State"].map(x=><label className="grid gap-1 text-sm text-[var(--text-secondary)]" key={x}>{x}<input className="rounded-md border border-white/15 bg-black/25 p-3 text-white" placeholder={x}/></label>)}</section><section className="game-card grid gap-3 p-5"><h2 className="font-display text-3xl font-bold">Game Settings</h2>{["Master Sound","Music","Effects","Reduced Motion","Notifications"].map(x=><label key={x} className="flex items-center justify-between rounded-md border border-white/10 p-3">{x}<input type="checkbox" defaultChecked/></label>)}</section></div></PageFrame></AppShell>}
+import { GameShell } from "@/components/game-shell/GameShell";
+import { PageHeader } from "@/components/ui/kit";
+import { SettingsPanel } from "@/components/settings/SettingsPanel";
+import { playerService } from "@/services";
+
+export default async function Page() {
+  const player = await playerService.getMockCurrentPlayer();
+  return (
+    <GameShell player={player}>
+      <PageHeader kicker="Preferences" title="Settings" subtitle="Profile, game and sound preferences" />
+      <SettingsPanel />
+    </GameShell>
+  );
+}

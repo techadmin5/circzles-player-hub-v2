@@ -1,2 +1,21 @@
-import { AppShell, PageFrame } from "@/components/ui"; import { friendService } from "@/services";
-export default async function Page(){const players=await friendService.searchPlayers("cz");return <AppShell><PageFrame title="Find Players"><div className="game-card mb-4 p-4"><input className="w-full rounded-md border border-white/15 bg-black/25 p-3" placeholder="publicPlayerId or displayName"/></div><div className="grid gap-3">{players.map(p=><div className="game-card flex items-center justify-between p-4" key={p.publicPlayerId}><div><h3 className="font-display text-2xl font-bold">{p.displayName}</h3><p className="text-sm text-[var(--text-secondary)]">{p.publicPlayerId}</p></div><button className="btn btn-primary">Add</button></div>)}</div></PageFrame></AppShell>}
+import { GameShell } from "@/components/game-shell/GameShell";
+import { PageHeader } from "@/components/ui/kit";
+import { SearchResultCard } from "@/components/social/social";
+import { friendService, playerService } from "@/services";
+
+export default async function Page() {
+  const [player, results] = await Promise.all([playerService.getMockCurrentPlayer(), friendService.searchPlayers("cz")]);
+  const others = results.filter((p) => p.publicPlayerId !== player.publicPlayerId);
+  return (
+    <GameShell player={player}>
+      <PageHeader kicker="Community" title="Find Players" subtitle="Search by public player ID or display name" />
+      <div className="grid gap-4">
+        <div className="cz-surface p-4">
+          <input aria-label="Search players" placeholder="CZ-XXXXXX or display name" data-testid="friend-search-input"
+            className="min-h-11 w-full rounded-xl border border-[var(--cz-hairline-strong)] bg-[var(--cz-inset)] px-3.5 text-sm outline-none placeholder:text-[var(--cz-text-tertiary)] focus:border-[var(--cz-aqua)]" />
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">{others.map((p) => <SearchResultCard key={p.publicPlayerId} player={p} />)}</div>
+      </div>
+    </GameShell>
+  );
+}

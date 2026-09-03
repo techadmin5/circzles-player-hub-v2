@@ -1,2 +1,15 @@
-import { InstantTabs } from "@/components/Interactive"; import { ActivityItem, AppShell, PageFrame } from "@/components/ui"; import { activityService } from "@/services";
-export default async function Page(){const items=await activityService.getActivity();return <AppShell><PageFrame title="Activity" action={<InstantTabs tabs={["All","Puzzles","Competitive","Rewards","Economy","Social"]}/>}><div className="grid gap-3">{items.map(i=><ActivityItem key={i.id} event={i}/>)}</div></PageFrame></AppShell>}
+import { GameShell } from "@/components/game-shell/GameShell";
+import { PageHeader, EmptyState } from "@/components/ui/kit";
+import { ActivityTimeline } from "@/components/activity/ActivityTimeline";
+import { Activity } from "lucide-react";
+import { activityService, playerService } from "@/services";
+
+export default async function Page() {
+  const [player, events] = await Promise.all([playerService.getMockCurrentPlayer(), activityService.getActivity()]);
+  return (
+    <GameShell player={player}>
+      <PageHeader kicker="Timeline" title="Activity" subtitle="Every solve, reward and social event" />
+      {events.length > 0 ? <ActivityTimeline events={events} /> : <EmptyState icon={<Activity size={22} />} title="No activity yet" body="Your competitive and reward events will appear here." />}
+    </GameShell>
+  );
+}

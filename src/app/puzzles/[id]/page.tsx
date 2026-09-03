@@ -1,2 +1,42 @@
-import Image from "next/image"; import Link from "next/link"; import { AppShell, PageFrame, PuzzleStatusBadge, SubmissionCard } from "@/components/ui"; import { puzzleService, submissionService } from "@/services";
-export default async function Page({params}:{params:Promise<{id:string}>}){const {id}=await params; const [puzzle,subs]=await Promise.all([puzzleService.getPuzzle(id),submissionService.getSubmissions()]);return <AppShell><PageFrame title={puzzle.name} eyebrow={`SKU ${puzzle.sku}`}><div className="grid gap-5 lg:grid-cols-[.8fr_1fr]"><Image src={puzzle.image} alt="" width={640} height={420} className="game-card w-full"/><div className="game-card p-5"><PuzzleStatusBadge status={puzzle.status}/><p className="mt-4 text-[var(--text-secondary)]">{puzzle.description}</p><p className="mt-4 stat-number text-4xl">levelId {puzzle.levelId}</p><div className="mt-5 flex flex-wrap gap-3"><Link href="/submissions/new" className="btn btn-primary">Submit Attempt</Link><Link href="/leaderboard" className="btn btn-ghost">View Leaderboard</Link><Link href="/puzzles" className="btn btn-ghost">Try Again</Link></div></div></div><h2 className="font-display mt-8 text-3xl font-bold">Submission History</h2><div className="mt-3 grid gap-3">{subs.slice(0,3).map(s=><SubmissionCard key={s.id} submission={s}/>)}</div></PageFrame></AppShell>}
+import Link from "next/link";
+import { Camera, Gauge, RotateCcw, Trophy } from "lucide-react";
+import { GameShell } from "@/components/game-shell/GameShell";
+import { PageHeader, SectionHeader, Stat } from "@/components/ui/kit";
+import { PuzzleArt, PuzzleStateBadge } from "@/components/puzzles/cards";
+import { SubmissionCard } from "@/components/submissions/cards";
+import { playerService, puzzleService, submissionService } from "@/services";
+
+export default async function Page({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const [player, puzzle, subs] = await Promise.all([playerService.getMockCurrentPlayer(), puzzleService.getPuzzle(id), submissionService.getSubmissions()]);
+  const related = subs.filter((s) => s.puzzleId === puzzle.id).slice(0, 3);
+
+  return (
+    <GameShell player={player}>
+      <PageHeader kicker={`SKU ${puzzle.sku}`} title={puzzle.name} subtitle={`puzzleId ${puzzle.id}`} />
+      <div className="grid gap-5 lg:grid-cols-[0.85fr_1fr]">
+        <div className="cz-surface overflow-hidden">
+          <PuzzleArt src={puzzle.image} className="aspect-[4/3] w-full" />
+        </div>
+        <div className="cz-surface flex flex-col gap-4 p-5">
+          <PuzzleStateBadge status={puzzle.status} />
+          <p className="text-sm text-[var(--cz-text-secondary)]">{puzzle.description}</p>
+          <div className="grid grid-cols-3 gap-2">
+            <Stat label="Difficulty levelId" value={String(puzzle.levelId)} icon={<Gauge size={12} />} tone="aqua" />
+            <Stat label="Personal Best" value={puzzle.personalBest ?? "—"} />
+            <Stat label="Placement" value={puzzle.leaderboardRank ? `#${puzzle.leaderboardRank}` : "—"} tone="gold" />
+          </div>
+          <div className="mt-auto flex flex-wrap gap-2">
+            <Link href="/submissions/new" className="cz-btn cz-btn-primary"><Camera size={16} />Submit Attempt</Link>
+            <Link href="/leaderboard" className="cz-btn cz-btn-ghost"><Trophy size={16} />Leaderboard</Link>
+            <Link href="/puzzles" className="cz-btn cz-btn-ghost"><RotateCcw size={16} />Back</Link>
+          </div>
+        </div>
+      </div>
+      <div className="mt-8">
+        <SectionHeader title="Submission History" />
+        {related.length > 0 ? <div className="grid gap-3">{related.map((s) => <SubmissionCard key={s.id} submission={s} />)}</div> : <p className="cz-surface p-6 text-center text-sm text-[var(--cz-text-tertiary)]">No submissions yet for this puzzle.</p>}
+      </div>
+    </GameShell>
+  );
+}

@@ -1,2 +1,18 @@
-import { InstantTabs, PurchaseButton, RewardWheel } from "@/components/Interactive"; import { AppShell, PageFrame, StoreItemCard } from "@/components/ui"; import { storeService } from "@/services";
-export default async function Page(){const items=await storeService.getItems();return <AppShell><PageFrame title="Rewards Store" action={<InstantTabs tabs={["Featured","Frames","Badges","Utilities","Coupons"]}/>}><div className="grid gap-5 lg:grid-cols-[1fr_360px]"><div className="grid gap-4 md:grid-cols-2">{items.map(i=><div key={i.id} className="grid gap-2"><StoreItemCard item={i}/>{i.state==="BUY"&&<PurchaseButton itemId={i.id}/>}</div>)}</div><RewardWheel/></div></PageFrame></AppShell>}
+import { GameShell } from "@/components/game-shell/GameShell";
+import { PageHeader } from "@/components/ui/kit";
+import { StoreBoard } from "@/components/rewards/store";
+import { RewardWheel } from "@/components/rewards/RewardWheel";
+import { playerService, storeService } from "@/services";
+
+export default async function Page() {
+  const [player, items] = await Promise.all([playerService.getMockCurrentPlayer(), storeService.getItems()]);
+  return (
+    <GameShell player={player}>
+      <PageHeader kicker="Economy" title="Rewards Store" subtitle="Spend Synapse Points on collectible cosmetics & utilities" />
+      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+        <StoreBoard items={items} />
+        <div className="lg:sticky lg:top-24 lg:self-start"><RewardWheel /></div>
+      </div>
+    </GameShell>
+  );
+}

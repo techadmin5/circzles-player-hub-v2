@@ -1,2 +1,14 @@
-import { AppShell, CouponCard, PageFrame } from "@/components/ui"; import { couponService } from "@/services";
-export default async function Page(){const coupons=await couponService.getCoupons();return <AppShell><PageFrame title="Coupons"><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{coupons.map(c=><CouponCard key={c.id} coupon={c}/>)}</div></PageFrame></AppShell>}
+import { GameShell } from "@/components/game-shell/GameShell";
+import { PageHeader } from "@/components/ui/kit";
+import { CouponGrid } from "@/components/coupons/CouponGrid";
+import { couponService, playerService } from "@/services";
+
+export default async function Page() {
+  const [player, coupons] = await Promise.all([playerService.getMockCurrentPlayer(), couponService.getCoupons()]);
+  return (
+    <GameShell player={player}>
+      <PageHeader kicker="Perks" title="Coupons" subtitle="Discount codes earned across the CircZles ecosystem" />
+      <CouponGrid coupons={coupons} />
+    </GameShell>
+  );
+}

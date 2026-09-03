@@ -1,2 +1,14 @@
-import { InstantTabs } from "@/components/Interactive"; import { AppShell, InventoryCard, PageFrame } from "@/components/ui"; import { inventoryService } from "@/services";
-export default async function Page(){const items=await inventoryService.getInventory();return <AppShell><PageFrame title="Inventory" action={<InstantTabs tabs={["Frames","Badges","Rename Cards","Coupons","Special"]}/>}><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{items.map(i=><InventoryCard key={i.id} item={i}/>)}</div></PageFrame></AppShell>}
+import { GameShell } from "@/components/game-shell/GameShell";
+import { PageHeader } from "@/components/ui/kit";
+import { InventoryLocker } from "@/components/inventory/InventoryLocker";
+import { inventoryService, playerService } from "@/services";
+
+export default async function Page() {
+  const [player, items] = await Promise.all([playerService.getMockCurrentPlayer(), inventoryService.getInventory()]);
+  return (
+    <GameShell player={player}>
+      <PageHeader kicker="Loadout" title="Inventory" subtitle="Your frames, badges, cards, coupons & special items" />
+      <InventoryLocker items={items} />
+    </GameShell>
+  );
+}

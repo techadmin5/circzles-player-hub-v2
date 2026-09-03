@@ -1,2 +1,14 @@
-import { AppShell, PageFrame } from "@/components/ui"; import { notificationService } from "@/services";
-export default async function Page(){const notes=await notificationService.getNotifications();return <AppShell><PageFrame title="Notifications" action={<button className="btn btn-ghost">Mark all read</button>}><div className="grid gap-3">{notes.map(n=><div className={`game-card p-4 ${!n.read?"glow-border":""}`} key={n.id}><p className="text-xs text-[var(--cyan)]">{n.type}</p><h3 className="font-display text-2xl font-bold">{n.title}</h3><p className="text-[var(--text-secondary)]">{n.body}</p></div>)}</div></PageFrame></AppShell>}
+import { GameShell } from "@/components/game-shell/GameShell";
+import { PageHeader } from "@/components/ui/kit";
+import { NotificationList } from "@/components/social/social";
+import { notificationService, playerService } from "@/services";
+
+export default async function Page() {
+  const [player, notifications] = await Promise.all([playerService.getMockCurrentPlayer(), notificationService.getNotifications()]);
+  return (
+    <GameShell player={player}>
+      <PageHeader kicker="Inbox" title="Notifications" subtitle="Alerts across your CircZles hub" />
+      <NotificationList items={notifications} />
+    </GameShell>
+  );
+}

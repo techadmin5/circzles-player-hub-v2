@@ -1,2 +1,22 @@
-import Link from "next/link"; import { AppShell, PageFrame } from "@/components/ui"; import { friendService } from "@/services";
-export default async function Page(){const friends=await friendService.getFriends();return <AppShell><PageFrame title="Friends" action={<Link className="btn btn-primary" href="/friends/search">Search</Link>}><div className="grid gap-4 md:grid-cols-2">{friends.map(f=><div className="game-card p-4" key={f.player.publicPlayerId}><h3 className="font-display text-2xl font-bold">{f.player.displayName}</h3><p className="text-[var(--text-secondary)]">{f.player.publicPlayerId} · friends since {f.since}</p><div className="mt-3 flex gap-2"><button className="btn btn-ghost">Remove</button><button className="btn btn-ghost">Block</button></div></div>)}</div></PageFrame></AppShell>}
+import Link from "next/link";
+import { Search, UserPlus } from "lucide-react";
+import { GameShell } from "@/components/game-shell/GameShell";
+import { PageHeader, EmptyState } from "@/components/ui/kit";
+import { FriendCard } from "@/components/social/social";
+import { friendService, playerService } from "@/services";
+
+export default async function Page() {
+  const [player, friends] = await Promise.all([playerService.getMockCurrentPlayer(), friendService.getFriends()]);
+  return (
+    <GameShell player={player}>
+      <PageHeader kicker="Community" title="Friends" subtitle={`${friends.length} in your circle`} actions={
+        <div className="flex gap-2">
+          <Link href="/friends/search" className="cz-btn cz-btn-primary cz-btn-sm"><Search size={15} />Find Players</Link>
+          <Link href="/friends/requests" className="cz-btn cz-btn-ghost cz-btn-sm"><UserPlus size={15} />Requests</Link>
+        </div>} />
+      {friends.length > 0
+        ? <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{friends.map((f) => <FriendCard key={f.player.publicPlayerId} player={f.player} since={f.since} />)}</div>
+        : <EmptyState icon={<UserPlus size={22} />} title="No friends yet" body="Search for players by public ID or display name to build your circle." action={<Link href="/friends/search" className="cz-btn cz-btn-primary">Find Players</Link>} />}
+    </GameShell>
+  );
+}
