@@ -48,7 +48,7 @@ export default async function Page() {
 
   return (
     <GameShell player={player}>
-      <div className="grid gap-6">
+      <div className="grid grid-cols-1 gap-6">
         <PlayerIdentityPanel fallbackPlayer={player} mode={dataMode} placement={null} />
 
         <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">

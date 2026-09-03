@@ -45,7 +45,7 @@ export function StoreItemCard({ item, featured = false }: { item: StoreItem; fea
   return (
     <motion.article layout className={cn("cz-surface flex flex-col gap-3 overflow-hidden p-4", featured && "md:flex-row md:items-center md:gap-5")} data-testid={`store-item-${item.id}`}
       style={{ boxShadow: item.rarity === "legendary" ? "inset 0 0 0 1px rgba(232,180,80,0.28)" : undefined }}>
-      <div className={cn("relative grid aspect-square place-items-center rounded-xl border bg-[var(--cz-inset)]", featured ? "md:h-32 md:w-32 md:shrink-0" : "")}
+      <div className={cn("relative grid aspect-[16/9] place-items-center rounded-xl border bg-[var(--cz-inset)] sm:aspect-square", featured ? "md:h-32 md:w-32 md:shrink-0" : "")}
         style={{ borderColor: rarity.ring }}>
         <span style={{ color: rarity.color }}>{TYPE_ICON[item.type]}</span>
         <span className="absolute -bottom-2 left-1/2 -translate-x-1/2"><Chip tone={item.rarity === "legendary" ? "gold" : item.rarity === "epic" ? "violet" : item.rarity === "rare" ? "aqua" : "default"}>{rarity.label}</Chip></span>

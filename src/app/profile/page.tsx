@@ -11,7 +11,7 @@ export default async function Page() {
   const [player, puzzles, activity] = await Promise.all([playerService.getMockCurrentPlayer(), puzzleService.getOwnedPuzzles(), activityService.getActivity()]);
   return (
     <GameShell player={player}>
-      <div className="grid gap-6">
+      <div className="grid grid-cols-1 gap-6">
         <PlayerIdentityPanel fallbackPlayer={player} mode="mock" placement={null} profileMode />
 
         <section>

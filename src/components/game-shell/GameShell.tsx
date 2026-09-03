@@ -133,13 +133,13 @@ function MobileNav({ pathname, onOpenMore }: { pathname: string; onOpenMore: () 
         const Icon = item.icon;
         return (
           <Link key={item.href} href={item.href} onClick={() => playSound("navigation")} data-testid={`mobilenav-${item.href.replace(/\//g, "")}`}
-            className={cn("grid justify-items-center gap-1 rounded-lg py-1.5 text-[10px] font-semibold", active ? "text-[var(--cz-aqua)]" : "text-[var(--cz-text-tertiary)]")}>
-            <Icon size={20} />{item.label.replace("Player ", "").replace("My ", "")}
+            className={cn("grid min-w-0 justify-items-center gap-1 rounded-lg px-0.5 py-1.5 text-[10px] font-semibold", active ? "text-[var(--cz-aqua)]" : "text-[var(--cz-text-tertiary)]")}>
+            <Icon size={20} /><span className="w-full truncate text-center leading-none">{item.label.replace("Player ", "").replace("My ", "")}</span>
           </Link>
         );
       })}
-      <button onClick={() => { playSound("button"); onOpenMore(); }} data-testid="mobilenav-more" className="grid justify-items-center gap-1 rounded-lg py-1.5 text-[10px] font-semibold text-[var(--cz-text-tertiary)]">
-        <Menu size={20} />More
+      <button onClick={() => { playSound("button"); onOpenMore(); }} data-testid="mobilenav-more" className="grid min-w-0 justify-items-center gap-1 rounded-lg px-0.5 py-1.5 text-[10px] font-semibold text-[var(--cz-text-tertiary)]">
+        <Menu size={20} /><span className="w-full truncate text-center leading-none">More</span>
       </button>
     </nav>
   );

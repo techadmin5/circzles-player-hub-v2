@@ -27,6 +27,11 @@ gameplay XP state, Synapse economy, puzzle ownership, submissions, leaderboards,
 ## Intentionally deferred (not in this pass)
 Admin redesign; realtime chat; real Cloudinary/media upload; Wix auth handoff wiring; final art assets (rank emblems, badges, frames, avatars) — architecture is drop-in replaceable.
 
+## Mobile responsive pass (2026-09-03)
+- Root cause of Hub hero overflow: top wrappers used implicit `auto` grid column. Fixed `/hub` + `/profile` wrappers to `grid grid-cols-1` (minmax(0,1fr)); hero `<section>` now `w-full min-w-0 overflow-hidden`; inner flex row `min-w-0`; stat row 2-col grid + truncating MiniStats on mobile.
+- Reward wheel responsive `w-[min(300px,82vw)]`; mobile bottom-nav labels truncate; Progression Codex single-column + scroll on mobile; store cards `aspect-[16/9] sm:aspect-square`; `html` overflow-x hidden.
+- Verified by testing_agent (iteration_2.json): hero fits at 360/390/430 on /hub + /profile; all 9 mobile routes overflow-clean; desktop 1280 unaffected. 100% pass.
+
 ## Backlog / next
 - P1: Admin premium redesign pass.
 - P1: Wire real APIs per system as backend lands (swap mock service internals only).

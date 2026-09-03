@@ -100,13 +100,13 @@ export function RewardWheel() {
   }
 
   return (
-    <div className="cz-surface cz-grain relative grid place-items-center gap-5 p-6" data-testid="reward-wheel">
+    <div className="cz-surface cz-grain relative mx-auto grid w-full max-w-sm place-items-center gap-5 p-6" data-testid="reward-wheel">
       <div className="text-center">
         <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-[var(--cz-aqua)]">Daily Mechanic</p>
         <h2 className="cz-display text-xl font-bold">Reward Wheel</h2>
       </div>
 
-      <div className="relative grid place-items-center" style={{ width: 300, height: 300 }}>
+      <div className="relative grid aspect-square w-[min(300px,82vw)] place-items-center">
         {/* controlled ambient illumination */}
         <div className="pointer-events-none absolute inset-0 rounded-full blur-2xl" style={{ background: "radial-gradient(circle, rgba(61,234,212,0.12), transparent 65%)" }} />
         {/* pointer */}
@@ -117,7 +117,7 @@ export function RewardWheel() {
         </div>
 
         <motion.svg
-          viewBox="0 0 200 200" className="relative z-10 h-[272px] w-[272px]"
+          viewBox="0 0 200 200" className="relative z-10 h-[91%] w-[91%]"
           animate={{ rotate: rotation }} transition={{ duration: reduced ? 0 : 4.4, ease: [0.16, 1, 0.3, 1] }}
         >
           <defs>

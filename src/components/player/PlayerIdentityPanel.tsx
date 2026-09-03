@@ -19,11 +19,11 @@ function rankFor(progressionLevel: number) {
 
 function MiniStat({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
   return (
-    <div className="flex items-center gap-2">
-      <span className="text-[var(--cz-text-tertiary)]">{icon}</span>
-      <div>
-        <p className="text-[0.62rem] uppercase tracking-wider text-[var(--cz-text-tertiary)]">{label}</p>
-        <p className="cz-display cz-num text-base font-bold">{value}</p>
+    <div className="flex min-w-0 items-center gap-2">
+      <span className="shrink-0 text-[var(--cz-text-tertiary)]">{icon}</span>
+      <div className="min-w-0">
+        <p className="truncate text-[0.62rem] uppercase tracking-wider text-[var(--cz-text-tertiary)]">{label}</p>
+        <p className="cz-display cz-num truncate text-base font-bold">{value}</p>
       </div>
     </div>
   );
@@ -37,10 +37,10 @@ export function PlayerHero({ player, placement = null, profileMode = false, onOp
   const pct = Math.min(100, Math.round((player.xp / Math.max(1, player.xpNeeded)) * 100));
 
   return (
-    <section className="cz-surface cz-grain cz-fade-up relative p-5 sm:p-7" data-testid="player-hero">
+    <section className="cz-surface cz-grain cz-fade-up relative w-full min-w-0 overflow-hidden p-5 sm:p-7" data-testid="player-hero">
       <div className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full blur-3xl" style={{ background: "radial-gradient(circle, rgba(61,234,212,0.12) 0%, transparent 70%)" }} />
       {header}
-      <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center sm:gap-7">
+      <div className="relative flex min-w-0 flex-col gap-5 sm:flex-row sm:items-center sm:gap-7">
         <div className="shrink-0">
           <AvatarFrame avatar={player.avatar} displayName={player.displayName} frame={player.equippedFrame} size={profileMode ? 148 : 128} placement={placement} />
           <button onClick={() => { playSound("button"); onEditAvatar(); }} data-testid="edit-avatar-btn" className="mt-3 inline-flex items-center gap-2 rounded-lg border border-[var(--cz-hairline)] bg-white/[0.03] px-3 py-2 text-xs text-[var(--cz-text-secondary)] hover:text-[var(--cz-text-primary)]">
@@ -50,7 +50,7 @@ export function PlayerHero({ player, placement = null, profileMode = false, onOp
 
         <div className="min-w-0 flex-1">
           <h2 className="cz-display truncate text-2xl font-bold sm:text-3xl">{player.displayName}</h2>
-          <p className="text-sm text-[var(--cz-text-tertiary)]">{player.publicPlayerId}{player.country ? ` · ${player.state ? `${player.state}, ` : ""}${player.country}` : ""}</p>
+          <p className="truncate text-sm text-[var(--cz-text-tertiary)]">{player.publicPlayerId}{player.country ? ` · ${player.state ? `${player.state}, ` : ""}${player.country}` : ""}</p>
 
           <button onClick={() => { playSound("button"); onOpenCodex(); }} data-testid="rank-chip-btn" className="mt-3 inline-flex items-center gap-2 rounded-xl border border-[var(--cz-hairline)] bg-white/[0.03] px-3 py-2 text-left transition-colors hover:border-[rgba(61,234,212,0.5)]">
             <RankEmblem rank={rank.rank} state="current" size={34} />
@@ -70,7 +70,7 @@ export function PlayerHero({ player, placement = null, profileMode = false, onOp
         </div>
       </div>
 
-      <div className="relative mt-6 flex flex-wrap gap-x-8 gap-y-3 border-t border-[var(--cz-hairline)] pt-4">
+      <div className="relative mt-6 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-[var(--cz-hairline)] pt-4 sm:flex sm:flex-wrap sm:gap-x-8">
         <MiniStat icon={<Gem size={15} />} label="Synapse Points" value={formatNumber(player.synapsePoints)} />
         <MiniStat icon={<Flame size={15} />} label="Streak" value={`${player.streak} days`} />
         <MiniStat icon={<Trophy size={15} />} label="Season Placement" value={`#${player.stats.seasonRank}`} />

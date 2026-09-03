@@ -1,0 +1,36 @@
+{
+  "summary": "Retest of iteration_1 HIGH bug (player-hero horizontal overflow at <=430px) on /hub and /profile. Fix VERIFIED. All widths (360/390/430) show hero fully within viewport with 'Next: Apprentice' and 'PODIUMS' visible. Page-level overflow clean across all 9 mobile routes. Reward wheel and 6-item bottom nav fit. Desktop 1280 unaffected.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "measurements": {
+    "hub_hero": {
+      "360": {"iw": 360, "hero_right": 344, "next_right": 323, "podiums_right": 264, "fits": true},
+      "390": {"iw": 390, "hero_right": 374, "next_right": 353, "podiums_right": 279, "fits": true},
+      "430": {"iw": 430, "hero_right": 414, "next_right": 393, "podiums_right": 299, "fits": true}
+    },
+    "profile_hero": {
+      "360": {"iw": 360, "hero_right": 344, "fits": true},
+      "390": {"iw": 390, "hero_right": 374, "fits": true},
+      "430": {"iw": 430, "hero_right": 414, "fits": true}
+    },
+    "page_overflow": "All 9 routes (/hub, /profile, /rewards, /leaderboard, /missions, /puzzles, /submissions/new, /inventory, /settings) at 360/390/430: docSW == iw (OK)",
+    "reward_wheel_390": {"right": 374, "width": 358, "iw": 390, "fits": true},
+    "bottom_nav_360": {"items": 6, "width": 360, "iw": 360, "fits": true},
+    "desktop_1280": {"nav_hub_visible": true, "hero_width": 980}
+  },
+  "notes": "Hero internal scrollWidth (~422-492) exceeds its visible width because of overflow-hidden. All meaningful text/stats (Next: Apprentice label, PODIUMS stat rightmost) render inside the visible bounds. Fix is effective.",
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "PlayerHero has overflow-hidden clipping internal scrollWidth (~90px larger than visible). All visible content fits, but consider reviewing whether any hidden inner content is being clipped intentionally at mobile."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A", "frontend": "100%"},
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 1 HIGH bug fixed and verified at 360/390/430. All mobile routes overflow-clean."
+}

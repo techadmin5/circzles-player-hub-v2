@@ -47,8 +47,8 @@ export function ProgressionCodex({ open, onClose, player }: { open: boolean; onC
               <button onClick={() => { playSound("modalClose"); onClose(); }} aria-label="Close" data-testid="codex-close" className="grid h-9 w-9 place-items-center rounded-full text-[var(--cz-text-tertiary)] hover:bg-white/5 hover:text-[var(--cz-text-primary)]"><X size={18} /></button>
             </div>
 
-            <div className="grid max-h-[calc(86vh-58px)] grid-cols-1 md:grid-cols-[1fr_1.1fr]">
-              <div className="flex flex-col items-center justify-center gap-4 border-b border-[var(--cz-hairline)] px-8 py-9 md:border-b-0 md:border-r">
+            <div className="cz-scroll grid max-h-[calc(86vh-58px)] grid-cols-1 overflow-y-auto md:grid-cols-[1fr_1.1fr] md:overflow-hidden">
+              <div className="flex flex-col items-center justify-center gap-4 border-b border-[var(--cz-hairline)] px-5 py-6 md:border-b-0 md:border-r md:px-8 md:py-9">
                 <RankEmblem rank={selected.rank} state={state} size={150} />
                 <div className="text-center">
                   <p className="cz-display text-2xl font-bold">{selected.rank}</p>
@@ -68,7 +68,7 @@ export function ProgressionCodex({ open, onClose, player }: { open: boolean; onC
                 {next && state === "current" && <p className="text-xs text-[var(--cz-text-tertiary)]">Next rank: <span className="text-[var(--cz-text-secondary)]">{next.rank}</span></p>}
               </div>
 
-              <div className="cz-scroll overflow-y-auto px-3 py-3">
+              <div className="cz-scroll px-3 py-3 md:overflow-y-auto">
                 {progressionRanks.map((rank) => {
                   const s = stateFor(rank.order, current.order);
                   return (
