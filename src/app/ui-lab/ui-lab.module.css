@@ -90,8 +90,21 @@
   backdrop-filter: blur(14px);
 }
 
+.podiumBase {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.015)),
+    var(--cz-surface-raised);
+}
+
 @media (min-width: 768px) {
   .sidebar { display: flex; }
   .main { padding: 40px 32px; }
   .mobileNav { display: none; }
+}
+
+@media (max-width: 640px) {
+  .main { padding-top: 16px; padding-bottom: 112px; }
+  .labControls { align-items: flex-start; }
+  .labControls h1 { font-size: 1.45rem; line-height: 1.15; }
+  .labControls p { display: none; }
 }
