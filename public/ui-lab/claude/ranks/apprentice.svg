@@ -1,0 +1,17 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="apprentice-fill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#8a6dff"/>
+      <stop offset="100%" stop-color="#2c1f6b"/>
+    </linearGradient>
+    <radialGradient id="apprentice-glow" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#a894ff" stop-opacity="0.7"/>
+      <stop offset="100%" stop-color="#a894ff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <path d="M50 5 L90 20 V50 C90 76 72 92 50 97 C28 92 10 76 10 50 V20 Z"
+        fill="url(#apprentice-fill)" stroke="#b6a3ff" stroke-width="1.5"/>
+  <circle cx="50" cy="48" r="26" fill="url(#apprentice-glow)"/>
+  <path d="M50 24 L58 42 L76 44 L62 56 L66 74 L50 64 L34 74 L38 56 L24 44 L42 42 Z"
+        fill="#eef2f8" opacity="0.92"/>
+</svg>

@@ -1,0 +1,97 @@
+.lab {
+  --cz-void: #070a12;
+  --cz-surface: #0e1420;
+  --cz-surface-raised: #121a2c;
+  --cz-inset: #0a0e18;
+  --cz-hairline: rgba(255, 255, 255, 0.07);
+  --cz-hairline-strong: rgba(255, 255, 255, 0.12);
+  --cz-aqua: #3dead4;
+  --cz-aqua-dim: rgba(61, 234, 212, 0.14);
+  --cz-gold: #e8b450;
+  --cz-gold-dim: rgba(232, 180, 80, 0.16);
+  --cz-silver: #b9c4d6;
+  --cz-bronze: #c98a4e;
+  --cz-violet: #8a6dff;
+  --cz-blue: #4c8dff;
+  --cz-emerald: #34d399;
+  --cz-text-primary: #eef2f8;
+  --cz-text-secondary: #9aa5b8;
+  --cz-text-tertiary: #63708a;
+  min-height: 100vh;
+  background: var(--cz-void);
+  color: var(--cz-text-primary);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+.display {
+  font-family: Manrope, Inter, ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0;
+}
+
+.shell {
+  margin: 0 auto;
+  display: flex;
+  max-width: 1400px;
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  display: none;
+  height: 100vh;
+  width: 228px;
+  flex-shrink: 0;
+  flex-direction: column;
+  border-right: 1px solid var(--cz-hairline);
+  background: var(--cz-surface);
+  padding: 20px 12px;
+}
+
+.main {
+  min-width: 0;
+  flex: 1;
+  padding: 24px 16px 96px;
+}
+
+.surface {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--cz-hairline);
+  border-radius: 16px;
+  background: var(--cz-surface);
+}
+
+.raised {
+  border: 1px solid var(--cz-hairline);
+  border-radius: 12px;
+  background: var(--cz-surface-raised);
+}
+
+.grain::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.035;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.mobileNav {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px solid var(--cz-hairline);
+  background: rgba(14, 20, 32, 0.96);
+  padding: 8px 8px max(8px, env(safe-area-inset-bottom));
+  backdrop-filter: blur(14px);
+}
+
+@media (min-width: 768px) {
+  .sidebar { display: flex; }
+  .main { padding: 40px 32px; }
+  .mobileNav { display: none; }
+}

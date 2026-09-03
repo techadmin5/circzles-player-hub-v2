@@ -1,0 +1,4 @@
+<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="30" cy="30" r="26" fill="#152030" stroke="#4c8dff" stroke-width="2"/>
+  <text x="30" y="36" text-anchor="middle" font-size="16" fill="#bcd3ff" font-family="sans-serif" font-weight="700">10</text>
+</svg>

@@ -1,0 +1,14 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="nobleman-fill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1c2540"/>
+      <stop offset="100%" stop-color="#0a0e18"/>
+    </linearGradient>
+  </defs>
+  <path d="M50 4 L92 20 V50 C92 78 72 94 50 98 C28 94 8 78 8 50 V20 Z"
+        fill="url(#nobleman-fill)" stroke="#e8b450" stroke-width="2"/>
+  <path d="M50 4 L92 20 V50 C92 78 72 94 50 98 C28 94 8 78 8 50 V20 Z"
+        fill="none" stroke="#e8b450" stroke-width="0.75" transform="scale(0.9)" transform-origin="50 51"/>
+  <path d="M50 26 L60 46 L82 48 L64 60 L70 82 L50 70 L30 82 L36 60 L18 48 L40 46 Z"
+        fill="#e8b450"/>
+</svg>

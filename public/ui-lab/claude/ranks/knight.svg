@@ -1,0 +1,18 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="knight-fill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#c9d4e0"/>
+      <stop offset="55%" stop-color="#7f8ea6"/>
+      <stop offset="100%" stop-color="#3a4257"/>
+    </linearGradient>
+    <linearGradient id="knight-cobalt" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#4c8dff"/>
+      <stop offset="100%" stop-color="#1c3a7a"/>
+    </linearGradient>
+  </defs>
+  <path d="M50 5 L90 20 V50 C90 76 72 92 50 97 C28 92 10 76 10 50 V20 Z"
+        fill="url(#knight-fill)" stroke="#e6ecf5" stroke-width="1.5"/>
+  <path d="M50 20 L70 30 V52 C70 68 60 80 50 86 C40 80 30 68 30 52 V30 Z"
+        fill="url(#knight-cobalt)" opacity="0.9"/>
+  <path d="M50 30 L58 48 L50 42 L42 48 Z" fill="#eef2f8"/>
+</svg>

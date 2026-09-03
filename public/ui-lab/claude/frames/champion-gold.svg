@@ -1,0 +1,16 @@
+<svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="gold-ring" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fff3da"/>
+      <stop offset="50%" stop-color="#e8b450"/>
+      <stop offset="100%" stop-color="#9a6a1f"/>
+    </linearGradient>
+  </defs>
+  <circle cx="60" cy="60" r="56" fill="none" stroke="url(#gold-ring)" stroke-width="4.5"/>
+  <g fill="#e8b450">
+    <circle cx="60" cy="3" r="3.5"/>
+    <circle cx="60" cy="117" r="3.5"/>
+    <circle cx="3" cy="60" r="3.5"/>
+    <circle cx="117" cy="60" r="3.5"/>
+  </g>
+</svg>

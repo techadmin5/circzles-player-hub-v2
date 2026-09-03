@@ -4,7 +4,7 @@ import nextTypescript from "eslint-config-next/typescript";
 const eslintConfig = [
   ...nextCoreWebVitals,
   ...nextTypescript,
-  { ignores: [".next/**", "out/**", "build/**", "next-env.d.ts"] },
+  { ignores: [".next/**", "out/**", "build/**", "next-env.d.ts", "_claude-ui-reference/**"] },
 ];
 
 export default eslintConfig;

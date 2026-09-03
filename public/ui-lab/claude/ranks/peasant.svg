@@ -1,0 +1,11 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="peasant-fill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4a5160"/>
+      <stop offset="100%" stop-color="#2b3040"/>
+    </linearGradient>
+  </defs>
+  <path d="M50 6 L88 20 V50 C88 74 72 90 50 96 C28 90 12 74 12 50 V20 Z"
+        fill="url(#peasant-fill)" stroke="#6a7284" stroke-width="1.5"/>
+  <circle cx="50" cy="46" r="10" fill="#20242e" stroke="#5a6274" stroke-width="1.5"/>
+</svg>
