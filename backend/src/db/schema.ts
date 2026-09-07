@@ -4,6 +4,8 @@ import { sql } from "drizzle-orm";
 export const userStatus = pgEnum("user_status", ["ACTIVE", "SUSPENDED", "DELETED"]);
 export const sessionStatus = pgEnum("session_status", ["ACTIVE", "REVOKED", "EXPIRED"]);
 export const pointTransactionDirection = pgEnum("point_transaction_direction", ["CREDIT", "DEBIT", "CORRECTION"]);
+export const videoUploadStatus = pgEnum("video_upload_status", ["SIGNED", "COMPLETE", "FAILED", "EXPIRED"]);
+export const submissionStatus = pgEnum("submission_status", ["PENDING_REVIEW", "APPROVED", "REJECTED", "RESUBMISSION_REQUIRED"]);
 
 export const users = pgTable("users", {
   userId: uuid("user_id").primaryKey().defaultRandom(),
@@ -213,4 +215,53 @@ export const playerPuzzles = pgTable("player_puzzles", {
   playerIndex: index("player_puzzles_player_id_idx").on(table.playerId),
   puzzleIndex: index("player_puzzles_puzzle_id_idx").on(table.puzzleId),
   claimUnique: uniqueIndex("player_puzzles_puzzle_claim_id_unique").on(table.puzzleClaimId),
+}));
+
+export const videoUploads = pgTable("video_uploads", {
+  videoUploadId: uuid("video_upload_id").primaryKey().defaultRandom(),
+  playerId: uuid("player_id").notNull().references(() => players.playerId, { onDelete: "cascade" }),
+  storageProvider: text("storage_provider").notNull(),
+  publicId: text("public_id").notNull(),
+  originalFilename: text("original_filename"),
+  mimeType: text("mime_type").notNull(),
+  declaredSizeBytes: bigint("declared_size_bytes", { mode: "number" }).notNull(),
+  verifiedSizeBytes: bigint("verified_size_bytes", { mode: "number" }),
+  durationMs: integer("duration_ms"),
+  status: videoUploadStatus("status").notNull().default("SIGNED"),
+  failureCode: text("failure_code"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+}, (table) => ({
+  publicIdUnique: uniqueIndex("video_uploads_public_id_unique").on(table.publicId),
+  playerStatusIndex: index("video_uploads_player_status_idx").on(table.playerId, table.status),
+  expiresAtIndex: index("video_uploads_expires_at_idx").on(table.expiresAt),
+  declaredSizeCheck: check("video_uploads_declared_size_bytes_check", sql`${table.declaredSizeBytes} > 0`),
+  verifiedSizeCheck: check("video_uploads_verified_size_bytes_check", sql`${table.verifiedSizeBytes} is null or ${table.verifiedSizeBytes} > 0`),
+  durationCheck: check("video_uploads_duration_ms_check", sql`${table.durationMs} is null or ${table.durationMs} >= 0`),
+}));
+
+export const submissions = pgTable("submissions", {
+  submissionId: uuid("submission_id").primaryKey().defaultRandom(),
+  playerId: uuid("player_id").notNull().references(() => players.playerId, { onDelete: "cascade" }),
+  playerPuzzleId: uuid("player_puzzle_id").notNull().references(() => playerPuzzles.playerPuzzleId, { onDelete: "restrict" }),
+  puzzleId: uuid("puzzle_id").notNull().references(() => puzzles.puzzleId, { onDelete: "restrict" }),
+  levelId: integer("level_id").notNull(),
+  completionTimeMs: integer("completion_time_ms").notNull(),
+  videoUploadId: uuid("video_upload_id").notNull().references(() => videoUploads.videoUploadId, { onDelete: "restrict" }),
+  status: submissionStatus("status").notNull().default("PENDING_REVIEW"),
+  submittedAt: timestamp("submitted_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  legacyWixId: text("legacy_wix_id"),
+  idempotencyKey: text("idempotency_key"),
+}, (table) => ({
+  videoUploadUnique: uniqueIndex("submissions_video_upload_id_unique").on(table.videoUploadId),
+  playerIdempotencyUnique: uniqueIndex("submissions_player_id_idempotency_key_unique").on(table.playerId, table.idempotencyKey),
+  playerStatusIndex: index("submissions_player_status_idx").on(table.playerId, table.status),
+  puzzleStatusIndex: index("submissions_puzzle_status_idx").on(table.puzzleId, table.status),
+  levelStatusIndex: index("submissions_level_status_idx").on(table.levelId, table.status),
+  playerPuzzleIndex: index("submissions_player_puzzle_id_idx").on(table.playerPuzzleId),
+  completionTimeCheck: check("submissions_completion_time_ms_check", sql`${table.completionTimeMs} > 0`),
+  levelIdCheck: check("submissions_level_id_check", sql`${table.levelId} > 0`),
 }));

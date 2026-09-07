@@ -180,3 +180,11 @@ Recommended DTO refinements before production API wiring:
 - Add explicit `wallet` and `xp` response DTOs for post-action state refreshes.
 - Add optional `requestId` and `serverTime` to action responses.
 - Add `videoUploadId` to the submission creation flow once signed uploads are introduced.
+
+## Phase 3D Video Boundary
+
+`SubmissionService` coordinates persistence and the `VideoStorage` interface. `CloudinaryVideoStorage` is the production adapter and uses the official Cloudinary Node SDK for signed upload parameters and authoritative asset lookup. Missing Cloudinary configuration does not prevent backend startup; only signing/finalization returns `VIDEO_STORAGE_NOT_CONFIGURED`.
+
+The browser uploads directly to Cloudinary using a backend-generated public ID. It then asks the backend to finalize the upload. Submission creation joins the authenticated player's active `player_puzzles` row to the canonical puzzle, derives `puzzleId` and `levelId`, requires a `COMPLETE` upload owned by that player, and writes `PENDING_REVIEW` without XP, points, rewards, or leaderboard effects.
+
+Optional environment variables are `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET`. The secret remains backend-only and is covered by the rule against secret logging.

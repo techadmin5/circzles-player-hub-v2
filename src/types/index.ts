@@ -42,6 +42,7 @@ export interface Puzzle {
 }
 
 export interface PlayerPuzzle extends Puzzle {
+  playerPuzzleId?: string;
   status: PuzzleStatus;
   personalBest?: string;
   leaderboardRank?: number;
@@ -50,13 +51,23 @@ export interface PlayerPuzzle extends Puzzle {
 
 export interface Submission {
   id: string;
+  playerPuzzleId?: string;
   puzzleId: string;
   puzzleName: string;
   levelId: number;
   completionTime: string;
+  completionTimeMs?: number;
   status: SubmissionStatus;
   createdAt: string;
   reviewNote?: string;
+  videoUploadId?: string;
+}
+
+export interface SignedVideoUpload {
+  videoUploadId: string;
+  uploadUrl: string;
+  expiresAt: string;
+  fields: { apiKey: string; timestamp: number; publicId: string; signature: string };
 }
 
 export interface LeaderboardFilter {

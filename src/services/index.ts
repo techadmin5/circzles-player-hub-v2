@@ -1,5 +1,5 @@
 import { activity, coupons, currentPlayer, friendRequests, inventory, leaderboard, missions, notifications, playerPuzzles, players, puzzles, season, storeItems, submissions } from "@/mocks/data";
-import type { LeaderboardFilter, RewardWheelResult, Submission } from "@/types";
+import type { LeaderboardFilter, RewardWheelResult } from "@/types";
 import { dataMode } from "@/config/dataMode";
 import { apiClient } from "@/lib/apiClient";
 import { mockDelay } from "./mockRuntime";
@@ -39,9 +39,9 @@ export const puzzleService = {
 };
 
 export const submissionService = {
-  async getSubmissions() { await mockDelay(); return submissions; },
-  async getSubmission(id: string) { await mockDelay(); return submissions.find((s) => s.id === id) ?? submissions[0]; },
-  async createSubmission(input: Pick<Submission, "puzzleId" | "completionTime">) { await mockDelay(); return { id: "sub-new", status: "PENDING_REVIEW" as const, ...input }; },
+  async getSubmissions() { if (canUseBrowserApi()) return apiClient.getSubmissions(); await mockDelay(); return submissions; },
+  async getSubmission(id: string) { if (canUseBrowserApi()) return apiClient.getSubmission(id); await mockDelay(); return submissions.find((s) => s.id === id) ?? submissions[0]; },
+  async createSubmission(input: { playerPuzzleId: string; completionTimeMs: number; videoUploadId: string }) { if (canUseBrowserApi()) return apiClient.createSubmission(input); await mockDelay(); return { ...submissions[0], id: "sub-new", status: "PENDING_REVIEW" as const, ...input }; },
 };
 
 export const leaderboardService = { async getLeaderboard(filters?: Partial<LeaderboardFilter>) { await mockDelay(); void filters; return { entries: leaderboard, yourRank: 18 }; } };

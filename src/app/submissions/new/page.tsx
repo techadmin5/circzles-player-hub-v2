@@ -8,7 +8,7 @@ export default async function Page() {
   return (
     <GameShell player={player}>
       <PageHeader kicker="Mobile-first flow" title="Submit Attempt" subtitle="A premium, verified submission process" />
-      <SubmissionStepper puzzles={puzzles.map((p) => ({ id: p.id, name: p.name, levelId: p.levelId }))} />
+      <SubmissionStepper puzzles={puzzles.map((p) => ({ id: p.id, playerPuzzleId: p.playerPuzzleId, name: p.name, levelId: p.levelId }))} />
     </GameShell>
   );
 }

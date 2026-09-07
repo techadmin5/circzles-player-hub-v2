@@ -415,3 +415,11 @@ Do not implement until social/realtime phase.
 - `submissions 1 -> many submission_reviews`, `1 -> 0/1 submission_reward_grants`.
 - `missions 1 -> many mission_rules`, `mission_rewards`, `player_mission_progress`.
 - `reward_definitions` powers store, inventory, mission rewards, wheel rewards.
+
+## Phase 3D Implemented Tables
+
+Migration `0003_phase_3d_submissions.sql` adds schema only.
+
+`video_uploads` stores player ownership, provider/public ID, declared file metadata, authoritative verified bytes/duration, `SIGNED|COMPLETE|FAILED|EXPIRED` lifecycle state, expiry/completion times, and a non-sensitive failure code. Public IDs are unique; player/status and expiry are indexed.
+
+`submissions` stores player, active ownership, canonical puzzle and `level_id`, positive millisecond completion time, one verified video upload, review status, timestamps, optional legacy Wix ID, and optional player-scoped idempotency key. A unique video upload constraint prevents reuse. Player/status, puzzle/status, level/status, and ownership indexes support future review and listing queries.

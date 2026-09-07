@@ -3,7 +3,8 @@ import { buildApp } from "../src/http/app.js";
 import { GameStateService, temporaryDevelopmentProgressionLevels } from "../src/domain/gameState.js";
 import { IdentityService } from "../src/domain/identity.js";
 import { PuzzleOwnershipService } from "../src/domain/puzzles.js";
-import { FakeGameStateRepository, FakeIdentityRepository, FakePuzzleRepository } from "./fakes.js";
+import { SubmissionService } from "../src/domain/submissions.js";
+import { FakeGameStateRepository, FakeIdentityRepository, FakePuzzleRepository, FakeSubmissionRepository, FakeVideoStorage } from "./fakes.js";
 import type { Env } from "../src/config/env.js";
 
 function env(overrides: Partial<Env> = {}): Env {
@@ -28,8 +29,11 @@ async function appWithFakes(overrides: Partial<Env> = {}) {
   const puzzleRepo = new FakePuzzleRepository();
   const puzzles = new PuzzleOwnershipService(puzzleRepo);
   await puzzles.seedDevelopmentCatalog();
-  const app = buildApp({ env: testEnv, identity, gameState, puzzles, checkDb: async () => {} });
-  return { app, gameRepo, puzzleRepo, testEnv };
+  const submissionRepo = new FakeSubmissionRepository(puzzleRepo);
+  const videoStorage = new FakeVideoStorage();
+  const submissionService = new SubmissionService(submissionRepo, videoStorage);
+  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, checkDb: async () => {} });
+  return { app, gameRepo, puzzleRepo, submissionRepo, videoStorage, testEnv };
 }
 
 async function login(app: Awaited<ReturnType<typeof appWithFakes>>["app"]) {
@@ -87,7 +91,9 @@ describe("http auth poc", () => {
     await gameState.seedProgressionLevels(temporaryDevelopmentProgressionLevels);
     const puzzles = new PuzzleOwnershipService(new FakePuzzleRepository());
     await puzzles.seedDevelopmentCatalog();
-    const app = buildApp({ env: testEnv, identity: new IdentityService(new FakeIdentityRepository(), testEnv.SESSION_SECRET), gameState, puzzles, checkDb: async () => { checked = true; } });
+    const puzzleRepo = new FakePuzzleRepository();
+    const submissions = new SubmissionService(new FakeSubmissionRepository(puzzleRepo), new FakeVideoStorage());
+    const app = buildApp({ env: testEnv, identity: new IdentityService(new FakeIdentityRepository(), testEnv.SESSION_SECRET), gameState, puzzles, submissions, checkDb: async () => { checked = true; } });
     const res = await app.inject({ method: "GET", url: "/health" });
     expect(res.statusCode).toBe(200);
     expect(checked).toBe(true);
@@ -220,5 +226,47 @@ describe("http auth poc", () => {
     const inactive = await app.inject({ method: "GET", url: "/api/puzzles/33333333-3333-4333-8333-333333333333" });
     expect(inactive.statusCode).toBe(404);
     expect(inactive.json().code).toBe("PUZZLE_NOT_FOUND");
+  });
+
+  it.each([
+    ["POST", "/api/uploads/videos/signed-url"],
+    ["POST", "/api/uploads/videos/10000000-0000-4000-8000-000000000001/complete"],
+    ["POST", "/api/submissions"],
+    ["GET", "/api/submissions"],
+    ["GET", "/api/submissions/20000000-0000-4000-8000-000000000001"],
+  ])("%s %s requires authentication", async (method, url) => {
+    const { app } = await appWithFakes();
+    const res = await app.inject({ method: method as "GET" | "POST", url, payload: method === "POST" ? {} : undefined });
+    expect(res.statusCode).toBe(401);
+    expect(res.json().code).toBe("UNAUTHORIZED");
+  });
+
+  it.each(["puzzleId", "levelId", "playerId"])("submission body strictly rejects %s", async (field) => {
+    const { app } = await appWithFakes({ NODE_ENV: "development" });
+    const cookie = await login(app);
+    const res = await app.inject({ method: "POST", url: "/api/submissions", headers: { cookie }, payload: { playerPuzzleId: "30000000-0000-4000-8000-000000000001", completionTimeMs: 1000, videoUploadId: "10000000-0000-4000-8000-000000000001", [field]: field === "levelId" ? 99 : "browser-value" } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe("VALIDATION_FAILED");
+  });
+
+  it("rejects a non-positive completion time", async () => {
+    const { app } = await appWithFakes({ NODE_ENV: "development" });
+    const cookie = await login(app);
+    const res = await app.inject({ method: "POST", url: "/api/submissions", headers: { cookie }, payload: { playerPuzzleId: "30000000-0000-4000-8000-000000000001", completionTimeMs: 0, videoUploadId: "10000000-0000-4000-8000-000000000001" } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe("VALIDATION_FAILED");
+  });
+
+  it("signs, finalizes, and submits through authenticated routes", async () => {
+    const { app, puzzleRepo } = await appWithFakes({ NODE_ENV: "development" });
+    const cookie = await login(app);
+    puzzleRepo.ownerships.push({ playerPuzzleId: "30000000-0000-4000-8000-000000000001", playerId: "player-1", puzzleId: "DEV-PUZZLE-METAMORPHOSIS-R1", status: "OWNED" });
+    const signed = await app.inject({ method: "POST", url: "/api/uploads/videos/signed-url", headers: { cookie }, payload: { filename: "solve.mp4", mimeType: "video/mp4", sizeBytes: 1024 } });
+    expect(signed.statusCode).toBe(200);
+    const videoUploadId = signed.json().videoUploadId;
+    expect((await app.inject({ method: "POST", url: `/api/uploads/videos/${videoUploadId}/complete`, headers: { cookie }, payload: {} })).statusCode).toBe(200);
+    const created = await app.inject({ method: "POST", url: "/api/submissions", headers: { cookie }, payload: { playerPuzzleId: "30000000-0000-4000-8000-000000000001", completionTimeMs: 161000, videoUploadId } });
+    expect(created.statusCode).toBe(201);
+    expect(created.json()).toMatchObject({ puzzleId: "DEV-PUZZLE-METAMORPHOSIS-R1", levelId: 18, status: "PENDING_REVIEW" });
   });
 });

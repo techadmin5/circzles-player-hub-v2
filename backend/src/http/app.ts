@@ -8,6 +8,7 @@ import type { IdentityService, PlayerDto } from "../domain/identity.js";
 import { AppError, forbidden, unauthorized, validationFailed } from "../domain/errors.js";
 import type { GameStateService } from "../domain/gameState.js";
 import type { PuzzleOwnershipService } from "../domain/puzzles.js";
+import type { SubmissionService } from "../domain/submissions.js";
 import { SESSION_COOKIE_NAME } from "../domain/sessions.js";
 
 export interface AppDeps {
@@ -15,6 +16,7 @@ export interface AppDeps {
   identity: IdentityService;
   gameState: GameStateService;
   puzzles: PuzzleOwnershipService;
+  submissions: SubmissionService;
   checkDb: () => Promise<void>;
 }
 
@@ -29,7 +31,20 @@ const claimPuzzleBodySchema = z.object({
   code: z.string().trim().min(1).max(200),
 }).strict();
 
-export function buildApp({ env, identity, gameState, puzzles, checkDb }: AppDeps) {
+const signVideoBodySchema = z.object({
+  filename: z.string().trim().min(1).max(255),
+  mimeType: z.string().trim().min(1).max(100),
+  sizeBytes: z.number().int().positive(),
+}).strict();
+const uuidParamsSchema = z.object({ submissionId: z.string().uuid() }).strict();
+const videoUploadParamsSchema = z.object({ videoUploadId: z.string().uuid() }).strict();
+const createSubmissionBodySchema = z.object({
+  playerPuzzleId: z.string().uuid(),
+  completionTimeMs: z.number().int().positive(),
+  videoUploadId: z.string().uuid(),
+}).strict();
+
+export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, checkDb }: AppDeps) {
   const app = Fastify({
     logger: env.NODE_ENV === "test" ? false : {
       level: "info",
@@ -84,6 +99,42 @@ export function buildApp({ env, identity, gameState, puzzles, checkDb }: AppDeps
     const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
     const body = parseClaimPuzzleBody(request.body);
     return reply.send(await puzzles.claimByCode(player.internalId, body.code));
+  });
+
+  app.post("/api/uploads/videos/signed-url", async (request, reply) => {
+    const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+    const parsed = signVideoBodySchema.safeParse(request.body);
+    if (!parsed.success) throw validationFailed("Invalid video upload request.", parsed.error.flatten());
+    return reply.send(await submissionService.signVideoUpload(player.internalId, parsed.data));
+  });
+
+  app.post("/api/uploads/videos/:videoUploadId/complete", async (request, reply) => {
+    const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+    const parsed = videoUploadParamsSchema.safeParse(request.params);
+    if (!parsed.success) throw validationFailed("Invalid video upload id.", parsed.error.flatten());
+    return reply.send(await submissionService.completeVideoUpload(player.internalId, parsed.data.videoUploadId));
+  });
+
+  app.get("/api/submissions", async (request, reply) => {
+    const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+    return reply.send(await submissionService.getSubmissions(player.internalId));
+  });
+
+  app.get("/api/submissions/:submissionId", async (request, reply) => {
+    const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+    const parsed = uuidParamsSchema.safeParse(request.params);
+    if (!parsed.success) throw validationFailed("Invalid submission id.", parsed.error.flatten());
+    return reply.send(await submissionService.getSubmission(player.internalId, parsed.data.submissionId));
+  });
+
+  app.post("/api/submissions", async (request, reply) => {
+    const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+    const parsed = createSubmissionBodySchema.safeParse(request.body);
+    if (!parsed.success) throw validationFailed("Invalid submission body.", parsed.error.flatten());
+    const idempotencyHeader = request.headers["idempotency-key"];
+    const idempotencyKey = typeof idempotencyHeader === "string" ? idempotencyHeader.trim() : undefined;
+    if (idempotencyKey && idempotencyKey.length > 200) throw validationFailed("Idempotency-Key is too long.");
+    return reply.status(201).send(await submissionService.createSubmission(player.internalId, parsed.data, idempotencyKey || undefined));
   });
 
   app.post("/api/dev/login", async (request, reply) => {

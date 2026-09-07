@@ -18,6 +18,7 @@ export interface PuzzleDto {
 }
 
 export interface PlayerPuzzleDto extends PuzzleDto {
+  playerPuzzleId: string;
   status: "OWNED" | "READY_TO_SOLVE" | "SUBMISSION_PENDING" | "APPROVED" | "REJECTED" | "COMPLETED";
   personalBest?: string;
   leaderboardRank?: number;
@@ -128,7 +129,7 @@ export class DrizzlePuzzleRepository implements PuzzleRepository {
       .innerJoin(puzzles, eq(playerPuzzles.puzzleId, puzzles.puzzleId))
       .where(and(eq(playerPuzzles.playerId, playerId), isNull(playerPuzzles.deletedAt), isNull(puzzles.deletedAt)));
 
-    return rows.map(({ playerPuzzle, puzzle }) => toPlayerPuzzleDto(puzzle, playerPuzzle.status));
+    return rows.map(({ playerPuzzle, puzzle }) => toPlayerPuzzleDto(puzzle, playerPuzzle.status, playerPuzzle.playerPuzzleId));
   }
 
   async getPuzzle(puzzleId: string): Promise<PuzzleDto | null> {
@@ -181,7 +182,7 @@ export class DrizzlePuzzleRepository implements PuzzleRepository {
           status: "OWNED",
         }).returning();
 
-        return toPlayerPuzzleDto(match.puzzle, ownership.status);
+        return toPlayerPuzzleDto(match.puzzle, ownership.status, ownership.playerPuzzleId);
       });
     } catch (error) {
       if (error instanceof AppError) throw error;
@@ -299,9 +300,10 @@ function toPuzzleDto(puzzle: typeof puzzles.$inferSelect): PuzzleDto {
   };
 }
 
-function toPlayerPuzzleDto(puzzle: typeof puzzles.$inferSelect, status: string): PlayerPuzzleDto {
+function toPlayerPuzzleDto(puzzle: typeof puzzles.$inferSelect, status: string, playerPuzzleId: string): PlayerPuzzleDto {
   return {
     ...toPuzzleDto(puzzle),
+    playerPuzzleId,
     status: toPlayerPuzzleStatus(status),
   };
 }

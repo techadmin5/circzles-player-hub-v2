@@ -17,6 +17,7 @@
   "dependencies": {
     "@fastify/cookie": "latest",
     "@fastify/cors": "latest",
+    "cloudinary": "^2.11.0",
     "dotenv": "latest",
     "drizzle-orm": "latest",
     "fastify": "latest",
@@ -29,9 +30,9 @@
     "@types/pg": "latest",
     "drizzle-kit": "latest",
     "eslint": "latest",
+    "tsx": "latest",
     "typescript": "latest",
     "typescript-eslint": "latest",
-    "tsx": "latest",
     "vitest": "latest"
   }
 }

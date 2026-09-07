@@ -1,4 +1,4 @@
-import type { PlayerProfile, PlayerPuzzle, Puzzle } from "@/types";
+import type { PlayerProfile, PlayerPuzzle, Puzzle, SignedVideoUpload, Submission } from "@/types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 const phase3aDefaultStats: PlayerProfile["stats"] = {
@@ -73,4 +73,26 @@ export const apiClient = {
     method: "POST",
     body: JSON.stringify({ code }),
   }),
+  signVideoUpload: async (input: { filename: string; mimeType: string; sizeBytes: number }) => request<SignedVideoUpload>("/api/uploads/videos/signed-url", { method: "POST", body: JSON.stringify(input) }),
+  completeVideoUpload: async (videoUploadId: string) => request<{ videoUploadId: string; status: "COMPLETE" }>(`/api/uploads/videos/${encodeURIComponent(videoUploadId)}/complete`, { method: "POST", body: JSON.stringify({}) }),
+  getSubmissions: async () => request<Submission[]>("/api/submissions"),
+  getSubmission: async (submissionId: string) => request<Submission>(`/api/submissions/${encodeURIComponent(submissionId)}`),
+  createSubmission: async (input: { playerPuzzleId: string; completionTimeMs: number; videoUploadId: string }) => request<Submission>("/api/submissions", { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify(input) }),
 };
+
+export function uploadVideoDirectly(signed: SignedVideoUpload, file: File, onProgress: (percent: number) => void) {
+  return new Promise<void>((resolve, reject) => {
+    const form = new FormData();
+    form.set("file", file);
+    form.set("api_key", signed.fields.apiKey);
+    form.set("timestamp", String(signed.fields.timestamp));
+    form.set("public_id", signed.fields.publicId);
+    form.set("signature", signed.fields.signature);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", signed.uploadUrl);
+    xhr.upload.onprogress = (event) => { if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100)); };
+    xhr.onerror = () => reject(new ApiClientError("VIDEO_UPLOAD_NETWORK_ERROR", "Video upload failed.", 0));
+    xhr.onload = () => xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new ApiClientError("VIDEO_UPLOAD_FAILED", "Video upload failed.", xhr.status));
+    xhr.send(form);
+  });
+}

@@ -2,6 +2,8 @@ import type { IdentityRepository, PlayerDto } from "../src/domain/identity.js";
 import { AppError, insufficientPoints } from "../src/domain/errors.js";
 import type { GameStateRepository, PlayerGameState, PointChangeInput, ProgressionLevelConfig, XpGrantInput } from "../src/domain/gameState.js";
 import { parseClaimCode, type DevelopmentPuzzleFixture, type PlayerPuzzleDto, type PuzzleDto, type PuzzleRepository } from "../src/domain/puzzles.js";
+import type { SubmissionDto, SubmissionRepository, VideoUploadRecord } from "../src/domain/submissions.js";
+import type { SignedVideoUpload, VerifiedVideoAsset, VideoStorage } from "../src/storage/videoStorage.js";
 
 interface StoredAccount {
   userId: string;
@@ -160,7 +162,7 @@ export class FakePuzzleRepository implements PuzzleRepository {
   public puzzles = new Map<string, PuzzleDto & { active: boolean }>();
   public prefixes = new Map<string, { puzzleId: string; active: boolean }>();
   public claims: Array<{ playerId: string; puzzleId: string; normalizedCode: string; normalizedPrefix: string; serialNumber: bigint }> = [];
-  public ownerships: Array<{ playerId: string; puzzleId: string; status: PlayerPuzzleDto["status"] }> = [];
+  public ownerships: Array<{ playerPuzzleId?: string; playerId: string; puzzleId: string; status: PlayerPuzzleDto["status"] }> = [];
 
   async getOwnedPuzzles(playerId: string) {
     return this.ownerships
@@ -208,7 +210,8 @@ export class FakePuzzleRepository implements PuzzleRepository {
   private toPlayerPuzzle(puzzleId: string, status: PlayerPuzzleDto["status"]) {
     const puzzle = this.puzzles.get(puzzleId);
     if (!puzzle) throw new Error("missing fake puzzle");
-    return { ...toPublicPuzzle(puzzle), status };
+    const ownership = this.ownerships.find((item) => item.puzzleId === puzzleId && item.status === status);
+    return { ...toPublicPuzzle(puzzle), playerPuzzleId: ownership?.playerPuzzleId ?? `player-puzzle-${puzzleId}`, status };
   }
 }
 
@@ -216,4 +219,54 @@ function toPublicPuzzle(puzzle: PuzzleDto & { active: boolean }): PuzzleDto {
   const { active, ...publicPuzzle } = puzzle;
   void active;
   return publicPuzzle;
+}
+
+export class FakeVideoStorage implements VideoStorage {
+  configured = true;
+  verificationFails = false;
+  signedPublicIds: string[] = [];
+  async signUpload(publicId: string): Promise<SignedVideoUpload> {
+    this.signedPublicIds.push(publicId);
+    return { uploadUrl: "https://example.test/video/upload", fields: { apiKey: "public-test-key", timestamp: 1, publicId, signature: "test-signature" } };
+  }
+  async verifyUpload(publicId: string): Promise<VerifiedVideoAsset> {
+    if (this.verificationFails) throw new AppError("VIDEO_UPLOAD_VERIFICATION_FAILED", "The uploaded video could not be verified.", 422);
+    return { publicId, bytes: 1024, durationMs: 12_500, resourceType: "video" };
+  }
+}
+
+export class FakeSubmissionRepository implements SubmissionRepository {
+  uploads = new Map<string, VideoUploadRecord & { failureCode?: string }>();
+  submissions: SubmissionDto[] = [];
+  private nextUpload = 1;
+  private nextSubmission = 1;
+  constructor(private puzzles: FakePuzzleRepository) {}
+
+  async createVideoUpload(input: { playerId: string; publicId: string; filename: string; mimeType: string; sizeBytes: number; expiresAt: Date }) {
+    const videoUploadId = `10000000-0000-4000-8000-${String(this.nextUpload++).padStart(12, "0")}`;
+    const record: VideoUploadRecord = { videoUploadId, playerId: input.playerId, publicId: input.publicId, mimeType: input.mimeType, declaredSizeBytes: input.sizeBytes, status: "SIGNED", expiresAt: input.expiresAt };
+    this.uploads.set(videoUploadId, record);
+    return record;
+  }
+  async getVideoUpload(videoUploadId: string) { return this.uploads.get(videoUploadId) ?? null; }
+  async completeVideoUpload(videoUploadId: string) { const upload = this.uploads.get(videoUploadId); if (upload) upload.status = "COMPLETE"; }
+  async failVideoUpload(videoUploadId: string, failureCode: string) { const upload = this.uploads.get(videoUploadId); if (upload) { upload.status = "FAILED"; upload.failureCode = failureCode; } }
+  async createSubmission(input: { playerId: string; playerPuzzleId: string; completionTimeMs: number; videoUploadId: string; idempotencyKey?: string }) {
+    const existing = input.idempotencyKey ? this.submissions.find((item) => (item as SubmissionDto & { idempotencyKey?: string }).idempotencyKey === input.idempotencyKey && (item as SubmissionDto & { playerId?: string }).playerId === input.playerId) : undefined;
+    if (existing) return existing;
+    const ownership = this.puzzles.ownerships.find((item) => item.playerId === input.playerId && (item.playerPuzzleId ?? `player-puzzle-${item.puzzleId}`) === input.playerPuzzleId);
+    if (!ownership) throw new AppError("PLAYER_PUZZLE_NOT_FOUND", "Owned puzzle was not found.", 404);
+    const upload = this.uploads.get(input.videoUploadId);
+    if (!upload || upload.playerId !== input.playerId) throw new AppError("VIDEO_UPLOAD_NOT_FOUND", "Video upload was not found.", 404);
+    if (upload.status !== "COMPLETE") throw new AppError("VIDEO_UPLOAD_NOT_COMPLETE", "Video upload has not been verified.", 409);
+    if (this.submissions.some((item) => item.videoUploadId === input.videoUploadId)) throw new AppError("VIDEO_UPLOAD_ALREADY_USED", "Video upload has already been used for a submission.", 409);
+    const puzzle = this.puzzles.puzzles.get(ownership.puzzleId);
+    if (!puzzle?.active) throw new AppError("PLAYER_PUZZLE_NOT_FOUND", "Owned puzzle was not found.", 404);
+    const id = `20000000-0000-4000-8000-${String(this.nextSubmission++).padStart(12, "0")}`;
+    const result = { id, playerPuzzleId: input.playerPuzzleId, puzzleId: puzzle.id, puzzleName: puzzle.name, levelId: puzzle.levelId, completionTimeMs: input.completionTimeMs, completionTime: "02:41", status: "PENDING_REVIEW" as const, createdAt: new Date().toISOString(), videoUploadId: input.videoUploadId, playerId: input.playerId, idempotencyKey: input.idempotencyKey };
+    this.submissions.push(result);
+    return result;
+  }
+  async getSubmissions(playerId: string) { return this.submissions.filter((item) => (item as SubmissionDto & { playerId?: string }).playerId === playerId); }
+  async getSubmission(playerId: string, submissionId: string) { return this.submissions.find((item) => item.id === submissionId && (item as SubmissionDto & { playerId?: string }).playerId === playerId) ?? null; }
 }
