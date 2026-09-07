@@ -34,7 +34,7 @@ Rules:
 - `001` is the serial.
 - The prefix is normalized by trim + uppercase.
 - The serial must be digits only and greater than zero.
-- The serial is stored as `bigint`.
+- The serial is stored as `bigint` and must be no larger than PostgreSQL signed BIGINT max: `9223372036854775807`.
 - `CC-11-18-R1-001` and `CC-11-18-R1-1` are the same physical unit.
 
 The system stores claim prefixes in catalog data and stores physical serials only when claimed.
@@ -92,5 +92,6 @@ Mock mode remains available. API mode calls the real authenticated backend endpo
 ## Known Limits
 
 - No production puzzle catalog import exists yet.
+- With unlimited legacy numeric serials and no manufacturing-range registry, the server can validate format, ownership, and duplicate use, but it cannot prove an unused numeric serial was physically manufactured.
 - No game-event, mission, submission, leaderboard, reward, Cloudinary, admin, Wix, or commerce logic was implemented.
 - Concurrency is protected by transaction ordering and database constraints; this phase did not run a real PostgreSQL concurrent integration test.

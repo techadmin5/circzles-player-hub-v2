@@ -32,7 +32,7 @@ export interface PlayerProfile extends Player {
 export interface Puzzle {
   id: string;
   name: string;
-  sku: string;
+  sku?: string;
   runCode?: string;
   pieceCount?: number;
   sizeLabel?: string;

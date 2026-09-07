@@ -127,6 +127,13 @@ describe("http auth poc", () => {
     expect(res.statusCode).toBe(401);
   });
 
+  it("POST /api/puzzles/claim requires authentication", async () => {
+    const { app } = await appWithFakes();
+    const res = await app.inject({ method: "POST", url: "/api/puzzles/claim", payload: { code: "DEV-MM-R1-001" } });
+    expect(res.statusCode).toBe(401);
+    expect(res.json().code).toBe("UNAUTHORIZED");
+  });
+
   it("POST /api/puzzles/claim rejects browser-supplied player and puzzle ids", async () => {
     const { app } = await appWithFakes({ NODE_ENV: "development" });
     const cookie = await login(app);
@@ -153,5 +160,65 @@ describe("http auth poc", () => {
     expect(owned.statusCode).toBe(200);
     expect(owned.json()).toHaveLength(1);
     expect(owned.json()[0].id).toBe("DEV-PUZZLE-METAMORPHOSIS-R1");
+  });
+
+  it("POST /api/puzzles/claim rejects PostgreSQL bigint overflow without a 500", async () => {
+    const { app } = await appWithFakes({ NODE_ENV: "development" });
+    const cookie = await login(app);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/puzzles/claim",
+      headers: { cookie },
+      payload: { code: "DEV-MM-R1-9223372036854775808" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe("VALIDATION_FAILED");
+  });
+
+  it("GET /api/puzzles/:puzzleId returns the correct active variant", async () => {
+    const { app, puzzleRepo } = await appWithFakes();
+    puzzleRepo.puzzles.set("11111111-1111-4111-8111-111111111111", {
+      id: "11111111-1111-4111-8111-111111111111",
+      name: "Metamorphosis",
+      runCode: "R1",
+      levelId: 18,
+      image: "/puzzles/placeholder.svg",
+      description: "Variant R1",
+      active: true,
+    });
+    puzzleRepo.puzzles.set("22222222-2222-4222-8222-222222222222", {
+      id: "22222222-2222-4222-8222-222222222222",
+      name: "Metamorphosis",
+      runCode: "R2",
+      levelId: 22,
+      image: "/puzzles/placeholder.svg",
+      description: "Variant R2",
+      active: true,
+    });
+    const res = await app.inject({ method: "GET", url: "/api/puzzles/22222222-2222-4222-8222-222222222222" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().id).toBe("22222222-2222-4222-8222-222222222222");
+    expect(res.json().runCode).toBe("R2");
+  });
+
+  it("GET /api/puzzles/:puzzleId returns 404 for unknown or inactive puzzle ids", async () => {
+    const { app, puzzleRepo } = await appWithFakes();
+    puzzleRepo.puzzles.set("33333333-3333-4333-8333-333333333333", {
+      id: "33333333-3333-4333-8333-333333333333",
+      name: "Inactive",
+      runCode: "R1",
+      levelId: 18,
+      image: "/puzzles/placeholder.svg",
+      description: "Inactive variant",
+      active: false,
+    });
+
+    const unknown = await app.inject({ method: "GET", url: "/api/puzzles/44444444-4444-4444-8444-444444444444" });
+    expect(unknown.statusCode).toBe(404);
+    expect(unknown.json().code).toBe("PUZZLE_NOT_FOUND");
+
+    const inactive = await app.inject({ method: "GET", url: "/api/puzzles/33333333-3333-4333-8333-333333333333" });
+    expect(inactive.statusCode).toBe(404);
+    expect(inactive.json().code).toBe("PUZZLE_NOT_FOUND");
   });
 });

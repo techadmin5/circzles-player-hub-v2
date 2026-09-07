@@ -113,7 +113,6 @@ Response:
   "puzzle": {
     "id": "puzzle uuid",
     "name": "Metamorphosis",
-    "sku": "R1",
     "runCode": "R1",
     "pieceCount": 121,
     "sizeLabel": "Standard",

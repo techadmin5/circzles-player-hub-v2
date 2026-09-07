@@ -4,6 +4,7 @@ import { useState } from "react";
 import { CheckCircle2, Plus } from "lucide-react";
 import { puzzleService } from "@/services";
 import { playSound } from "@/hooks/useSound";
+import { ApiClientError } from "@/lib/apiClient";
 
 export function AddPuzzlePanel() {
   const [status, setStatus] = useState<"idle" | "busy" | "ok" | "err">("idle");
@@ -15,14 +16,20 @@ export function AddPuzzlePanel() {
     const code = String(form.get("code") ?? "");
     setStatus("busy");
     playSound("button");
-    const result = await puzzleService.claimByCode(code);
-    if (result.success) {
+    try {
+      const result = await puzzleService.claimByCode(code);
+      if (!result.success) {
+        setStatus("err");
+        setMessage("Enter a valid CircZles physical code.");
+        playSound("error");
+        return;
+      }
       setStatus("ok");
       setMessage(`Added ${result.puzzle.name} to your Player Hub.`);
       playSound("success");
-    } else {
+    } catch (error) {
       setStatus("err");
-      setMessage("Enter a valid CircZles SKU or code from your physical puzzle.");
+      setMessage(claimErrorMessage(error));
       playSound("error");
     }
   }
@@ -48,4 +55,14 @@ export function AddPuzzlePanel() {
       )}
     </div>
   );
+}
+
+function claimErrorMessage(error: unknown) {
+  if (error instanceof ApiClientError) {
+    if (error.code === "PUZZLE_CODE_INVALID" || error.code === "VALIDATION_FAILED") return "Enter a valid CircZles physical code.";
+    if (error.code === "PUZZLE_CODE_ALREADY_CLAIMED") return "This physical code has already been claimed.";
+    if (error.code === "PUZZLE_ALREADY_OWNED") return "This puzzle variant is already in your Player Hub.";
+    if (error.code === "UNAUTHORIZED") return "Sign in again before adding a puzzle.";
+  }
+  return "We could not add that puzzle right now. Try again.";
 }

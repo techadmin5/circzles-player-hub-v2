@@ -9,7 +9,6 @@ type Db = NodePgDatabase<typeof schema>;
 export interface PuzzleDto {
   id: string;
   name: string;
-  sku: string;
   runCode?: string;
   pieceCount?: number;
   sizeLabel?: string;
@@ -92,6 +91,8 @@ export const developmentPuzzleCatalog: DevelopmentPuzzleFixture[] = [
   },
 ];
 
+const POSTGRES_BIGINT_MAX = BigInt("9223372036854775807");
+
 export class PuzzleOwnershipService {
   constructor(private repo: PuzzleRepository) {}
 
@@ -131,7 +132,7 @@ export class DrizzlePuzzleRepository implements PuzzleRepository {
   }
 
   async getPuzzle(puzzleId: string): Promise<PuzzleDto | null> {
-    const rows = await this.db.select().from(puzzles).where(and(eq(puzzles.puzzleId, puzzleId), isNull(puzzles.deletedAt))).limit(1);
+    const rows = await this.db.select().from(puzzles).where(and(eq(puzzles.puzzleId, puzzleId), eq(puzzles.status, "ACTIVE"), isNull(puzzles.deletedAt))).limit(1);
     return rows[0] ? toPuzzleDto(rows[0]) : null;
   }
 
@@ -271,6 +272,9 @@ export function parseClaimCode(code: string): ParsedClaimCode {
   if (serialNumber <= BigInt(0)) {
     throw validationFailed("Puzzle code serial must be greater than zero.");
   }
+  if (serialNumber > POSTGRES_BIGINT_MAX) {
+    throw validationFailed("Puzzle code serial exceeds the maximum supported value.");
+  }
   return {
     normalizedPrefix,
     serialNumber,
@@ -286,7 +290,6 @@ function toPuzzleDto(puzzle: typeof puzzles.$inferSelect): PuzzleDto {
   return {
     id: puzzle.puzzleId,
     name: puzzle.name,
-    sku: puzzle.runCode ?? puzzle.legacyWixId ?? puzzle.puzzleId,
     runCode: puzzle.runCode ?? undefined,
     pieceCount: puzzle.pieceCount ?? undefined,
     sizeLabel: puzzle.sizeLabel ?? undefined,

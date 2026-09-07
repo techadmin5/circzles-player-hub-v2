@@ -157,8 +157,8 @@ export class FakeIdentityRepository implements IdentityRepository {
 }
 
 export class FakePuzzleRepository implements PuzzleRepository {
-  public puzzles = new Map<string, PuzzleDto>();
-  public prefixes = new Map<string, string>();
+  public puzzles = new Map<string, PuzzleDto & { active: boolean }>();
+  public prefixes = new Map<string, { puzzleId: string; active: boolean }>();
   public claims: Array<{ playerId: string; puzzleId: string; normalizedCode: string; normalizedPrefix: string; serialNumber: bigint }> = [];
   public ownerships: Array<{ playerId: string; puzzleId: string; status: PlayerPuzzleDto["status"] }> = [];
 
@@ -169,12 +169,15 @@ export class FakePuzzleRepository implements PuzzleRepository {
   }
 
   async getPuzzle(puzzleId: string) {
-    return this.puzzles.get(puzzleId) ?? null;
+    const puzzle = this.puzzles.get(puzzleId);
+    return puzzle?.active ? toPublicPuzzle(puzzle) : null;
   }
 
   async claimByCode(playerId: string, parsed: ReturnType<typeof parseClaimCode>) {
-    const puzzleId = this.prefixes.get(parsed.normalizedPrefix);
-    if (!puzzleId) throw new AppError("PUZZLE_CODE_INVALID", "Puzzle code is not valid.", 400);
+    const prefix = this.prefixes.get(parsed.normalizedPrefix);
+    if (!prefix?.active) throw new AppError("PUZZLE_CODE_INVALID", "Puzzle code is not valid.", 400);
+    const puzzleId = prefix.puzzleId;
+    if (!this.puzzles.get(puzzleId)?.active) throw new AppError("PUZZLE_CODE_INVALID", "Puzzle code is not valid.", 400);
     const existingPhysical = this.claims.find((claim) => claim.normalizedPrefix === parsed.normalizedPrefix && claim.serialNumber === parsed.serialNumber);
     if (existingPhysical) throw new AppError("PUZZLE_CODE_ALREADY_CLAIMED", "Puzzle code has already been claimed.", 409);
     const existingOwnership = this.ownerships.find((ownership) => ownership.playerId === playerId && ownership.puzzleId === puzzleId);
@@ -190,21 +193,27 @@ export class FakePuzzleRepository implements PuzzleRepository {
       this.puzzles.set(id, {
         id,
         name: fixture.puzzleName,
-        sku: fixture.runCode,
         runCode: fixture.runCode,
         pieceCount: fixture.pieceCount,
         sizeLabel: fixture.sizeLabel,
         levelId: fixture.levelId,
         image: fixture.image,
         description: fixture.description,
+        active: true,
       });
-      this.prefixes.set(parseClaimCode(`${fixture.prefix}-1`).normalizedPrefix, id);
+      this.prefixes.set(parseClaimCode(`${fixture.prefix}-1`).normalizedPrefix, { puzzleId: id, active: true });
     }
   }
 
   private toPlayerPuzzle(puzzleId: string, status: PlayerPuzzleDto["status"]) {
     const puzzle = this.puzzles.get(puzzleId);
     if (!puzzle) throw new Error("missing fake puzzle");
-    return { ...puzzle, status };
+    return { ...toPublicPuzzle(puzzle), status };
   }
+}
+
+function toPublicPuzzle(puzzle: PuzzleDto & { active: boolean }): PuzzleDto {
+  const { active, ...publicPuzzle } = puzzle;
+  void active;
+  return publicPuzzle;
 }
