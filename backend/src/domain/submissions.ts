@@ -8,6 +8,7 @@ import { AppError, validationFailed } from "./errors.js";
 type Db = NodePgDatabase<typeof schema>;
 export const MAX_VIDEO_SIZE_BYTES = 500 * 1024 * 1024;
 export const VIDEO_UPLOAD_TTL_MS = 30 * 60 * 1000;
+export const MAX_COMPLETION_TIME_MS = 2_147_483_647;
 const VIDEO_MIME_TYPES = new Set(["video/mp4", "video/quicktime", "video/webm", "video/x-m4v"]);
 
 export interface VideoUploadRecord {
@@ -38,6 +39,7 @@ export interface SubmissionRepository {
   getVideoUpload(videoUploadId: string): Promise<VideoUploadRecord | null>;
   completeVideoUpload(videoUploadId: string, asset: VerifiedVideoAsset): Promise<void>;
   failVideoUpload(videoUploadId: string, failureCode: string): Promise<void>;
+  expireVideoUpload(videoUploadId: string): Promise<void>;
   createSubmission(input: { playerId: string; playerPuzzleId: string; completionTimeMs: number; videoUploadId: string; idempotencyKey?: string }): Promise<SubmissionDto>;
   getSubmissions(playerId: string): Promise<SubmissionDto[]>;
   getSubmission(playerId: string, submissionId: string): Promise<SubmissionDto | null>;
@@ -65,7 +67,11 @@ export class SubmissionService {
     const upload = await this.repo.getVideoUpload(videoUploadId);
     if (!upload || upload.playerId !== playerId) throw new AppError("VIDEO_UPLOAD_NOT_FOUND", "Video upload was not found.", 404);
     if (upload.status === "COMPLETE") return { videoUploadId, status: "COMPLETE" as const };
-    if (upload.status !== "SIGNED" || upload.expiresAt <= new Date()) throw new AppError("VIDEO_UPLOAD_NOT_FINALIZABLE", "Video upload cannot be finalized.", 409);
+    if (upload.status === "SIGNED" && upload.expiresAt <= new Date()) {
+      await this.repo.expireVideoUpload(videoUploadId);
+      throw new AppError("VIDEO_UPLOAD_NOT_FINALIZABLE", "Video upload cannot be finalized.", 409);
+    }
+    if (upload.status !== "SIGNED") throw new AppError("VIDEO_UPLOAD_NOT_FINALIZABLE", "Video upload cannot be finalized.", 409);
     try {
       const asset = await this.storage.verifyUpload(upload.publicId);
       if (asset.bytes <= 0 || asset.bytes > MAX_VIDEO_SIZE_BYTES) throw new AppError("VIDEO_UPLOAD_SIZE_INVALID", "Verified video size is outside the allowed limit.", 422);
@@ -78,6 +84,9 @@ export class SubmissionService {
   }
 
   createSubmission(playerId: string, input: { playerPuzzleId: string; completionTimeMs: number; videoUploadId: string }, idempotencyKey?: string) {
+    if (!Number.isInteger(input.completionTimeMs) || input.completionTimeMs <= 0 || input.completionTimeMs > MAX_COMPLETION_TIME_MS) {
+      throw validationFailed(`Completion time must be an integer between 1 and ${MAX_COMPLETION_TIME_MS} milliseconds.`);
+    }
     return this.repo.createSubmission({ playerId, ...input, idempotencyKey });
   }
   getSubmissions(playerId: string) { return this.repo.getSubmissions(playerId); }
@@ -105,6 +114,9 @@ export class DrizzleSubmissionRepository implements SubmissionRepository {
   async failVideoUpload(videoUploadId: string, failureCode: string) {
     await this.db.update(videoUploads).set({ status: "FAILED", failureCode }).where(eq(videoUploads.videoUploadId, videoUploadId));
   }
+  async expireVideoUpload(videoUploadId: string) {
+    await this.db.update(videoUploads).set({ status: "EXPIRED" }).where(eq(videoUploads.videoUploadId, videoUploadId));
+  }
 
   async createSubmission(input: { playerId: string; playerPuzzleId: string; completionTimeMs: number; videoUploadId: string; idempotencyKey?: string }) {
     try {
@@ -126,6 +138,16 @@ export class DrizzleSubmissionRepository implements SubmissionRepository {
       });
     } catch (error) {
       const pgError = error as { code?: string; constraint?: string };
+      if (pgError.code === "23505" && input.idempotencyKey) {
+        const [existing] = await selectSubmissions(this.db).where(and(eq(submissions.playerId, input.playerId), eq(submissions.idempotencyKey, input.idempotencyKey))).limit(1);
+        if (existing) {
+          if (existing.submission.playerPuzzleId !== input.playerPuzzleId || existing.submission.completionTimeMs !== input.completionTimeMs || existing.submission.videoUploadId !== input.videoUploadId) {
+            throw new AppError("IDEMPOTENCY_CONFLICT", "Idempotency key was already used for a different submission.", 409);
+          }
+          return toSubmissionDto(existing);
+        }
+        if (pgError.constraint === "submissions_player_id_idempotency_key_unique") throw new AppError("SUBMISSION_CREATE_FAILED", "Submission could not be created.", 409);
+      }
       if (pgError.code === "23505" && pgError.constraint === "submissions_video_upload_id_unique") throw new AppError("VIDEO_UPLOAD_ALREADY_USED", "Video upload has already been used for a submission.", 409);
       throw error;
     }

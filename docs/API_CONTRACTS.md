@@ -278,6 +278,6 @@ All endpoints below require the authenticated session cookie. The server derives
 - `POST /api/uploads/videos/:videoUploadId/complete` accepts no asset claims. The backend verifies the expected video with the storage provider, records authoritative bytes/duration, and marks the upload `COMPLETE`.
 - `GET /api/submissions` returns only the current player's submissions, newest first.
 - `GET /api/submissions/:submissionId` returns only the current player's submission; unknown and foreign IDs return `SUBMISSION_NOT_FOUND`.
-- `POST /api/submissions` accepts strict JSON `{ "playerPuzzleId", "completionTimeMs", "videoUploadId" }` and optional `Idempotency-Key`. The server derives canonical `puzzleId` and `levelId` from active ownership and creates `PENDING_REVIEW` only after video verification.
+- `POST /api/submissions` accepts strict JSON `{ "playerPuzzleId", "completionTimeMs", "videoUploadId" }` and optional `Idempotency-Key`. `completionTimeMs` must be from 1 through PostgreSQL integer maximum `2147483647`. The server derives canonical `puzzleId` and `levelId` from active ownership and creates `PENDING_REVIEW` only after video verification. Clients reuse one idempotency key while retrying the same logical attempt; changing puzzle, time, or video requires a new key.
 
 Browser-supplied `playerId`, `puzzleId`, `levelId`, status, XP, points, and rewards are rejected. Upload failures use controlled codes including `VIDEO_STORAGE_NOT_CONFIGURED`, `VIDEO_UPLOAD_NOT_FOUND`, `VIDEO_UPLOAD_VERIFICATION_FAILED`, and `VIDEO_UPLOAD_ALREADY_USED`.

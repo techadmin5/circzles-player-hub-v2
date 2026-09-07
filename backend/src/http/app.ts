@@ -8,7 +8,7 @@ import type { IdentityService, PlayerDto } from "../domain/identity.js";
 import { AppError, forbidden, unauthorized, validationFailed } from "../domain/errors.js";
 import type { GameStateService } from "../domain/gameState.js";
 import type { PuzzleOwnershipService } from "../domain/puzzles.js";
-import type { SubmissionService } from "../domain/submissions.js";
+import { MAX_COMPLETION_TIME_MS, type SubmissionService } from "../domain/submissions.js";
 import { SESSION_COOKIE_NAME } from "../domain/sessions.js";
 
 export interface AppDeps {
@@ -40,7 +40,7 @@ const uuidParamsSchema = z.object({ submissionId: z.string().uuid() }).strict();
 const videoUploadParamsSchema = z.object({ videoUploadId: z.string().uuid() }).strict();
 const createSubmissionBodySchema = z.object({
   playerPuzzleId: z.string().uuid(),
-  completionTimeMs: z.number().int().positive(),
+  completionTimeMs: z.number().int().positive().max(MAX_COMPLETION_TIME_MS),
   videoUploadId: z.string().uuid(),
 }).strict();
 

@@ -251,9 +251,13 @@ export class FakeSubmissionRepository implements SubmissionRepository {
   async getVideoUpload(videoUploadId: string) { return this.uploads.get(videoUploadId) ?? null; }
   async completeVideoUpload(videoUploadId: string) { const upload = this.uploads.get(videoUploadId); if (upload) upload.status = "COMPLETE"; }
   async failVideoUpload(videoUploadId: string, failureCode: string) { const upload = this.uploads.get(videoUploadId); if (upload) { upload.status = "FAILED"; upload.failureCode = failureCode; } }
+  async expireVideoUpload(videoUploadId: string) { const upload = this.uploads.get(videoUploadId); if (upload) upload.status = "EXPIRED"; }
   async createSubmission(input: { playerId: string; playerPuzzleId: string; completionTimeMs: number; videoUploadId: string; idempotencyKey?: string }) {
     const existing = input.idempotencyKey ? this.submissions.find((item) => (item as SubmissionDto & { idempotencyKey?: string }).idempotencyKey === input.idempotencyKey && (item as SubmissionDto & { playerId?: string }).playerId === input.playerId) : undefined;
-    if (existing) return existing;
+    if (existing) {
+      if (existing.playerPuzzleId !== input.playerPuzzleId || existing.completionTimeMs !== input.completionTimeMs || existing.videoUploadId !== input.videoUploadId) throw new AppError("IDEMPOTENCY_CONFLICT", "Idempotency key was already used for a different submission.", 409);
+      return existing;
+    }
     const ownership = this.puzzles.ownerships.find((item) => item.playerId === input.playerId && (item.playerPuzzleId ?? `player-puzzle-${item.puzzleId}`) === input.playerPuzzleId);
     if (!ownership) throw new AppError("PLAYER_PUZZLE_NOT_FOUND", "Owned puzzle was not found.", 404);
     const upload = this.uploads.get(input.videoUploadId);

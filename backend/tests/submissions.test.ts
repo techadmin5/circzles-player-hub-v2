@@ -73,6 +73,26 @@ describe("submission pipeline", () => {
     expect(created).toMatchObject({ status: "PENDING_REVIEW", puzzleId: "DEV-PUZZLE-METAMORPHOSIS-R2", levelId: 22, completionTimeMs: 161234 });
   });
 
+  it("replays the same idempotency key and payload as the same submission", async () => {
+    const { service } = await setup();
+    const input = { playerPuzzleId: "30000000-0000-4000-8000-000000000001", completionTimeMs: 161000, videoUploadId: await verifiedUpload(service) };
+    const first = await service.createSubmission("player-1", input, "submission-retry-1");
+    const replay = await service.createSubmission("player-1", input, "submission-retry-1");
+    expect(replay.id).toBe(first.id);
+  });
+
+  it("rejects a reused idempotency key with different submission data", async () => {
+    const { service } = await setup();
+    const videoUploadId = await verifiedUpload(service);
+    await service.createSubmission("player-1", { playerPuzzleId: "30000000-0000-4000-8000-000000000001", completionTimeMs: 161000, videoUploadId }, "submission-retry-2");
+    await expect(service.createSubmission("player-1", { playerPuzzleId: "30000000-0000-4000-8000-000000000001", completionTimeMs: 162000, videoUploadId }, "submission-retry-2")).rejects.toMatchObject({ code: "IDEMPOTENCY_CONFLICT", statusCode: 409 });
+  });
+
+  it("rejects completion time above the PostgreSQL integer maximum at the domain boundary", async () => {
+    const { service } = await setup();
+    expect(() => service.createSubmission("player-1", { playerPuzzleId: "30000000-0000-4000-8000-000000000001", completionTimeMs: 2_147_483_648, videoUploadId: "upload" })).toThrow(expect.objectContaining({ code: "VALIDATION_FAILED" }));
+  });
+
   it("rejects foreign ownership, foreign/incomplete uploads, and video reuse", async () => {
     const { service } = await setup();
     const videoUploadId = await verifiedUpload(service);

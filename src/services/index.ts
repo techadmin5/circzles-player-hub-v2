@@ -41,7 +41,7 @@ export const puzzleService = {
 export const submissionService = {
   async getSubmissions() { if (canUseBrowserApi()) return apiClient.getSubmissions(); await mockDelay(); return submissions; },
   async getSubmission(id: string) { if (canUseBrowserApi()) return apiClient.getSubmission(id); await mockDelay(); return submissions.find((s) => s.id === id) ?? submissions[0]; },
-  async createSubmission(input: { playerPuzzleId: string; completionTimeMs: number; videoUploadId: string }) { if (canUseBrowserApi()) return apiClient.createSubmission(input); await mockDelay(); return { ...submissions[0], id: "sub-new", status: "PENDING_REVIEW" as const, ...input }; },
+  async createSubmission(input: { playerPuzzleId: string; completionTimeMs: number; videoUploadId: string }, idempotencyKey: string) { if (canUseBrowserApi()) return apiClient.createSubmission(input, idempotencyKey); await mockDelay(); return { ...submissions[0], id: "sub-new", status: "PENDING_REVIEW" as const, ...input }; },
 };
 
 export const leaderboardService = { async getLeaderboard(filters?: Partial<LeaderboardFilter>) { await mockDelay(); void filters; return { entries: leaderboard, yourRank: 18 }; } };

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { CheckCircle2, ChevronRight, Clock, Film, ListChecks, Send, Trophy, Upload } from "lucide-react";
 import type { ReactNode } from "react";
@@ -45,6 +45,7 @@ export function SubmissionStepper({ puzzles: initialPuzzles }: { puzzles: Puzzle
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const idempotencyKey = useRef<string | null>(null);
   const active = STEPS[step];
   const selected = puzzles.find((p) => (p.playerPuzzleId ?? p.id) === selectedId);
 
@@ -54,6 +55,7 @@ export function SubmissionStepper({ puzzles: initialPuzzles }: { puzzles: Puzzle
       const options = items.map((p) => ({ id: p.id, playerPuzzleId: p.playerPuzzleId, name: p.name, levelId: p.levelId }));
       setPuzzles(options);
       setSelectedId(options[0]?.playerPuzzleId ?? "");
+      idempotencyKey.current = null;
     }).catch(() => setError("Owned puzzles could not be loaded. Sign in and try again."));
   }, []);
 
@@ -67,6 +69,7 @@ export function SubmissionStepper({ puzzles: initialPuzzles }: { puzzles: Puzzle
         await apiClient.completeVideoUpload(signed.videoUploadId);
         setVideoUploadId(signed.videoUploadId);
       } else { setProgress(100); setVideoUploadId("mock-video-upload"); }
+      idempotencyKey.current = null;
       setStep(4); playSound("success");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Video upload failed. Try again."); playSound("error"); }
     finally { setBusy(false); }
@@ -76,7 +79,8 @@ export function SubmissionStepper({ puzzles: initialPuzzles }: { puzzles: Puzzle
     const completionTimeMs = parseCompletionTime(time);
     if (!selectedId || !completionTimeMs || !videoUploadId) { setError("Select a puzzle, enter a valid time, and upload a video."); return; }
     setBusy(true); setError("");
-    try { await submissionService.createSubmission({ playerPuzzleId: selectedId, completionTimeMs, videoUploadId }); setSubmitted(true); playSound("success"); }
+    idempotencyKey.current ??= crypto.randomUUID();
+    try { await submissionService.createSubmission({ playerPuzzleId: selectedId, completionTimeMs, videoUploadId }, idempotencyKey.current); setSubmitted(true); playSound("success"); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Submission failed. Try again."); playSound("error"); }
     finally { setBusy(false); }
   }
@@ -96,9 +100,9 @@ export function SubmissionStepper({ puzzles: initialPuzzles }: { puzzles: Puzzle
     <ol className="cz-surface grid gap-1 p-2">{STEPS.map((item, index) => <li key={item.key}><button disabled={busy} onClick={() => setStep(index)} data-testid={`step-${item.key}`} className={cn("flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm", index === step ? "bg-[var(--cz-aqua-dim)]" : "text-[var(--cz-text-secondary)]")}><span className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-[var(--cz-hairline-strong)]">{index < step ? <CheckCircle2 size={15} /> : index + 1}</span><span className="cz-display font-medium">{item.title}</span></button></li>)}</ol>
     <div className="cz-surface flex flex-col gap-4 p-5"><div className="flex items-center gap-2 text-[var(--cz-aqua)]">{active.icon}<span className="text-xs font-semibold uppercase tracking-wide">Step {step + 1} of {STEPS.length}</span></div><h2 className="cz-display text-2xl font-bold">{active.title}</h2><p className="text-sm text-[var(--cz-text-secondary)]">{active.body}</p>
       <div className="cz-inset grid gap-3 p-4">
-        {active.key === "puzzle" && <div className="grid gap-2 sm:grid-cols-2">{puzzles.map((p) => <button key={p.playerPuzzleId ?? p.id} onClick={() => setSelectedId(p.playerPuzzleId ?? p.id)} className={cn("rounded-xl border px-3 py-2.5 text-left text-sm", selectedId === (p.playerPuzzleId ?? p.id) ? "border-[rgba(61,234,212,0.4)] bg-[var(--cz-aqua-dim)]" : "border-[var(--cz-hairline)]")}><span className="cz-display block font-semibold">{p.name}</span><span className="text-xs text-[var(--cz-text-tertiary)]">levelId {p.levelId}</span></button>)}</div>}
-        {active.key === "time" && <input aria-label="Completion time" value={time} onChange={(event) => setTime(event.target.value)} className="min-h-11 rounded-xl border border-[var(--cz-hairline-strong)] bg-black/20 px-3 text-lg outline-none" placeholder="MM:SS.mmm" />}
-        {active.key === "video" && <label className="inline-flex min-h-24 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--cz-hairline-strong)] text-sm text-[var(--cz-text-secondary)]"><Film size={22} />{file?.name ?? "Select solve video"}<input className="sr-only" type="file" accept="video/mp4,video/quicktime,video/webm,video/x-m4v" onChange={(event) => { setFile(event.target.files?.[0] ?? null); setVideoUploadId(""); }} /></label>}
+        {active.key === "puzzle" && <div className="grid gap-2 sm:grid-cols-2">{puzzles.map((p) => <button key={p.playerPuzzleId ?? p.id} onClick={() => { setSelectedId(p.playerPuzzleId ?? p.id); idempotencyKey.current = null; }} className={cn("rounded-xl border px-3 py-2.5 text-left text-sm", selectedId === (p.playerPuzzleId ?? p.id) ? "border-[rgba(61,234,212,0.4)] bg-[var(--cz-aqua-dim)]" : "border-[var(--cz-hairline)]")}><span className="cz-display block font-semibold">{p.name}</span><span className="text-xs text-[var(--cz-text-tertiary)]">levelId {p.levelId}</span></button>)}</div>}
+        {active.key === "time" && <input aria-label="Completion time" value={time} onChange={(event) => { setTime(event.target.value); idempotencyKey.current = null; }} className="min-h-11 rounded-xl border border-[var(--cz-hairline-strong)] bg-black/20 px-3 text-lg outline-none" placeholder="MM:SS.mmm" />}
+        {active.key === "video" && <label className="inline-flex min-h-24 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--cz-hairline-strong)] text-sm text-[var(--cz-text-secondary)]"><Film size={22} />{file?.name ?? "Select solve video"}<input className="sr-only" type="file" accept="video/mp4,video/quicktime,video/webm,video/x-m4v" onChange={(event) => { setFile(event.target.files?.[0] ?? null); setVideoUploadId(""); idempotencyKey.current = null; }} /></label>}
         {active.key === "upload" && <div><div className="cz-track"><div className="cz-track-fill" style={{ width: `${progress}%` }} /></div><p className="mt-2 text-xs text-[var(--cz-text-tertiary)]">{busy ? `Uploading ${progress}%` : videoUploadId ? "Upload verified." : "Ready to upload and verify."}</p></div>}
         {active.key === "review" && <ul className="grid gap-1.5 text-sm text-[var(--cz-text-secondary)]"><li>Puzzle: <span className="text-[var(--cz-text-primary)]">{selected?.name}</span></li><li>Completion time: <span className="cz-num text-[var(--cz-text-primary)]">{time}</span></li><li>Video: <span className="text-[var(--cz-text-primary)]">{file?.name}</span></li></ul>}
         {active.key === "submit" && <p className="text-sm text-[var(--cz-text-secondary)]">Ready to submit for verification.</p>}

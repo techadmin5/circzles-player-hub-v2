@@ -257,6 +257,14 @@ describe("http auth poc", () => {
     expect(res.json().code).toBe("VALIDATION_FAILED");
   });
 
+  it("rejects completion time above the PostgreSQL integer maximum", async () => {
+    const { app } = await appWithFakes({ NODE_ENV: "development" });
+    const cookie = await login(app);
+    const res = await app.inject({ method: "POST", url: "/api/submissions", headers: { cookie }, payload: { playerPuzzleId: "30000000-0000-4000-8000-000000000001", completionTimeMs: 2_147_483_648, videoUploadId: "10000000-0000-4000-8000-000000000001" } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe("VALIDATION_FAILED");
+  });
+
   it("signs, finalizes, and submits through authenticated routes", async () => {
     const { app, puzzleRepo } = await appWithFakes({ NODE_ENV: "development" });
     const cookie = await login(app);
