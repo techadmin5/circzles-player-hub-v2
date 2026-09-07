@@ -13,7 +13,7 @@ The frontend currently depends on Promise-based service facades in `src/services
 - `playerService.renameDisplayName(displayName)`
 - `puzzleService.getOwnedPuzzles()`
 - `puzzleService.getPuzzle(id)`
-- `puzzleService.claimBySku(sku)`
+- `puzzleService.claimByCode(code)`
 - `submissionService.getSubmissions()`
 - `submissionService.getSubmission(id)`
 - `submissionService.createSubmission(input)`
@@ -109,6 +109,8 @@ Existing Wix members map to `users.wix_member_id`. Each ordinary player user has
 - `internalId` maps to database UUIDs.
 - `publicPlayerId` is permanent, unique, searchable, and not changed by Rename Cards.
 - `displayName` is renameable and may change through a Rename Card or profile settings.
+- `puzzleId` is the stable playable puzzle variant UUID. A design/name may have multiple playable variants with separate ownership, submissions, and leaderboards.
+- Physical puzzle claim codes use the final hyphen segment as the serial and everything before it as the prefix. Code prefixes map to playable puzzle variants; serials are recorded only when claimed.
 
 ## Provider Boundaries
 
@@ -164,7 +166,7 @@ The intended submission media flow remains:
 - Coupon grant
 - Admin point/XP correction
 - Friend request acceptance
-- Puzzle claim by SKU
+- Puzzle claim by physical code
 
 Each operation must commit or roll back all resulting ledgers, inventory grants, mission progress, leaderboard updates, notifications, and audit records together.
 

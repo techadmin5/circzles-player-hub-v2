@@ -4,7 +4,7 @@ import { PublicShell } from "@/components/public/PublicShell";
 
 const FLOW = [
   { icon: <Puzzle size={16} />, label: "Own a physical CircZles puzzle" },
-  { icon: <ScanLine size={16} />, label: "Add it with its SKU / code" },
+  { icon: <ScanLine size={16} />, label: "Add it with its physical code" },
   { icon: <Upload size={16} />, label: "Solve, record & submit your attempt" },
   { icon: <Award size={16} />, label: "Get verified · earn XP & Synapse Points" },
   { icon: <Trophy size={16} />, label: "Climb leaderboards & progression ranks" },

@@ -65,27 +65,69 @@ Purpose: optional private profile fields and settings.
 
 Columns: `player_profile_id` PK, `player_id` FK unique, `first_name`, `last_name`, `notification_settings jsonb`, `sound_settings jsonb`, `created_at`, `updated_at`.
 
+### puzzle_designs
+
+Purpose: reusable puzzle design/art identity. A single design/name can have multiple playable puzzle variants.
+
+Columns: `puzzle_design_id` PK, `legacy_wix_id`, `name`, `description`, `artwork`, `status`, `created_at`, `updated_at`, `deleted_at`.
+
+Indexes: unique `legacy_wix_id`, `status`.
+
+Phase 3C status: implemented.
+
 ### puzzles
 
-Purpose: canonical puzzle catalog.
+Purpose: canonical playable puzzle variant catalog.
 
-Columns: `puzzle_id` PK, `legacy_wix_id`, `name`, `sku`, `level_id int`, `artwork_object_key`, `description`, `status`, `created_at`, `updated_at`, `deleted_at`.
+Columns: `puzzle_id` PK, `puzzle_design_id` FK, `legacy_wix_id`, `name`, `run_code`, `piece_count`, `size_label`, `level_id int`, `image`, `description`, `status`, `created_at`, `updated_at`, `deleted_at`.
 
-Rules: `level_id` is puzzle difficulty. Do not rename to `levelNumber`.
+Rules: `puzzle_id` is the stable playable variant id. The same design/name may have multiple playable variants with separate `puzzle_id` values, ownership, submissions, and leaderboards. `level_id` is puzzle difficulty. Do not rename to `levelNumber`.
 
-Constraints: unique `sku`, CHECK `level_id > 0`.
+Constraints: unique `legacy_wix_id`, CHECK `level_id > 0`, CHECK `piece_count is null or piece_count > 0`.
 
-Indexes: `puzzles(level_id)`, `puzzles(sku)`, `puzzles(legacy_wix_id)`.
+Indexes: `puzzles(puzzle_design_id)`, `puzzles(level_id)`, `puzzles(status)`, `puzzles(legacy_wix_id)`.
+
+Phase 3C status: implemented.
+
+### puzzle_claim_prefixes
+
+Purpose: active code prefix catalog. Prefixes map physical code families to playable puzzle variants without storing every serial in advance.
+
+Columns: `puzzle_claim_prefix_id` PK, `puzzle_id` FK, `prefix`, `normalized_prefix`, `active`, `created_at`, `updated_at`, `deleted_at`.
+
+Rules: for a code like `CC-11-18-R1-001`, `CC-11-18-R1` is the prefix and `001` is the serial. Prefixes are normalized by trim + uppercase.
+
+Constraints: unique usable `normalized_prefix` through a partial unique index where `deleted_at is null`.
+
+Indexes: `puzzle_claim_prefixes(puzzle_id)`, `puzzle_claim_prefixes(active)`.
+
+Phase 3C status: implemented.
+
+### puzzle_claims
+
+Purpose: record physical puzzle-unit claims as players redeem printed codes.
+
+Columns: `puzzle_claim_id` PK, `puzzle_claim_prefix_id` FK, `puzzle_id` FK, `player_id` FK, `serial_number bigint`, `normalized_code`, `claimed_at`, `created_at`.
+
+Rules: serial is the final hyphen segment, digits only, greater than zero, stored as `bigint`. Leading zeroes do not create distinct units; `CC-11-18-R1-001` and `CC-11-18-R1-1` are the same `normalized_code`.
+
+Constraints: unique `(puzzle_claim_prefix_id, serial_number)`, unique `normalized_code`, CHECK `serial_number > 0`.
+
+Indexes: `puzzle_claims(player_id)`, `puzzle_claims(puzzle_id)`.
+
+Phase 3C status: implemented.
 
 ### player_puzzles
 
 Purpose: puzzle ownership.
 
-Columns: `player_puzzle_id` PK, `player_id` FK, `puzzle_id` FK, `legacy_wix_id`, `source`, `status`, `claimed_at`, `created_at`, `updated_at`, `deleted_at`.
+Columns: `player_puzzle_id` PK, `player_id` FK, `puzzle_id` FK, `puzzle_claim_id` FK nullable, `legacy_wix_id`, `source`, `status`, `claimed_at`, `created_at`, `updated_at`, `deleted_at`.
 
-Constraints: unique active ownership on `(player_id, puzzle_id)`.
+Constraints: unique active ownership on `(player_id, puzzle_id)`, unique `puzzle_claim_id` when present.
 
 Indexes: `player_puzzles(player_id)`, `player_puzzles(puzzle_id)`.
+
+Phase 3C status: implemented. Code-claim ownership is created in the same transaction as `puzzle_claims`, so a failed ownership insert does not consume a physical code.
 
 ### submissions
 
@@ -146,6 +188,8 @@ Columns: `progression_level_id` PK, `progression_level int unique`, `rank_name`,
 Rules: progression level is not puzzle `level_id`.
 
 Phase 3B status: implemented. `db:migrate` creates the schema only. `seed:dev` inserts all nine current rank names with temporary configuration values so backend calculations are data-driven in development. These seed values are not final business approval.
+
+Phase 3C seed note: `db:migrate` remains schema-only. `seed:dev` now also inserts temporary development puzzle catalog rows and initializes the dev player; it is the only place the placeholder two-variant puzzle catalog is inserted.
 
 ### player_progression
 

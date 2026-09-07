@@ -33,6 +33,9 @@ export interface Puzzle {
   id: string;
   name: string;
   sku: string;
+  runCode?: string;
+  pieceCount?: number;
+  sizeLabel?: string;
   levelId: number;
   image: string;
   description: string;

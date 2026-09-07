@@ -12,10 +12,10 @@ export function AddPuzzlePanel() {
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
-    const sku = String(form.get("sku") ?? "");
+    const code = String(form.get("code") ?? "");
     setStatus("busy");
     playSound("button");
-    const result = await puzzleService.claimBySku(sku);
+    const result = await puzzleService.claimByCode(code);
     if (result.success) {
       setStatus("ok");
       setMessage(`Added ${result.puzzle.name} to your Player Hub.`);
@@ -33,11 +33,11 @@ export function AddPuzzlePanel() {
         <span className="grid h-9 w-9 place-items-center rounded-lg border border-[rgba(61,234,212,0.3)] bg-[var(--cz-aqua-dim)] text-[var(--cz-aqua)]"><Plus size={17} /></span>
         <div>
           <h2 className="cz-display text-base font-bold">Add a Puzzle</h2>
-          <p className="text-xs text-[var(--cz-text-tertiary)]">Enter the SKU / code printed on your physical CircZles puzzle.</p>
+          <p className="text-xs text-[var(--cz-text-tertiary)]">Enter the physical code printed on your CircZles puzzle.</p>
         </div>
       </div>
       <form onSubmit={onSubmit} className="flex flex-col gap-2 sm:flex-row">
-        <input name="sku" aria-label="CircZles SKU or code" placeholder="CZ-LION-100" data-testid="add-puzzle-input"
+        <input name="code" aria-label="CircZles code" placeholder="CC-11-18-R1-001" data-testid="add-puzzle-input"
           className="min-h-11 flex-1 rounded-xl border border-[var(--cz-hairline-strong)] bg-[var(--cz-inset)] px-3.5 text-sm outline-none placeholder:text-[var(--cz-text-tertiary)] focus:border-[var(--cz-aqua)]" />
         <button type="submit" className="cz-btn cz-btn-primary" disabled={status === "busy"} data-testid="add-puzzle-submit">{status === "busy" ? "Adding…" : "Add Puzzle"}</button>
       </form>

@@ -24,20 +24,28 @@
 
 ## Collection Mappings
 
-### Import1 / Puzzles -> puzzles
+### Import1 / Puzzles -> puzzle_designs, puzzles, puzzle_claim_prefixes
 
 Map:
 
-- Wix `_id` -> `puzzles.legacy_wix_id`
-- puzzle name -> `name`
-- SKU/code -> `sku`
+- Wix design/source `_id` -> `puzzle_designs.legacy_wix_id` or `puzzles.legacy_wix_id`, depending on source granularity
+- puzzle name/design -> `puzzle_designs.name`
+- playable puzzle variant -> `puzzles.puzzle_id`
+- run/variant code -> `puzzles.run_code`
+- piece count -> `puzzles.piece_count`
+- size label -> `puzzles.size_label`
 - existing puzzle level field -> `level_id`
 - image/media -> object storage reference or migrated URL metadata
+- code prefix, if present -> `puzzle_claim_prefixes.prefix` and normalized uppercase `normalized_prefix`
 
 Validation:
 
-- all active puzzle SKUs unique
+- every playable puzzle variant has its own `puzzle_id`, even when the public design/name is the same
+- all usable claim prefixes are globally unique by normalized prefix
 - all puzzle records have valid `level_id`
+- physical code serials are not preloaded; claimed serials are written later to `puzzle_claims`
+
+Physical code parsing rule: for `CC-11-18-R1-001`, `CC-11-18-R1` is the prefix and `001` is the serial. The serial is digits only and normalizes through bigint, so `001` and `1` are the same physical unit.
 
 ### PlayerStats -> users, players, wallets, player_progression
 
@@ -131,6 +139,7 @@ Required checks before cutover:
 - unique public Player IDs preserved
 - puzzle count and SKU uniqueness
 - total puzzle ownership count after duplicate normalization
+- claim prefix uniqueness and sample code parsing
 - submission count
 - approved submission count
 - submissions missing `level_id` after derivation equals zero, excluding quarantined records

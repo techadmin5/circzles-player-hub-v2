@@ -1,6 +1,7 @@
 import type { IdentityRepository, PlayerDto } from "../src/domain/identity.js";
 import { AppError, insufficientPoints } from "../src/domain/errors.js";
 import type { GameStateRepository, PlayerGameState, PointChangeInput, ProgressionLevelConfig, XpGrantInput } from "../src/domain/gameState.js";
+import { parseClaimCode, type DevelopmentPuzzleFixture, type PlayerPuzzleDto, type PuzzleDto, type PuzzleRepository } from "../src/domain/puzzles.js";
 
 interface StoredAccount {
   userId: string;
@@ -152,5 +153,58 @@ export class FakeIdentityRepository implements IdentityRepository {
     const session = this.sessions.find((item) => item.tokenHash === tokenHash && item.expiresAt > now);
     if (!session) return null;
     return this.accounts.find((item) => item.userId === session.userId)?.player ?? null;
+  }
+}
+
+export class FakePuzzleRepository implements PuzzleRepository {
+  public puzzles = new Map<string, PuzzleDto>();
+  public prefixes = new Map<string, string>();
+  public claims: Array<{ playerId: string; puzzleId: string; normalizedCode: string; normalizedPrefix: string; serialNumber: bigint }> = [];
+  public ownerships: Array<{ playerId: string; puzzleId: string; status: PlayerPuzzleDto["status"] }> = [];
+
+  async getOwnedPuzzles(playerId: string) {
+    return this.ownerships
+      .filter((ownership) => ownership.playerId === playerId)
+      .map((ownership) => this.toPlayerPuzzle(ownership.puzzleId, ownership.status));
+  }
+
+  async getPuzzle(puzzleId: string) {
+    return this.puzzles.get(puzzleId) ?? null;
+  }
+
+  async claimByCode(playerId: string, parsed: ReturnType<typeof parseClaimCode>) {
+    const puzzleId = this.prefixes.get(parsed.normalizedPrefix);
+    if (!puzzleId) throw new AppError("PUZZLE_CODE_INVALID", "Puzzle code is not valid.", 400);
+    const existingPhysical = this.claims.find((claim) => claim.normalizedPrefix === parsed.normalizedPrefix && claim.serialNumber === parsed.serialNumber);
+    if (existingPhysical) throw new AppError("PUZZLE_CODE_ALREADY_CLAIMED", "Puzzle code has already been claimed.", 409);
+    const existingOwnership = this.ownerships.find((ownership) => ownership.playerId === playerId && ownership.puzzleId === puzzleId);
+    if (existingOwnership) throw new AppError("PUZZLE_ALREADY_OWNED", "Player already owns this puzzle variant.", 409);
+    this.claims.push({ playerId, puzzleId, normalizedCode: parsed.normalizedCode, normalizedPrefix: parsed.normalizedPrefix, serialNumber: parsed.serialNumber });
+    this.ownerships.push({ playerId, puzzleId, status: "OWNED" });
+    return this.toPlayerPuzzle(puzzleId, "OWNED");
+  }
+
+  async seedDevelopmentCatalog(fixtures: DevelopmentPuzzleFixture[]) {
+    for (const fixture of fixtures) {
+      const id = fixture.puzzleLegacyWixId;
+      this.puzzles.set(id, {
+        id,
+        name: fixture.puzzleName,
+        sku: fixture.runCode,
+        runCode: fixture.runCode,
+        pieceCount: fixture.pieceCount,
+        sizeLabel: fixture.sizeLabel,
+        levelId: fixture.levelId,
+        image: fixture.image,
+        description: fixture.description,
+      });
+      this.prefixes.set(parseClaimCode(`${fixture.prefix}-1`).normalizedPrefix, id);
+    }
+  }
+
+  private toPlayerPuzzle(puzzleId: string, status: PlayerPuzzleDto["status"]) {
+    const puzzle = this.puzzles.get(puzzleId);
+    if (!puzzle) throw new Error("missing fake puzzle");
+    return { ...puzzle, status };
   }
 }

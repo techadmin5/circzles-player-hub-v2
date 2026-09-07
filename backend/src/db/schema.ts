@@ -124,3 +124,93 @@ export const pointTransactions = pgTable("point_transactions", {
   amountCheck: check("point_transactions_amount_check", sql`${table.amount} > 0`),
   balanceAfterCheck: check("point_transactions_balance_after_check", sql`${table.balanceAfter} >= 0`),
 }));
+
+export const puzzleDesigns = pgTable("puzzle_designs", {
+  puzzleDesignId: uuid("puzzle_design_id").primaryKey().defaultRandom(),
+  legacyWixId: text("legacy_wix_id"),
+  name: text("name").notNull(),
+  description: text("description"),
+  artwork: text("artwork"),
+  status: text("status").notNull().default("ACTIVE"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+}, (table) => ({
+  legacyWixIdUnique: uniqueIndex("puzzle_designs_legacy_wix_id_unique").on(table.legacyWixId),
+  statusIndex: index("puzzle_designs_status_idx").on(table.status),
+}));
+
+export const puzzles = pgTable("puzzles", {
+  puzzleId: uuid("puzzle_id").primaryKey().defaultRandom(),
+  puzzleDesignId: uuid("puzzle_design_id").notNull().references(() => puzzleDesigns.puzzleDesignId, { onDelete: "restrict" }),
+  legacyWixId: text("legacy_wix_id"),
+  name: text("name").notNull(),
+  runCode: text("run_code"),
+  pieceCount: integer("piece_count"),
+  sizeLabel: text("size_label"),
+  levelId: integer("level_id").notNull(),
+  image: text("image"),
+  description: text("description"),
+  status: text("status").notNull().default("ACTIVE"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+}, (table) => ({
+  legacyWixIdUnique: uniqueIndex("puzzles_legacy_wix_id_unique").on(table.legacyWixId),
+  designIndex: index("puzzles_puzzle_design_id_idx").on(table.puzzleDesignId),
+  levelIdIndex: index("puzzles_level_id_idx").on(table.levelId),
+  statusIndex: index("puzzles_status_idx").on(table.status),
+  levelIdCheck: check("puzzles_level_id_check", sql`${table.levelId} > 0`),
+  pieceCountCheck: check("puzzles_piece_count_check", sql`${table.pieceCount} is null or ${table.pieceCount} > 0`),
+}));
+
+export const puzzleClaimPrefixes = pgTable("puzzle_claim_prefixes", {
+  puzzleClaimPrefixId: uuid("puzzle_claim_prefix_id").primaryKey().defaultRandom(),
+  puzzleId: uuid("puzzle_id").notNull().references(() => puzzles.puzzleId, { onDelete: "restrict" }),
+  prefix: text("prefix").notNull(),
+  normalizedPrefix: text("normalized_prefix").notNull(),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+}, (table) => ({
+  normalizedPrefixUnique: uniqueIndex("puzzle_claim_prefixes_normalized_prefix_active_unique").on(table.normalizedPrefix).where(sql`${table.deletedAt} is null`),
+  puzzleIdIndex: index("puzzle_claim_prefixes_puzzle_id_idx").on(table.puzzleId),
+  activeIndex: index("puzzle_claim_prefixes_active_idx").on(table.active),
+}));
+
+export const puzzleClaims = pgTable("puzzle_claims", {
+  puzzleClaimId: uuid("puzzle_claim_id").primaryKey().defaultRandom(),
+  puzzleClaimPrefixId: uuid("puzzle_claim_prefix_id").notNull().references(() => puzzleClaimPrefixes.puzzleClaimPrefixId, { onDelete: "restrict" }),
+  puzzleId: uuid("puzzle_id").notNull().references(() => puzzles.puzzleId, { onDelete: "restrict" }),
+  playerId: uuid("player_id").notNull().references(() => players.playerId, { onDelete: "cascade" }),
+  serialNumber: bigint("serial_number", { mode: "bigint" }).notNull(),
+  normalizedCode: text("normalized_code").notNull(),
+  claimedAt: timestamp("claimed_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  prefixSerialUnique: uniqueIndex("puzzle_claims_prefix_serial_unique").on(table.puzzleClaimPrefixId, table.serialNumber),
+  normalizedCodeUnique: uniqueIndex("puzzle_claims_normalized_code_unique").on(table.normalizedCode),
+  playerIndex: index("puzzle_claims_player_id_idx").on(table.playerId),
+  puzzleIndex: index("puzzle_claims_puzzle_id_idx").on(table.puzzleId),
+  serialNumberCheck: check("puzzle_claims_serial_number_check", sql`${table.serialNumber} > 0`),
+}));
+
+export const playerPuzzles = pgTable("player_puzzles", {
+  playerPuzzleId: uuid("player_puzzle_id").primaryKey().defaultRandom(),
+  playerId: uuid("player_id").notNull().references(() => players.playerId, { onDelete: "cascade" }),
+  puzzleId: uuid("puzzle_id").notNull().references(() => puzzles.puzzleId, { onDelete: "restrict" }),
+  puzzleClaimId: uuid("puzzle_claim_id").references(() => puzzleClaims.puzzleClaimId, { onDelete: "restrict" }),
+  legacyWixId: text("legacy_wix_id"),
+  source: text("source").notNull().default("CODE_CLAIM"),
+  status: text("status").notNull().default("OWNED"),
+  claimedAt: timestamp("claimed_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+}, (table) => ({
+  playerPuzzleActiveUnique: uniqueIndex("player_puzzles_player_id_puzzle_id_active_unique").on(table.playerId, table.puzzleId).where(sql`${table.deletedAt} is null`),
+  playerIndex: index("player_puzzles_player_id_idx").on(table.playerId),
+  puzzleIndex: index("player_puzzles_puzzle_id_idx").on(table.puzzleId),
+  claimUnique: uniqueIndex("player_puzzles_puzzle_claim_id_unique").on(table.puzzleClaimId),
+}));

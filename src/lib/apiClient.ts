@@ -1,4 +1,4 @@
-import type { PlayerProfile } from "@/types";
+import type { PlayerProfile, PlayerPuzzle, Puzzle } from "@/types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 const phase3aDefaultStats: PlayerProfile["stats"] = {
@@ -54,10 +54,23 @@ function adaptPhase3aPlayer(player: Partial<PlayerProfile> & Pick<PlayerProfile,
   };
 }
 
+function adaptCatalogPuzzle(puzzle: Puzzle): PlayerPuzzle {
+  return {
+    ...puzzle,
+    status: "OWNED",
+  };
+}
+
 export const apiClient = {
   getMe: async () => adaptPhase3aPlayer(await request<Partial<PlayerProfile> & Pick<PlayerProfile, "internalId" | "publicPlayerId" | "displayName">>("/api/me")),
   devLogin: async () => adaptPhase3aPlayer(await request<Partial<PlayerProfile> & Pick<PlayerProfile, "internalId" | "publicPlayerId" | "displayName">>("/api/dev/login", {
     method: "POST",
     body: JSON.stringify({}),
   })),
+  getOwnedPuzzles: async () => request<PlayerPuzzle[]>("/api/me/puzzles"),
+  getPuzzle: async (puzzleId: string) => adaptCatalogPuzzle(await request<Puzzle>(`/api/puzzles/${encodeURIComponent(puzzleId)}`)),
+  claimPuzzleByCode: async (code: string) => request<{ success: true; puzzle: PlayerPuzzle }>("/api/puzzles/claim", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  }),
 };

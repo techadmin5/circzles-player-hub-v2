@@ -3,7 +3,7 @@ import { ArrowRight } from "lucide-react";
 import { PublicShell } from "@/components/public/PublicShell";
 
 const STEPS = [
-  { title: "Own a CircZles puzzle", body: "Every physical CircZles puzzle carries a unique SKU / code." },
+  { title: "Own a CircZles puzzle", body: "Every physical CircZles puzzle carries a unique physical code." },
   { title: "Add it to your Player Hub", body: "Enter the SKU to link the puzzle (puzzleId) and its difficulty (levelId) to your account." },
   { title: "Solve & record", body: "Solve the puzzle and capture a clear solve video." },
   { title: "Submit for verification", body: "Submit your attempt with your completion time; a reviewer verifies it." },

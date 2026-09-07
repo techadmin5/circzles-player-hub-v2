@@ -4,6 +4,8 @@ import { dataMode } from "@/config/dataMode";
 import { apiClient } from "@/lib/apiClient";
 import { mockDelay } from "./mockRuntime";
 
+const canUseBrowserApi = () => dataMode === "api" && typeof window !== "undefined";
+
 export const playerService = {
   async getCurrentPlayer() {
     if (dataMode === "api") return apiClient.getMe();
@@ -19,9 +21,21 @@ export const playerService = {
 };
 
 export const puzzleService = {
-  async getOwnedPuzzles() { await mockDelay(); return playerPuzzles; },
-  async getPuzzle(id: string) { await mockDelay(); return playerPuzzles.find((p) => p.id === id) ?? playerPuzzles[0]; },
-  async claimBySku(sku: string) { await mockDelay(); return { success: sku.trim().length > 3, puzzle: playerPuzzles[0] }; },
+  async getOwnedPuzzles() {
+    if (canUseBrowserApi()) return apiClient.getOwnedPuzzles();
+    await mockDelay();
+    return playerPuzzles;
+  },
+  async getPuzzle(id: string) {
+    if (canUseBrowserApi()) return apiClient.getPuzzle(id);
+    await mockDelay();
+    return playerPuzzles.find((p) => p.id === id) ?? playerPuzzles[0];
+  },
+  async claimByCode(code: string) {
+    if (canUseBrowserApi()) return apiClient.claimPuzzleByCode(code);
+    await mockDelay();
+    return { success: code.trim().length > 3, puzzle: playerPuzzles[0] };
+  },
 };
 
 export const submissionService = {

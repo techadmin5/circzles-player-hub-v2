@@ -31,8 +31,8 @@ export function PlayerNav({ mobile = false }: { mobile?: boolean }) {
 
 export function AddPuzzleForm() {
   const [message, setMessage] = useState("");
-  return <form className="game-card flex flex-col gap-3 p-4 sm:flex-row" onSubmit={async (e) => { e.preventDefault(); const form = new FormData(e.currentTarget); const result = await puzzleService.claimBySku(String(form.get("sku") ?? "")); setMessage(result.success ? `Added ${result.puzzle.name}` : "Enter a valid CircZles SKU/code."); }}>
-    <input aria-label="CircZles SKU or code" name="sku" placeholder="CZ-LION-100" className="min-h-11 flex-1 rounded-md border border-white/15 bg-black/25 px-3" />
+  return <form className="game-card flex flex-col gap-3 p-4 sm:flex-row" onSubmit={async (e) => { e.preventDefault(); const form = new FormData(e.currentTarget); const result = await puzzleService.claimByCode(String(form.get("code") ?? "")); setMessage(result.success ? `Added ${result.puzzle.name}` : "Enter a valid CircZles code."); }}>
+    <input aria-label="CircZles code" name="code" placeholder="CC-11-18-R1-001" className="min-h-11 flex-1 rounded-md border border-white/15 bg-black/25 px-3" />
     <button className="btn btn-primary">Add Puzzle</button>
     {message && <p className="text-sm text-[var(--cyan)]">{message}</p>}
   </form>;

@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { buildApp } from "../src/http/app.js";
 import { GameStateService, temporaryDevelopmentProgressionLevels } from "../src/domain/gameState.js";
 import { IdentityService } from "../src/domain/identity.js";
-import { FakeGameStateRepository, FakeIdentityRepository } from "./fakes.js";
+import { PuzzleOwnershipService } from "../src/domain/puzzles.js";
+import { FakeGameStateRepository, FakeIdentityRepository, FakePuzzleRepository } from "./fakes.js";
 import type { Env } from "../src/config/env.js";
 
 function env(overrides: Partial<Env> = {}): Env {
@@ -24,8 +25,11 @@ async function appWithFakes(overrides: Partial<Env> = {}) {
   await gameState.seedProgressionLevels(temporaryDevelopmentProgressionLevels);
   const identityRepo = new FakeIdentityRepository();
   const identity = new IdentityService(identityRepo, testEnv.SESSION_SECRET);
-  const app = buildApp({ env: testEnv, identity, gameState, checkDb: async () => {} });
-  return { app, gameRepo, testEnv };
+  const puzzleRepo = new FakePuzzleRepository();
+  const puzzles = new PuzzleOwnershipService(puzzleRepo);
+  await puzzles.seedDevelopmentCatalog();
+  const app = buildApp({ env: testEnv, identity, gameState, puzzles, checkDb: async () => {} });
+  return { app, gameRepo, puzzleRepo, testEnv };
 }
 
 async function login(app: Awaited<ReturnType<typeof appWithFakes>>["app"]) {
@@ -81,7 +85,9 @@ describe("http auth poc", () => {
     const { testEnv } = await appWithFakes();
     const gameState = new GameStateService(new FakeGameStateRepository());
     await gameState.seedProgressionLevels(temporaryDevelopmentProgressionLevels);
-    const app = buildApp({ env: testEnv, identity: new IdentityService(new FakeIdentityRepository(), testEnv.SESSION_SECRET), gameState, checkDb: async () => { checked = true; } });
+    const puzzles = new PuzzleOwnershipService(new FakePuzzleRepository());
+    await puzzles.seedDevelopmentCatalog();
+    const app = buildApp({ env: testEnv, identity: new IdentityService(new FakeIdentityRepository(), testEnv.SESSION_SECRET), gameState, puzzles, checkDb: async () => { checked = true; } });
     const res = await app.inject({ method: "GET", url: "/health" });
     expect(res.statusCode).toBe(200);
     expect(checked).toBe(true);
@@ -113,5 +119,39 @@ describe("http auth poc", () => {
     expect(me.json().rank).toBe("Knight");
     expect(me.json().xpNeeded).toBe(12800);
     expect(me.json().synapsePoints).toBe(500);
+  });
+
+  it("GET /api/me/puzzles requires authentication", async () => {
+    const { app } = await appWithFakes();
+    const res = await app.inject({ method: "GET", url: "/api/me/puzzles" });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("POST /api/puzzles/claim rejects browser-supplied player and puzzle ids", async () => {
+    const { app } = await appWithFakes({ NODE_ENV: "development" });
+    const cookie = await login(app);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/puzzles/claim",
+      headers: { cookie },
+      payload: { code: "DEV-MM-R1-001", playerId: "other", puzzleId: "DEV-PUZZLE-METAMORPHOSIS-R1" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe("VALIDATION_FAILED");
+  });
+
+  it("POST /api/puzzles/claim claims a puzzle for the current session player", async () => {
+    const { app } = await appWithFakes({ NODE_ENV: "development" });
+    const cookie = await login(app);
+    const claim = await app.inject({ method: "POST", url: "/api/puzzles/claim", headers: { cookie }, payload: { code: " dev-mm-r1-001 " } });
+    expect(claim.statusCode).toBe(200);
+    expect(claim.json().success).toBe(true);
+    expect(claim.json().puzzle.name).toBe("Metamorphosis");
+    expect(claim.json().puzzle.levelId).toBe(18);
+
+    const owned = await app.inject({ method: "GET", url: "/api/me/puzzles", headers: { cookie } });
+    expect(owned.statusCode).toBe(200);
+    expect(owned.json()).toHaveLength(1);
+    expect(owned.json()[0].id).toBe("DEV-PUZZLE-METAMORPHOSIS-R1");
   });
 });

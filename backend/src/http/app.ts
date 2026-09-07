@@ -7,12 +7,14 @@ import type { Env } from "../config/env.js";
 import type { IdentityService, PlayerDto } from "../domain/identity.js";
 import { AppError, forbidden, unauthorized, validationFailed } from "../domain/errors.js";
 import type { GameStateService } from "../domain/gameState.js";
+import type { PuzzleOwnershipService } from "../domain/puzzles.js";
 import { SESSION_COOKIE_NAME } from "../domain/sessions.js";
 
 export interface AppDeps {
   env: Env;
   identity: IdentityService;
   gameState: GameStateService;
+  puzzles: PuzzleOwnershipService;
   checkDb: () => Promise<void>;
 }
 
@@ -23,7 +25,11 @@ const devGrantBodySchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
 }).strict();
 
-export function buildApp({ env, identity, gameState, checkDb }: AppDeps) {
+const claimPuzzleBodySchema = z.object({
+  code: z.string().trim().min(1).max(200),
+}).strict();
+
+export function buildApp({ env, identity, gameState, puzzles, checkDb }: AppDeps) {
   const app = Fastify({
     logger: env.NODE_ENV === "test" ? false : {
       level: "info",
@@ -61,6 +67,23 @@ export function buildApp({ env, identity, gameState, checkDb }: AppDeps) {
     const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
     await gameState.ensurePlayerGameState(player.internalId);
     return reply.send(await withGameState(player, gameState));
+  });
+
+  app.get("/api/me/puzzles", async (request, reply) => {
+    const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+    return reply.send(await puzzles.getOwnedPuzzles(player.internalId));
+  });
+
+  app.get("/api/puzzles/:puzzleId", async (request, reply) => {
+    const params = z.object({ puzzleId: z.string().uuid() }).safeParse(request.params);
+    if (!params.success) throw validationFailed("Invalid puzzle id.", params.error.flatten());
+    return reply.send(await puzzles.getPuzzle(params.data.puzzleId));
+  });
+
+  app.post("/api/puzzles/claim", async (request, reply) => {
+    const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+    const body = parseClaimPuzzleBody(request.body);
+    return reply.send(await puzzles.claimByCode(player.internalId, body.code));
   });
 
   app.post("/api/dev/login", async (request, reply) => {
@@ -160,6 +183,12 @@ async function withGameState(player: PlayerDto, gameState: GameStateService): Pr
 function parseDevGrantBody(body: unknown) {
   const parsed = devGrantBodySchema.safeParse(body);
   if (!parsed.success) throw validationFailed("Invalid development grant body.", parsed.error.flatten());
+  return parsed.data;
+}
+
+function parseClaimPuzzleBody(body: unknown) {
+  const parsed = claimPuzzleBodySchema.safeParse(body);
+  if (!parsed.success) throw validationFailed("Invalid puzzle claim body.", parsed.error.flatten());
   return parsed.data;
 }
 

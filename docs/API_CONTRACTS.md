@@ -24,7 +24,7 @@ Common codes:
 - `FORBIDDEN`
 - `VALIDATION_FAILED`
 - `NOT_FOUND`
-- `INVALID_PUZZLE_CODE`
+- `PUZZLE_CODE_INVALID`
 - `PUZZLE_ALREADY_OWNED`
 - `SUBMISSION_ALREADY_APPROVED`
 - `INSUFFICIENT_POINTS`
@@ -45,7 +45,7 @@ Common codes:
 | `playerService.renameDisplayName(displayName)` | `POST /api/me/display-name` |
 | `puzzleService.getOwnedPuzzles()` | `GET /api/me/puzzles` |
 | `puzzleService.getPuzzle(id)` | `GET /api/puzzles/:puzzleId` |
-| `puzzleService.claimBySku(sku)` | `POST /api/puzzles/claim` |
+| `puzzleService.claimByCode(code)` | `POST /api/puzzles/claim` |
 | `submissionService.getSubmissions()` | `GET /api/submissions` |
 | `submissionService.getSubmission(id)` | `GET /api/submissions/:submissionId` |
 | `submissionService.createSubmission(input)` | `POST /api/submissions` |
@@ -93,17 +93,57 @@ These routes use the same internal XP/economy services as future trusted backend
 
 ### POST /api/puzzles/claim
 
+Phase 3C status: implemented for authenticated player code claims.
+
+Authentication: required. The backend derives the player from the session cookie.
+
 Request:
 
 ```json
-{ "sku": "CZ-LION-100" }
+{ "code": "CC-11-18-R1-001" }
 ```
 
-Response: player puzzle DTO.
+The request body must not include `playerId`, `internalId`, `publicPlayerId`, `puzzleId`, or `levelId`. The browser is not authoritative for ownership.
 
-Errors: `INVALID_PUZZLE_CODE`, `PUZZLE_ALREADY_OWNED`, `UNAUTHORIZED`.
+Response:
 
-Transaction: create ownership, emit `puzzle.added`, activity, mission progress.
+```json
+{
+  "success": true,
+  "puzzle": {
+    "id": "puzzle uuid",
+    "name": "Metamorphosis",
+    "sku": "R1",
+    "runCode": "R1",
+    "pieceCount": 121,
+    "sizeLabel": "Standard",
+    "levelId": 18,
+    "image": "/puzzles/placeholder.svg",
+    "description": "Playable puzzle variant",
+    "status": "OWNED"
+  }
+}
+```
+
+Errors: `PUZZLE_CODE_INVALID`, `PUZZLE_CODE_ALREADY_CLAIMED`, `PUZZLE_ALREADY_OWNED`, `UNAUTHORIZED`, `VALIDATION_FAILED`.
+
+Transaction: parse and normalize code, find active prefix, verify physical unit is unclaimed, verify current player does not already own the playable `puzzle_id`, insert `puzzle_claims`, insert `player_puzzles`, then commit both or neither. Future `puzzle.added` game-event processing must be emitted from trusted backend code, not from browser-supplied identifiers.
+
+Physical code rule: the final hyphen segment is the serial; everything before the final hyphen is the prefix. The serial is digits only, must be greater than zero, and is stored as `bigint`. `CC-11-18-R1-001` and `CC-11-18-R1-1` represent the same physical unit.
+
+### GET /api/me/puzzles
+
+Phase 3C status: implemented.
+
+Authentication: required. Returns only puzzle ownership for the current session player.
+
+Response: array of player puzzle DTOs.
+
+### GET /api/puzzles/:puzzleId
+
+Phase 3C status: implemented.
+
+Returns one playable puzzle variant by stable `puzzle_id`. `levelId` remains the puzzle difficulty/challenge identifier.
 
 ### POST /api/submissions
 
