@@ -12,6 +12,8 @@ import { MAX_COMPLETION_TIME_MS, type SubmissionService } from "../domain/submis
 import { SESSION_COOKIE_NAME } from "../domain/sessions.js";
 import type { AdminAuthorizationService } from "../domain/adminAuth.js";
 import type { AdminSubmissionService } from "../domain/adminSubmissions.js";
+import type { LeaderboardService } from "../domain/leaderboards.js";
+import type { SubmissionReviewService } from "../domain/submissionReviews.js";
 
 export interface AppDeps {
   env: Env;
@@ -21,6 +23,8 @@ export interface AppDeps {
   submissions: SubmissionService;
   adminAuth: AdminAuthorizationService;
   adminSubmissions: AdminSubmissionService;
+  leaderboards: LeaderboardService;
+  submissionReviews: SubmissionReviewService;
   checkDb: () => Promise<void>;
 }
 
@@ -54,8 +58,13 @@ const adminSubmissionQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(100).default(50),
 }).strict();
 const adminSubmissionParamsSchema = z.object({ submissionId: z.string().uuid() }).strict();
+const leaderboardQuerySchema = z.object({ puzzleId: z.string().uuid() }).strict();
+const reviewSubmissionBodySchema = z.object({
+  decision: z.enum(["APPROVED", "REJECTED", "RESUBMISSION_REQUIRED"]),
+  reviewNote: z.string().max(2000).optional(),
+}).strict();
 
-export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, checkDb }: AppDeps) {
+export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, checkDb }: AppDeps) {
   const app = Fastify({
     logger: env.NODE_ENV === "test" ? false : {
       level: "info",
@@ -148,6 +157,18 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
     return reply.status(201).send(await submissionService.createSubmission(player.internalId, parsed.data, idempotencyKey || undefined));
   });
 
+  app.get("/api/leaderboards/catalog", async (request, reply) => {
+    await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+    return reply.send(await leaderboards.getCatalog());
+  });
+
+  app.get("/api/leaderboards", async (request, reply) => {
+    const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+    const parsed = leaderboardQuerySchema.safeParse(request.query);
+    if (!parsed.success) throw validationFailed("Invalid leaderboard query.", parsed.error.flatten());
+    return reply.send(await leaderboards.getLeaderboard(parsed.data.puzzleId, player.internalId));
+  });
+
   app.get("/api/admin/submissions", async (request, reply) => {
     await adminAuth.requirePermission(request.cookies[SESSION_COOKIE_NAME], "SUBMISSIONS_REVIEW");
     const parsed = adminSubmissionQuerySchema.safeParse(request.query);
@@ -160,6 +181,18 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
     const parsed = adminSubmissionParamsSchema.safeParse(request.params);
     if (!parsed.success) throw validationFailed("Invalid submission id.", parsed.error.flatten());
     return reply.send(await adminSubmissions.get(parsed.data.submissionId));
+  });
+
+  app.post("/api/admin/submissions/:submissionId/review", async (request, reply) => {
+    const admin = await adminAuth.requirePermission(request.cookies[SESSION_COOKIE_NAME], "SUBMISSIONS_REVIEW");
+    const params = adminSubmissionParamsSchema.safeParse(request.params);
+    if (!params.success) throw validationFailed("Invalid submission id.", params.error.flatten());
+    const body = reviewSubmissionBodySchema.safeParse(request.body);
+    if (!body.success) throw validationFailed("Invalid submission review body.", body.error.flatten());
+    const header = request.headers["idempotency-key"];
+    const idempotencyKey = typeof header === "string" ? header.trim() : "";
+    if (!idempotencyKey || idempotencyKey.length > 200) throw validationFailed("A valid Idempotency-Key header is required.");
+    return reply.send(await submissionReviews.review({ reviewerAdminUserId: admin.adminUserId, submissionId: params.data.submissionId, ...body.data, idempotencyKey }));
   });
 
   app.post("/api/dev/login", async (request, reply) => {

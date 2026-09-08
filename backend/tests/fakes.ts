@@ -6,6 +6,8 @@ import type { SubmissionDto, SubmissionRepository, VideoUploadRecord } from "../
 import type { SignedVideoUpload, VerifiedVideoAsset, VideoStorage } from "../src/storage/videoStorage.js";
 import type { AdminAuthorizationRepository, AdminRole } from "../src/domain/adminAuth.js";
 import type { AdminSubmissionDto, AdminSubmissionFilter, AdminSubmissionRepository } from "../src/domain/adminSubmissions.js";
+import type { LeaderboardCatalogDto, LeaderboardDto, LeaderboardRepository } from "../src/domain/leaderboards.js";
+import type { SubmissionReviewInput, SubmissionReviewRepository, SubmissionReviewResult } from "../src/domain/submissionReviews.js";
 
 interface StoredAccount {
   userId: string;
@@ -178,6 +180,35 @@ export class FakeAdminSubmissionRepository implements AdminSubmissionRepository 
     return this.items.filter((item) => item.status === filter.status && (!filter.puzzleId || item.puzzleId === filter.puzzleId) && (filter.levelId === undefined || item.levelId === filter.levelId)).sort((a, b) => a.submittedAt.localeCompare(b.submittedAt) || a.submissionId.localeCompare(b.submissionId)).slice(0, filter.limit);
   }
   async get(submissionId: string) { return this.items.find((item) => item.submissionId === submissionId) ?? null; }
+}
+
+export class FakeLeaderboardRepository implements LeaderboardRepository {
+  catalog: LeaderboardCatalogDto = { mainLevels: [], sideQuests: [] };
+  boards = new Map<string, LeaderboardDto>();
+  async getCatalog() { return this.catalog; }
+  async getLeaderboard(puzzleId: string) {
+    const board = this.boards.get(puzzleId);
+    if (!board) throw new AppError("LEADERBOARD_NOT_FOUND", "Leaderboard was not found.", 404);
+    return board;
+  }
+}
+
+export class FakeSubmissionReviewRepository implements SubmissionReviewRepository {
+  calls: SubmissionReviewInput[] = [];
+  reviews = new Map<string, { input: SubmissionReviewInput; result: SubmissionReviewResult }>();
+  async review(input: SubmissionReviewInput) {
+    const key = `${input.reviewerAdminUserId}:${input.idempotencyKey}`;
+    const existing = this.reviews.get(key);
+    if (existing) {
+      if (JSON.stringify(existing.input) !== JSON.stringify(input)) throw new AppError("IDEMPOTENCY_CONFLICT", "Review payload differs.", 409);
+      return { ...existing.result, idempotent: true };
+    }
+    if ([...this.reviews.values()].some((item) => item.input.submissionId === input.submissionId)) throw new AppError("SUBMISSION_ALREADY_REVIEWED", "Submission has already been reviewed.", 409);
+    this.calls.push(input);
+    const result: SubmissionReviewResult = { submissionReviewId: `review-${this.calls.length}`, submissionId: input.submissionId, decision: input.decision, reviewNote: input.reviewNote, reviewedAt: "2026-09-08T00:00:00.000Z", idempotent: false, firstCompletionProcessed: input.decision === "APPROVED" };
+    this.reviews.set(key, { input, result });
+    return result;
+  }
 }
 
 export class FakePuzzleRepository implements PuzzleRepository {

@@ -203,7 +203,7 @@ Admin authorization extends the existing cookie-session model. The backend hashe
 
 Roles map to permissions in backend code: `REVIEWER` has `SUBMISSIONS_REVIEW`; `SUPER_ADMIN` has `SUBMISSIONS_REVIEW` and `COMPETITION_CONFIG`. Routes request permissions rather than trusting role, user, player, or admin values from the browser.
 
-The implemented admin surface is read-only: submission queue and detail queries expose public player identity and review-relevant puzzle, run, timing, status, player-puzzle, and video metadata. The queue defaults to pending review, supports bounded filters, and orders oldest first with submission UUID as a deterministic tie-breaker. Review decisions, reward grants, leaderboard mutation, audit writes, and admin UI remain deferred.
+Phase 3E-B1 initially implemented a read-only admin surface: submission queue and detail queries expose public player identity and review-relevant puzzle, run, timing, status, player-puzzle, and video metadata. The queue defaults to pending review, supports bounded filters, and orders oldest first with submission UUID as a deterministic tie-breaker. Phase 3E-D later adds the secured review mutation after completing atomic reward and PB processing.
 
 ## Phase 3E-C Internal Review Engine
 
@@ -214,3 +214,13 @@ The base completion reward is processed once per `(playerId, canonical puzzleId)
 The first-completion insert is the concurrency arbiter. Only the transaction that inserts the unique player/puzzle grant may award ledgers. SP and XP use the existing wallet/progression locks and ledger algorithms through transaction-aware helpers with deterministic player-scoped idempotency keys. Later approved solves retain review history but cannot replace or repeat the first-completion reward.
 
 Review idempotency is scoped to reviewer and key. Exact payload replay returns the original logical result; mismatched reuse and new decisions for reviewed submissions fail with controlled conflicts. Leaderboard entries, PB processing, ranking, and the review POST route remain deferred to Phase 3E-D.
+
+## Phase 3E-D All-Time Leaderboards
+
+`leaderboard_entries` stores one PB per `(playerId, canonical puzzleId)` and never stores rank. Every approved submission is processed inside the existing review transaction regardless of current leaderboard visibility. An atomic PostgreSQL upsert replaces the PB only when the candidate tuple is lower: completion milliseconds, database review timestamp, submission timestamp, then submission UUID. Uniqueness and the conditional upsert make concurrent fast/slow approvals converge on the actual best result.
+
+First-completion rewards and PBs remain independent. The first approved solve may create one immutable reward grant; every later approved solve can improve the PB without another base reward. Rejection and resubmission decisions create neither PBs nor rewards. A PB failure rolls back review history, status, reward snapshot, ledgers, caches, and PB together.
+
+Catalog visibility uses active, leaderboard-enabled persisted competition settings joined to active, non-deleted puzzles. It never infers category from fractional `levelId`. Ranking reads exact milliseconds and orders by time, approval, submission timestamp, and submission UUID. The API returns only the top 10 plus the authenticated player's real rank when outside that set.
+
+The secure admin review POST route now derives reviewer identity from `SUBMISSIONS_REVIEW` authorization, requires strict input and idempotency, and invokes the atomic review engine. Seasons, regional/friend boards, cosmetics, and frontend leaderboard UI remain deferred.

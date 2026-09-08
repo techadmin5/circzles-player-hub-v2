@@ -6,7 +6,9 @@ import { PuzzleOwnershipService } from "../src/domain/puzzles.js";
 import { SubmissionService } from "../src/domain/submissions.js";
 import { AdminAuthorizationService, hasAdminPermission } from "../src/domain/adminAuth.js";
 import { AdminSubmissionService, type AdminSubmissionDto } from "../src/domain/adminSubmissions.js";
-import { FakeAdminAuthorizationRepository, FakeAdminSubmissionRepository, FakeGameStateRepository, FakeIdentityRepository, FakePuzzleRepository, FakeSubmissionRepository, FakeVideoStorage } from "./fakes.js";
+import { LeaderboardService } from "../src/domain/leaderboards.js";
+import { SubmissionReviewService } from "../src/domain/submissionReviews.js";
+import { FakeAdminAuthorizationRepository, FakeAdminSubmissionRepository, FakeGameStateRepository, FakeIdentityRepository, FakeLeaderboardRepository, FakePuzzleRepository, FakeSubmissionRepository, FakeSubmissionReviewRepository, FakeVideoStorage } from "./fakes.js";
 import type { Env } from "../src/config/env.js";
 
 function env(overrides: Partial<Env> = {}): Env {
@@ -38,8 +40,12 @@ async function appWithFakes(overrides: Partial<Env> = {}) {
   const adminAuth = new AdminAuthorizationService(adminAuthRepo, testEnv.SESSION_SECRET);
   const adminSubmissionRepo = new FakeAdminSubmissionRepository();
   const adminSubmissions = new AdminSubmissionService(adminSubmissionRepo);
-  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, checkDb: async () => {} });
-  return { app, gameRepo, puzzleRepo, submissionRepo, videoStorage, adminAuthRepo, adminSubmissionRepo, testEnv };
+  const leaderboardRepo = new FakeLeaderboardRepository();
+  const leaderboards = new LeaderboardService(leaderboardRepo);
+  const reviewRepo = new FakeSubmissionReviewRepository();
+  const submissionReviews = new SubmissionReviewService(reviewRepo);
+  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, checkDb: async () => {} });
+  return { app, gameRepo, puzzleRepo, submissionRepo, videoStorage, adminAuthRepo, adminSubmissionRepo, leaderboardRepo, reviewRepo, testEnv };
 }
 
 async function login(app: Awaited<ReturnType<typeof appWithFakes>>["app"]) {
@@ -135,6 +141,8 @@ describe("http auth poc", () => {
       submissions,
       adminAuth: new AdminAuthorizationService(new FakeAdminAuthorizationRepository(identityRepo), testEnv.SESSION_SECRET),
       adminSubmissions: new AdminSubmissionService(new FakeAdminSubmissionRepository()),
+      leaderboards: new LeaderboardService(new FakeLeaderboardRepository()),
+      submissionReviews: new SubmissionReviewService(new FakeSubmissionReviewRepository()),
       checkDb: async () => { checked = true; },
     });
     const res = await app.inject({ method: "GET", url: "/health" });
@@ -445,16 +453,94 @@ describe("admin review authorization and read API", () => {
     expect(missing.json().code).toBe("SUBMISSION_NOT_FOUND");
   });
 
-  it("does not expose an admin review mutation route", async () => {
-    const { app, adminAuthRepo } = await appWithFakes({ NODE_ENV: "development" });
+  it.each(["REVIEWER", "SUPER_ADMIN"] as const)("allows an active %s to submit a trusted review", async (role) => {
+    const { app, adminAuthRepo, reviewRepo } = await appWithFakes({ NODE_ENV: "development" });
     const cookie = await login(app);
-    adminAuthRepo.admins.set("user-1", { adminUserId: "50000000-0000-4000-8000-000000000001", role: "SUPER_ADMIN", active: true });
+    adminAuthRepo.admins.set("user-1", { adminUserId: "50000000-0000-4000-8000-000000000001", role, active: true });
     const res = await app.inject({
       method: "POST",
       url: "/api/admin/submissions/60000000-0000-4000-8000-000000000001/review",
-      headers: { cookie },
+      headers: { cookie, "idempotency-key": "review-1" },
       payload: { decision: "APPROVED" },
     });
-    expect(res.statusCode).toBe(404);
+    expect(res.statusCode).toBe(200);
+    expect(reviewRepo.calls[0]).toMatchObject({ reviewerAdminUserId: "50000000-0000-4000-8000-000000000001", decision: "APPROVED" });
+  });
+
+  it("protects the review route from unauthenticated, ordinary, and inactive users", async () => {
+    const { app, adminAuthRepo } = await appWithFakes({ NODE_ENV: "development" });
+    const url = "/api/admin/submissions/60000000-0000-4000-8000-000000000001/review";
+    expect((await app.inject({ method: "POST", url, headers: { "idempotency-key": "x" }, payload: { decision: "REJECTED" } })).statusCode).toBe(401);
+    const cookie = await login(app);
+    expect((await app.inject({ method: "POST", url, headers: { cookie, "idempotency-key": "x" }, payload: { decision: "REJECTED" } })).statusCode).toBe(403);
+    adminAuthRepo.admins.set("user-1", { adminUserId: "50000000-0000-4000-8000-000000000001", role: "REVIEWER", active: false });
+    expect((await app.inject({ method: "POST", url, headers: { cookie, "idempotency-key": "x" }, payload: { decision: "REJECTED" } })).statusCode).toBe(403);
+  });
+
+  it("requires review idempotency and rejects invalid or authority-bearing bodies", async () => {
+    const { app, adminAuthRepo } = await appWithFakes({ NODE_ENV: "development" });
+    const cookie = await login(app);
+    adminAuthRepo.admins.set("user-1", { adminUserId: "50000000-0000-4000-8000-000000000001", role: "REVIEWER", active: true });
+    const url = "/api/admin/submissions/60000000-0000-4000-8000-000000000001/review";
+    const requests = [
+      { headers: { cookie }, payload: { decision: "APPROVED" } },
+      { headers: { cookie, "idempotency-key": "x" }, payload: { decision: "INVALID" } },
+      { headers: { cookie, "idempotency-key": "x" }, payload: { decision: "APPROVED", reviewNote: "x".repeat(2001) } },
+      { headers: { cookie, "idempotency-key": "x" }, payload: { decision: "APPROVED", playerId: "browser" } },
+      { headers: { cookie, "idempotency-key": "x" }, payload: { decision: "APPROVED", reviewerAdminUserId: "browser" } },
+      { headers: { cookie, "idempotency-key": "x" }, payload: { decision: "APPROVED", rewardEnabled: true } },
+    ];
+    for (const request of requests) {
+      const res = await app.inject({ method: "POST", url, ...request });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe("VALIDATION_FAILED");
+    }
+  });
+
+  it("preserves exact replay and rejects mismatched or conflicting reviews", async () => {
+    const { app, adminAuthRepo, reviewRepo } = await appWithFakes({ NODE_ENV: "development" });
+    const cookie = await login(app);
+    adminAuthRepo.admins.set("user-1", { adminUserId: "50000000-0000-4000-8000-000000000001", role: "REVIEWER", active: true });
+    const url = "/api/admin/submissions/60000000-0000-4000-8000-000000000001/review";
+    const request = { method: "POST" as const, url, headers: { cookie, "idempotency-key": "same" }, payload: { decision: "APPROVED" } };
+    expect((await app.inject(request)).statusCode).toBe(200);
+    expect((await app.inject(request)).json().idempotent).toBe(true);
+    expect(reviewRepo.calls).toHaveLength(1);
+    const mismatch = await app.inject({ ...request, payload: { decision: "REJECTED" } });
+    expect(mismatch.statusCode).toBe(409); expect(mismatch.json().code).toBe("IDEMPOTENCY_CONFLICT");
+    const conflict = await app.inject({ ...request, headers: { cookie, "idempotency-key": "new" }, payload: { decision: "REJECTED" } });
+    expect(conflict.statusCode).toBe(409); expect(conflict.json().code).toBe("SUBMISSION_ALREADY_REVIEWED");
+  });
+});
+
+describe("leaderboard HTTP API", () => {
+  it("requires player authentication and validates canonical puzzleId", async () => {
+    const { app } = await appWithFakes({ NODE_ENV: "development" });
+    expect((await app.inject({ method: "GET", url: "/api/leaderboards/catalog" })).statusCode).toBe(401);
+    expect((await app.inject({ method: "GET", url: "/api/leaderboards?puzzleId=70000000-0000-4000-8000-000000000001" })).statusCode).toBe(401);
+    const cookie = await login(app);
+    expect((await app.inject({ method: "GET", url: "/api/leaderboards?puzzleId=bad", headers: { cookie } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "GET", url: "/api/leaderboards?puzzleId=70000000-0000-4000-8000-000000000001&playerId=browser", headers: { cookie } })).statusCode).toBe(400);
+  });
+
+  it("returns safe catalog and leaderboard DTOs from authenticated routes", async () => {
+    const { app, leaderboardRepo } = await appWithFakes({ NODE_ENV: "development" });
+    const cookie = await login(app);
+    const puzzle = { puzzleId: "70000000-0000-4000-8000-000000000001", puzzleName: "Metamorphosis", runCode: "R2", levelId: 3.5, category: "SIDE_QUEST" as const };
+    leaderboardRepo.catalog.sideQuests.push({ ...puzzle, displayOrder: 2 });
+    leaderboardRepo.boards.set(puzzle.puzzleId, { puzzle, entries: [{ rank: 1, publicPlayerId: "CZ-8F42KD", displayName: "Smokey_OP", bestTimeMs: 78_420, bestTime: "01:18.420", isCurrentPlayer: true }], currentPlayerEntry: null });
+    const catalog = await app.inject({ method: "GET", url: "/api/leaderboards/catalog", headers: { cookie } });
+    expect(catalog.statusCode).toBe(200); expect(catalog.json().sideQuests[0].levelId).toBe(3.5);
+    const board = await app.inject({ method: "GET", url: `/api/leaderboards?puzzleId=${puzzle.puzzleId}`, headers: { cookie } });
+    expect(board.statusCode).toBe(200); expect(board.json().entries[0]).toMatchObject({ rank: 1, bestTime: "01:18.420", isCurrentPlayer: true });
+    const serialized = JSON.stringify(board.json()).toLowerCase();
+    for (const forbiddenField of ["\"playerid\":", "email", "wix", "session", "admin"]) expect(serialized).not.toContain(forbiddenField);
+  });
+
+  it("returns a controlled 404 for a hidden or unconfigured leaderboard", async () => {
+    const { app } = await appWithFakes({ NODE_ENV: "development" });
+    const cookie = await login(app);
+    const res = await app.inject({ method: "GET", url: "/api/leaderboards?puzzleId=70000000-0000-4000-8000-000000000099", headers: { cookie } });
+    expect(res.statusCode).toBe(404); expect(res.json().code).toBe("LEADERBOARD_NOT_FOUND");
   });
 });

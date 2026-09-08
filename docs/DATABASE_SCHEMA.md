@@ -181,13 +181,15 @@ The row is created for the first approved completion even when settings are miss
 
 ### leaderboard_entries
 
-Purpose: best approved result for a player within a puzzle/season scope.
+Phase 3E-D status: implemented for all-time canonical puzzle leaderboards.
 
-Columns: `leaderboard_entry_id` PK, `player_id` FK, `puzzle_id` FK, future fractional-compatible `level_id`, `season_id` FK nullable, `best_submission_id` FK, `best_approved_time_ms int`, `rank_status`, `created_at`, `updated_at`, `disqualified_at`.
+Purpose: one current personal-best approved result for a player and canonical puzzle. Visibility is separate and comes from `puzzle_competition_settings`.
 
-Constraints: unique `(player_id, puzzle_id, season_id)` with season null handled by partial unique indexes.
+Columns: `leaderboard_entry_id` PK, `player_id` FK, `puzzle_id` FK, `best_submission_id` FK, `best_completion_time_ms`, `best_approved_at`, `best_submitted_at`, `created_at`, `updated_at`.
 
-Indexes: `(puzzle_id, season_id, best_approved_time_ms, created_at)`, `(level_id, season_id, best_approved_time_ms)`, `(player_id)`.
+Constraints: unique `(player_id, puzzle_id)`, CHECK `best_completion_time_ms > 0`, and restrictive FKs. Rank is not stored.
+
+Indexes: `(puzzle_id, best_completion_time_ms, best_approved_at, best_submitted_at, best_submission_id)` for exact deterministic ranking and `(player_id)` for player lookup. Seasons and regional/friend scopes are not represented yet.
 
 ### seasons
 

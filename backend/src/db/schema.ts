@@ -313,6 +313,23 @@ export const submissionRewardGrants = pgTable("submission_reward_grants", {
   xpRewardCheck: check("submission_reward_grants_xp_reward_check", sql`${table.xpReward} >= 0`),
 }));
 
+export const leaderboardEntries = pgTable("leaderboard_entries", {
+  leaderboardEntryId: uuid("leaderboard_entry_id").primaryKey().defaultRandom(),
+  playerId: uuid("player_id").notNull().references(() => players.playerId, { onDelete: "restrict" }),
+  puzzleId: uuid("puzzle_id").notNull().references(() => puzzles.puzzleId, { onDelete: "restrict" }),
+  bestSubmissionId: uuid("best_submission_id").notNull().references(() => submissions.submissionId, { onDelete: "restrict" }),
+  bestCompletionTimeMs: integer("best_completion_time_ms").notNull(),
+  bestApprovedAt: timestamp("best_approved_at", { withTimezone: true }).notNull(),
+  bestSubmittedAt: timestamp("best_submitted_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  playerPuzzleUnique: uniqueIndex("leaderboard_entries_player_id_puzzle_id_unique").on(table.playerId, table.puzzleId),
+  rankingIndex: index("leaderboard_entries_puzzle_ranking_idx").on(table.puzzleId, table.bestCompletionTimeMs, table.bestApprovedAt, table.bestSubmittedAt, table.bestSubmissionId),
+  playerIndex: index("leaderboard_entries_player_id_idx").on(table.playerId),
+  completionTimeCheck: check("leaderboard_entries_best_completion_time_ms_check", sql`${table.bestCompletionTimeMs} > 0`),
+}));
+
 export const puzzleCompetitionSettings = pgTable("puzzle_competition_settings", {
   puzzleCompetitionSettingId: uuid("puzzle_competition_setting_id").primaryKey().defaultRandom(),
   puzzleId: uuid("puzzle_id").notNull().references(() => puzzles.puzzleId, { onDelete: "cascade" }),

@@ -4,16 +4,18 @@ import { GameStateService, temporaryDevelopmentProgressionLevels } from "../src/
 import { SubmissionReviewService, type SubmissionReviewInput, type SubmissionReviewRepository, type SubmissionReviewResult } from "../src/domain/submissionReviews.js";
 import { FakeGameStateRepository } from "./fakes.js";
 
-interface TestSubmission { submissionId: string; playerId: string; puzzleId: string; status: "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "RESUBMISSION_REQUIRED" }
+interface TestSubmission { submissionId: string; playerId: string; puzzleId: string; status: "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "RESUBMISSION_REQUIRED"; completionTimeMs?: number; submittedAt?: string }
 interface TestSetting { active: boolean; rewardEnabled: boolean; synapseReward: number; xpReward: number }
 interface TestReview { id: string; reviewerAdminUserId: string; submissionId: string; decision: SubmissionReviewInput["decision"]; reviewNote?: string; idempotencyKey: string }
 interface TestGrant { id: string; playerId: string; puzzleId: string; submissionId: string; rewardEnabledSnapshot: boolean; synapseReward: number; xpReward: number; pointTransactionId?: string; xpTransactionId?: string }
+interface TestPb { playerId: string; puzzleId: string; submissionId: string; completionTimeMs: number; approvedAt: string; submittedAt: string }
 
 class InMemorySubmissionReviewRepository implements SubmissionReviewRepository {
   submissions = new Map<string, TestSubmission>();
   settings = new Map<string, TestSetting>();
   reviews: TestReview[] = [];
   grants: TestGrant[] = [];
+  pbs = new Map<string, TestPb>();
   failAfterRewards = false;
   private sequence: Promise<void> = Promise.resolve();
 
@@ -57,6 +59,12 @@ class InMemorySubmissionReviewRepository implements SubmissionReviewRepository {
         if (grant.synapseReward > 0) grant.pointTransactionId = (await gameState.creditPoints({ playerId: submission.playerId, amount: grant.synapseReward, reason: "First approved puzzle completion", sourceType: "submission.first_completion", sourceId: submission.submissionId, idempotencyKey: `submission:first-completion:${submission.playerId}:${submission.puzzleId}:sp` })).transactionId;
         if (grant.xpReward > 0) grant.xpTransactionId = (await gameState.grantXp({ playerId: submission.playerId, amount: grant.xpReward, reason: "First approved puzzle completion", sourceType: "submission.first_completion", sourceId: submission.submissionId, idempotencyKey: `submission:first-completion:${submission.playerId}:${submission.puzzleId}:xp` })).transactionId;
       }
+      if (input.decision === "APPROVED") {
+        const candidate: TestPb = { playerId: submission.playerId, puzzleId: submission.puzzleId, submissionId: submission.submissionId, completionTimeMs: submission.completionTimeMs ?? 200_000, approvedAt: `2026-09-08T00:00:${String(this.reviews.length).padStart(2, "0")}.000Z`, submittedAt: submission.submittedAt ?? "2026-09-07T00:00:00.000Z" };
+        const key = `${submission.playerId}:${submission.puzzleId}`;
+        const existingPb = this.pbs.get(key);
+        if (!existingPb || comparePb(candidate, existingPb) < 0) this.pbs.set(key, candidate);
+      }
       if (this.failAfterRewards) throw new Error("simulated transaction failure");
       return this.result(review, false);
     } catch (error) {
@@ -81,15 +89,19 @@ class InMemorySubmissionReviewRepository implements SubmissionReviewRepository {
 
   private snapshot() {
     return {
-      submissions: structuredClone(this.submissions), reviews: structuredClone(this.reviews), grants: structuredClone(this.grants),
+      submissions: structuredClone(this.submissions), reviews: structuredClone(this.reviews), grants: structuredClone(this.grants), pbs: structuredClone(this.pbs),
       states: structuredClone(this.gameRepo.states), wallets: structuredClone(this.gameRepo.wallets), xp: structuredClone(this.gameRepo.xpTransactions), points: structuredClone(this.gameRepo.pointTransactions),
     };
   }
 
   private restore(snapshot: ReturnType<InMemorySubmissionReviewRepository["snapshot"]>) {
-    this.submissions = snapshot.submissions; this.reviews = snapshot.reviews; this.grants = snapshot.grants;
+    this.submissions = snapshot.submissions; this.reviews = snapshot.reviews; this.grants = snapshot.grants; this.pbs = snapshot.pbs;
     this.gameRepo.states = snapshot.states; this.gameRepo.wallets = snapshot.wallets; this.gameRepo.xpTransactions = snapshot.xp; this.gameRepo.pointTransactions = snapshot.points;
   }
+}
+
+function comparePb(a: TestPb, b: TestPb) {
+  return a.completionTimeMs - b.completionTimeMs || a.approvedAt.localeCompare(b.approvedAt) || a.submittedAt.localeCompare(b.submittedAt) || a.submissionId.localeCompare(b.submissionId);
 }
 
 const reviewer = "admin-1";
@@ -116,6 +128,7 @@ describe("submission review decision engine", () => {
     expect(result.rewardGrant).toMatchObject({ rewardEnabledSnapshot: true, synapseReward: 300, xpReward: 8000 });
     expect(gameRepo.wallets.get("player-1")).toBe(300);
     expect(gameRepo.states.get("player-1")).toMatchObject({ totalXp: 8000, progressionLevel: 15, rankName: "Knight" });
+    expect(repo.pbs.get("player-1:puzzle-1")?.submissionId).toBe("submission-1");
   });
 
   it("approves a later solve for the same player and canonical puzzle without another reward", async () => {
@@ -142,7 +155,7 @@ describe("submission review decision engine", () => {
     if (setting) repo.settings.set("puzzle-1", setting); else repo.settings.delete("puzzle-1");
     const result = await service.review(approve("submission-1"));
     expect(result.rewardGrant).toMatchObject({ rewardEnabledSnapshot: false, synapseReward: 0, xpReward: 0 });
-    expect(gameRepo.pointTransactions).toHaveLength(0); expect(gameRepo.xpTransactions).toHaveLength(0);
+    expect(gameRepo.pointTransactions).toHaveLength(0); expect(gameRepo.xpTransactions).toHaveLength(0); expect(repo.pbs).toHaveLength(1);
   });
 
   it.each([[0, 500, 0, 1], [250, 0, 1, 0]])("skips zero ledgers for SP %i and XP %i", async (sp, xp, pointCount, xpCount) => {
@@ -153,7 +166,7 @@ describe("submission review decision engine", () => {
 
   it.each(["REJECTED", "RESUBMISSION_REQUIRED"] as const)("records %s without reward processing", async (decision) => {
     await service.review({ ...approve("submission-1"), decision, idempotencyKey: decision });
-    expect(repo.submissions.get("submission-1")?.status).toBe(decision); expect(repo.reviews).toHaveLength(1); expect(repo.grants).toHaveLength(0);
+    expect(repo.submissions.get("submission-1")?.status).toBe(decision); expect(repo.reviews).toHaveLength(1); expect(repo.grants).toHaveLength(0); expect(repo.pbs).toHaveLength(0);
   });
 
   it("returns an exact idempotent replay without duplicates", async () => {
@@ -176,7 +189,14 @@ describe("submission review decision engine", () => {
   it("serializes concurrent first-completion approvals without double granting", async () => {
     repo.submissions.set("submission-2", { submissionId: "submission-2", playerId: "player-1", puzzleId: "puzzle-1", status: "PENDING_REVIEW" });
     await Promise.all([service.review(approve("submission-1")), service.review(approve("submission-2"))]);
-    expect(repo.reviews).toHaveLength(2); expect(repo.grants).toHaveLength(1); expect(gameRepo.pointTransactions).toHaveLength(1); expect(gameRepo.xpTransactions).toHaveLength(1);
+    expect(repo.reviews).toHaveLength(2); expect(repo.grants).toHaveLength(1); expect(repo.pbs).toHaveLength(1); expect(gameRepo.pointTransactions).toHaveLength(1); expect(gameRepo.xpTransactions).toHaveLength(1);
+  });
+
+  it("leaves the actual fastest PB after concurrent fast and slow approvals", async () => {
+    repo.submissions.get("submission-1")!.completionTimeMs = 220_000;
+    repo.submissions.set("submission-2", { submissionId: "submission-2", playerId: "player-1", puzzleId: "puzzle-1", status: "PENDING_REVIEW", completionTimeMs: 180_000 });
+    await Promise.all([service.review(approve("submission-1")), service.review(approve("submission-2"))]);
+    expect(repo.pbs.get("player-1:puzzle-1")).toMatchObject({ submissionId: "submission-2", completionTimeMs: 180_000 });
   });
 
   it("rolls back review, status, grant, ledgers, and caches after a partial failure", async () => {
@@ -185,6 +205,41 @@ describe("submission review decision engine", () => {
     expect(repo.submissions.get("submission-1")?.status).toBe("PENDING_REVIEW");
     expect(repo.reviews).toHaveLength(0); expect(repo.grants).toHaveLength(0); expect(gameRepo.pointTransactions).toHaveLength(0); expect(gameRepo.xpTransactions).toHaveLength(0);
     expect(gameRepo.wallets.has("player-1")).toBe(false); expect(gameRepo.states.has("player-1")).toBe(false);
+    expect(repo.pbs).toHaveLength(0);
+  });
+
+  it("replaces a PB with a faster later approval but grants no second reward", async () => {
+    repo.submissions.get("submission-1")!.completionTimeMs = 200_000;
+    await service.review(approve("submission-1"));
+    repo.submissions.set("submission-2", { submissionId: "submission-2", playerId: "player-1", puzzleId: "puzzle-1", status: "PENDING_REVIEW", completionTimeMs: 185_000 });
+    await service.review(approve("submission-2"));
+    expect(repo.pbs.get("player-1:puzzle-1")?.submissionId).toBe("submission-2"); expect(repo.grants).toHaveLength(1);
+  });
+
+  it("keeps the PB for a slower or equal-time later approval", async () => {
+    repo.submissions.get("submission-1")!.completionTimeMs = 185_000;
+    await service.review(approve("submission-1"));
+    for (const [id, time] of [["submission-2", 200_000], ["submission-3", 185_000]] as const) {
+      repo.submissions.set(id, { submissionId: id, playerId: "player-1", puzzleId: "puzzle-1", status: "PENDING_REVIEW", completionTimeMs: time });
+      await service.review(approve(id));
+    }
+    expect(repo.pbs.get("player-1:puzzle-1")?.submissionId).toBe("submission-1");
+  });
+
+  it("stores independent PBs by canonical player and puzzle identity", async () => {
+    await service.review(approve("submission-1"));
+    repo.submissions.set("submission-2", { submissionId: "submission-2", playerId: "player-1", puzzleId: "puzzle-2", status: "PENDING_REVIEW" });
+    repo.submissions.set("submission-3", { submissionId: "submission-3", playerId: "player-2", puzzleId: "puzzle-1", status: "PENDING_REVIEW" });
+    await service.review(approve("submission-2")); await service.review(approve("submission-3"));
+    expect(repo.pbs).toHaveLength(3);
+  });
+
+  it("captures PB history when reward or leaderboard configuration is absent", async () => {
+    repo.settings.delete("puzzle-1");
+    await service.review(approve("submission-1"));
+    expect(repo.pbs).toHaveLength(1); expect(repo.grants[0]).toMatchObject({ rewardEnabledSnapshot: false });
+    repo.settings.set("puzzle-1", { active: false, rewardEnabled: false, synapseReward: 0, xpReward: 0 });
+    expect(repo.pbs.get("player-1:puzzle-1")?.submissionId).toBe("submission-1");
   });
 
   it("requires a non-empty idempotency key", async () => {

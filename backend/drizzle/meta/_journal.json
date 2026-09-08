@@ -50,6 +50,13 @@
       "when": 1788863887586,
       "tag": "0006_rich_tenebrous",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788868840480,
+      "tag": "0007_organic_cargill",
+      "breakpoints": true
     }
   ]
 }

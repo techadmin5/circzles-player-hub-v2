@@ -8,6 +8,8 @@ import { buildApp } from "./http/app.js";
 import { CloudinaryVideoStorage } from "./storage/videoStorage.js";
 import { AdminAuthorizationService, DrizzleAdminAuthorizationRepository } from "./domain/adminAuth.js";
 import { AdminSubmissionService, DrizzleAdminSubmissionRepository } from "./domain/adminSubmissions.js";
+import { DrizzleLeaderboardRepository, LeaderboardService } from "./domain/leaderboards.js";
+import { DrizzleSubmissionReviewRepository, SubmissionReviewService } from "./domain/submissionReviews.js";
 
 const env = loadEnv();
 const { pool, db } = createDb(env.DATABASE_URL);
@@ -18,6 +20,8 @@ const videoStorage = new CloudinaryVideoStorage({ cloudName: env.CLOUDINARY_CLOU
 const submissionService = new SubmissionService(new DrizzleSubmissionRepository(db), videoStorage);
 const adminAuth = new AdminAuthorizationService(new DrizzleAdminAuthorizationRepository(db), env.SESSION_SECRET);
 const adminSubmissions = new AdminSubmissionService(new DrizzleAdminSubmissionRepository(db));
+const leaderboards = new LeaderboardService(new DrizzleLeaderboardRepository(db));
+const submissionReviews = new SubmissionReviewService(new DrizzleSubmissionReviewRepository(db));
 const app = buildApp({
   env,
   identity,
@@ -26,6 +30,8 @@ const app = buildApp({
   submissions: submissionService,
   adminAuth,
   adminSubmissions,
+  leaderboards,
+  submissionReviews,
   checkDb: async () => {
     await pool.query("select 1");
   },

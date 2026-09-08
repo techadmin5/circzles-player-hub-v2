@@ -8,6 +8,7 @@ import {
 } from "../db/schema.js";
 import { AppError, validationFailed } from "./errors.js";
 import { creditPointsInTransaction, grantXpInTransaction } from "./gameState.js";
+import { processPersonalBestInTransaction } from "./leaderboards.js";
 
 export type SubmissionReviewDecision = "APPROVED" | "REJECTED" | "RESUBMISSION_REQUIRED";
 
@@ -129,6 +130,15 @@ export class DrizzleSubmissionReviewRepository implements SubmissionReviewReposi
             xpTransactionId: xpResult?.transactionId,
           }).where(eq(submissionRewardGrants.submissionRewardGrantId, grant.submissionRewardGrantId));
         }
+
+        await processPersonalBestInTransaction(tx, {
+          playerId: submission.playerId,
+          puzzleId: submission.puzzleId,
+          submissionId: submission.submissionId,
+          completionTimeMs: submission.completionTimeMs,
+          approvedAt: review.createdAt,
+          submittedAt: submission.submittedAt,
+        });
       }
 
       return reviewResult(tx, review, false);

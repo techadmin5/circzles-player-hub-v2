@@ -170,7 +170,7 @@ Server authority: validates file constraints and storage key.
 
 ### POST /api/admin/submissions/:submissionId/review
 
-Phase 3E-C status: intentionally deferred; no review mutation route exists yet. The trusted internal review engine is implemented, but HTTP exposure waits for leaderboard processing in Phase 3E-D so approval-side competition effects cannot be partially available.
+Phase 3E-D status: implemented.
 
 Authentication: admin permission required.
 
@@ -182,25 +182,21 @@ Request:
 
 Idempotency: required through `Idempotency-Key`.
 
-Transaction: update submission, insert review, award points/XP once, update leaderboard, evaluate missions, notify player, audit log.
+Transaction: insert review history, update submission status, process the one-time first-completion reward and ledgers, and update the all-time PB together. Missions, notifications, and broader audit logging remain future work.
 
-Errors: `SUBMISSION_ALREADY_APPROVED`, `FORBIDDEN`, `VALIDATION_FAILED`.
+Errors: `SUBMISSION_ALREADY_REVIEWED`, `IDEMPOTENCY_CONFLICT`, `FORBIDDEN`, `VALIDATION_FAILED`.
 
-The eventual route must derive the reviewer from admin authorization and require an idempotency key. It must never accept player, puzzle, reward, XP, SP, role, permission, or target status as browser authority.
+The route derives the reviewer from admin authorization and requires `Idempotency-Key`. It never accepts player, puzzle, reward, XP, SP, role, permission, reviewer, or target status as browser authority.
+
+### GET /api/leaderboards/catalog
+
+Authentication: current player session required.
+
+Returns `mainLevels` and `sideQuests` from active, leaderboard-enabled competition settings joined to active, non-deleted canonical puzzles. Items expose only puzzle ID/name, run code, fractional-compatible `levelId`, explicit category, and display order.
 
 ### GET /api/leaderboards
 
-Query params:
-
-- `mode=GLOBAL|COUNTRY|STATE|FRIENDS`
-- `puzzleId`
-- `levelId`
-- `seasonId`
-- `period=ALL_TIME|SEASON`
-- `country`
-- `state`
-
-Server returns ranked rows and current player's rank. Ranks are not calculated by the frontend.
+Phase 3E-D requires authenticated `puzzleId=<canonical UUID>` and rejects additional filters. The configured leaderboard must currently be visible. Returns the puzzle, top 10 rows, and the authenticated player's real ranked row only when outside the top 10. Ranks use exact milliseconds and deterministic approval/submission ordering and are never persisted or calculated by the frontend. Country, state, friends, seasons, and period filters remain deferred.
 
 ### POST /api/missions/:missionId/claim
 
@@ -273,7 +269,6 @@ Both endpoints expose review-relevant submission, canonical puzzle, public playe
 
 - `GET /api/admin/overview`
 - `GET /api/admin/players`
-- `POST /api/admin/submissions/:id/review`
 - `GET|POST|PATCH /api/admin/missions`
 - `GET|POST|PATCH /api/admin/store/items`
 - `GET|POST|PATCH /api/admin/seasons`
