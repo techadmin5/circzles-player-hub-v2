@@ -98,13 +98,16 @@ export class DrizzleCompetitionSettingsRepository implements CompetitionSettings
   }
 
   async upsert(input: Required<CompetitionSettingInput>) {
-    const [setting] = await this.db.insert(puzzleCompetitionSettings).values(input).onConflictDoUpdate({
-      target: puzzleCompetitionSettings.puzzleId,
-      set: { category: input.category, leaderboardEnabled: input.leaderboardEnabled, displayOrder: input.displayOrder, rewardEnabled: input.rewardEnabled, synapseReward: input.synapseReward, xpReward: input.xpReward, active: input.active, updatedAt: new Date() },
-    }).returning();
-    const [puzzle] = await this.db.select().from(puzzles).where(eq(puzzles.puzzleId, input.puzzleId)).limit(1);
-    if (!puzzle) throw new AppError("PUZZLE_NOT_FOUND", "Puzzle was not found.", 404);
-    return toDto({ setting, puzzle });
+    return this.db.transaction(async (tx) => {
+      const [puzzle] = await tx.select().from(puzzles).where(eq(puzzles.puzzleId, input.puzzleId)).limit(1).for("key share");
+      if (!puzzle) throw new AppError("PUZZLE_NOT_FOUND", "Puzzle was not found.", 404);
+
+      const [setting] = await tx.insert(puzzleCompetitionSettings).values(input).onConflictDoUpdate({
+        target: puzzleCompetitionSettings.puzzleId,
+        set: { category: input.category, leaderboardEnabled: input.leaderboardEnabled, displayOrder: input.displayOrder, rewardEnabled: input.rewardEnabled, synapseReward: input.synapseReward, xpReward: input.xpReward, active: input.active, updatedAt: new Date() },
+      }).returning();
+      return toDto({ setting, puzzle });
+    });
   }
 }
 

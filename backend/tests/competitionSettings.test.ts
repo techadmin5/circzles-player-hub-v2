@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { assertValidLevelId, CompetitionSettingsService, mainLevelRewardPreset, type CompetitionSettingDto, type CompetitionSettingInput, type CompetitionSettingsRepository } from "../src/domain/competitionSettings.js";
+import { AppError } from "../src/domain/errors.js";
 
 class FakeCompetitionSettingsRepository implements CompetitionSettingsRepository {
   rows = new Map<string, CompetitionSettingDto>();
@@ -12,6 +13,7 @@ class FakeCompetitionSettingsRepository implements CompetitionSettingsRepository
     });
   }
   async upsert(input: Required<CompetitionSettingInput>) {
+    if (input.puzzleId === "missing") throw new AppError("PUZZLE_NOT_FOUND", "Puzzle was not found.", 404);
     const existing = this.rows.get(input.puzzleId);
     const row: CompetitionSettingDto = { id: existing?.id ?? `setting-${this.rows.size + 1}`, puzzleId: input.puzzleId, puzzleName: `Puzzle ${input.puzzleId}`, levelId: input.puzzleId === "side" ? 3.5 : 1, category: input.category, leaderboardEnabled: input.leaderboardEnabled, displayOrder: input.displayOrder, rewardEnabled: input.rewardEnabled, synapseReward: input.synapseReward, xpReward: input.xpReward, active: input.active };
     this.rows.set(input.puzzleId, row);
@@ -42,6 +44,13 @@ describe("competition settings", () => {
     expect(repo.rows.size).toBe(1);
     expect(updated.id).toBe(first.id);
     expect(updated.category).toBe("SIDE_QUEST");
+  });
+
+  it("rejects a nonexistent canonical puzzle with controlled PUZZLE_NOT_FOUND", async () => {
+    const repo = new FakeCompetitionSettingsRepository();
+    const service = new CompetitionSettingsService(repo);
+    await expect(service.upsert({ puzzleId: "missing", category: "MAIN_LEVEL", displayOrder: 0 })).rejects.toMatchObject({ code: "PUZZLE_NOT_FOUND", statusCode: 404 });
+    expect(repo.rows.size).toBe(0);
   });
 
   it.each([
