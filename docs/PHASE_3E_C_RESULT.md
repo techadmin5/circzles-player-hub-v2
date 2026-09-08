@@ -26,8 +26,20 @@ The unique player/puzzle reward-grant insert decides concurrent first-completion
 
 ## Migration
 
-Migration `0006_rich_tenebrous.sql` creates `submission_reward_grants` with restrictive foreign keys, nullable ledger references, non-negative reward checks, unique submission identity, and the canonical unique `(player_id, puzzle_id)` guarantee. It is schema-only and has not been run.
+Migration `0006_rich_tenebrous.sql` creates `submission_reward_grants` with restrictive foreign keys, nullable ledger references, non-negative reward checks, unique submission identity, and the canonical unique `(player_id, puzzle_id)` guarantee. It is schema-only.
+
+The migration was applied successfully to the Neon development branch on 2026-09-08. Production was not touched and no seed command was run.
+
+Database verification confirmed:
+
+- `submission_reward_grants` exists.
+- `synapse_reward >= 0` and `xp_reward >= 0` checks are present.
+- All five foreign keys use `ON DELETE RESTRICT`.
+- Unique `(player_id, puzzle_id)` is enforced.
+- Unique `submission_id` is enforced.
 
 ## Verification Status
 
-Automated tests use in-memory transactional fakes and make no external database, Neon, Wix, Cloudinary, or production calls. The concurrency test verifies the model-level uniqueness behavior; real PostgreSQL concurrency has not been integration-tested in this phase. No migration or seed command was run.
+Automated tests use in-memory transactional fakes and make no external database, Neon, Wix, Cloudinary, or production calls. The concurrency test verifies the model-level uniqueness behavior; real PostgreSQL concurrency has not yet been integration-tested. The Phase 3E-C schema migration itself is now verified on Neon development.
+
+No production migration, seed, Wix change, or `main` branch change occurred.
