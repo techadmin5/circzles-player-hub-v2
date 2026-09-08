@@ -39,4 +39,17 @@ Admin submission review, admin configuration routes/UI, reward grants, XP/SP tra
 
 ## Verification Status
 
-Migration `0004_phase_3e_a_competition_configuration.sql` has not been executed. No Neon migration, seed, production action, deployment, or real Wix data change occurred.
+Migration `0004_phase_3e_a_competition_configuration.sql` was applied successfully to the Neon development branch on 2026-09-08. Production was not touched and no seed was run.
+
+Runtime verification confirmed:
+
+- `puzzle_competition_settings` exists in the development database.
+- `puzzles.level_id` and `submissions.level_id` are both `NUMERIC(4,1)`.
+- Existing development puzzle variants survived the migration with Metamorphosis R1 at `18.0` and R2 at `22.0`.
+- Existing authenticated puzzle APIs still return `levelId` as JavaScript numbers (`18` and `22`).
+- The existing Phase 3D submission remained intact with `levelId` 22 and `PENDING_REVIEW` status.
+- A transactional runtime test temporarily changed a development puzzle to `levelId` `3.5`, stored `SIDE_QUEST` competition settings with leaderboard/reward fields, read them back successfully, and then rolled the transaction back.
+- The rollback restored the original development puzzle level, leaving no temporary Side Quest test data behind.
+- Backend health and authenticated runtime checks passed after the migration.
+
+Phase 3E-A is therefore runtime-verified on Neon development and ready for the next Phase 3E increment.
