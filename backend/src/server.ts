@@ -6,6 +6,8 @@ import { DrizzlePuzzleRepository, PuzzleOwnershipService } from "./domain/puzzle
 import { DrizzleSubmissionRepository, SubmissionService } from "./domain/submissions.js";
 import { buildApp } from "./http/app.js";
 import { CloudinaryVideoStorage } from "./storage/videoStorage.js";
+import { AdminAuthorizationService, DrizzleAdminAuthorizationRepository } from "./domain/adminAuth.js";
+import { AdminSubmissionService, DrizzleAdminSubmissionRepository } from "./domain/adminSubmissions.js";
 
 const env = loadEnv();
 const { pool, db } = createDb(env.DATABASE_URL);
@@ -14,12 +16,16 @@ const gameState = new GameStateService(new DrizzleGameStateRepository(db));
 const puzzles = new PuzzleOwnershipService(new DrizzlePuzzleRepository(db));
 const videoStorage = new CloudinaryVideoStorage({ cloudName: env.CLOUDINARY_CLOUD_NAME, apiKey: env.CLOUDINARY_API_KEY, apiSecret: env.CLOUDINARY_API_SECRET });
 const submissionService = new SubmissionService(new DrizzleSubmissionRepository(db), videoStorage);
+const adminAuth = new AdminAuthorizationService(new DrizzleAdminAuthorizationRepository(db), env.SESSION_SECRET);
+const adminSubmissions = new AdminSubmissionService(new DrizzleAdminSubmissionRepository(db));
 const app = buildApp({
   env,
   identity,
   gameState,
   puzzles,
   submissions: submissionService,
+  adminAuth,
+  adminSubmissions,
   checkDb: async () => {
     await pool.query("select 1");
   },

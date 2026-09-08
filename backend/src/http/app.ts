@@ -10,6 +10,8 @@ import type { GameStateService } from "../domain/gameState.js";
 import type { PuzzleOwnershipService } from "../domain/puzzles.js";
 import { MAX_COMPLETION_TIME_MS, type SubmissionService } from "../domain/submissions.js";
 import { SESSION_COOKIE_NAME } from "../domain/sessions.js";
+import type { AdminAuthorizationService } from "../domain/adminAuth.js";
+import type { AdminSubmissionService } from "../domain/adminSubmissions.js";
 
 export interface AppDeps {
   env: Env;
@@ -17,6 +19,8 @@ export interface AppDeps {
   gameState: GameStateService;
   puzzles: PuzzleOwnershipService;
   submissions: SubmissionService;
+  adminAuth: AdminAuthorizationService;
+  adminSubmissions: AdminSubmissionService;
   checkDb: () => Promise<void>;
 }
 
@@ -43,8 +47,15 @@ const createSubmissionBodySchema = z.object({
   completionTimeMs: z.number().int().positive().max(MAX_COMPLETION_TIME_MS),
   videoUploadId: z.string().uuid(),
 }).strict();
+const adminSubmissionQuerySchema = z.object({
+  status: z.enum(["PENDING_REVIEW", "APPROVED", "REJECTED", "RESUBMISSION_REQUIRED"]).default("PENDING_REVIEW"),
+  puzzleId: z.string().uuid().optional(),
+  levelId: z.coerce.number().positive().max(999.9).refine((value) => Math.abs(value * 10 - Math.round(value * 10)) <= Number.EPSILON * 10, "levelId supports at most one decimal place").optional(),
+  limit: z.coerce.number().int().positive().max(100).default(50),
+}).strict();
+const adminSubmissionParamsSchema = z.object({ submissionId: z.string().uuid() }).strict();
 
-export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, checkDb }: AppDeps) {
+export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, checkDb }: AppDeps) {
   const app = Fastify({
     logger: env.NODE_ENV === "test" ? false : {
       level: "info",
@@ -135,6 +146,20 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
     const idempotencyKey = typeof idempotencyHeader === "string" ? idempotencyHeader.trim() : undefined;
     if (idempotencyKey && idempotencyKey.length > 200) throw validationFailed("Idempotency-Key is too long.");
     return reply.status(201).send(await submissionService.createSubmission(player.internalId, parsed.data, idempotencyKey || undefined));
+  });
+
+  app.get("/api/admin/submissions", async (request, reply) => {
+    await adminAuth.requirePermission(request.cookies[SESSION_COOKIE_NAME], "SUBMISSIONS_REVIEW");
+    const parsed = adminSubmissionQuerySchema.safeParse(request.query);
+    if (!parsed.success) throw validationFailed("Invalid admin submission filters.", parsed.error.flatten());
+    return reply.send(await adminSubmissions.list(parsed.data));
+  });
+
+  app.get("/api/admin/submissions/:submissionId", async (request, reply) => {
+    await adminAuth.requirePermission(request.cookies[SESSION_COOKIE_NAME], "SUBMISSIONS_REVIEW");
+    const parsed = adminSubmissionParamsSchema.safeParse(request.params);
+    if (!parsed.success) throw validationFailed("Invalid submission id.", parsed.error.flatten());
+    return reply.send(await adminSubmissions.get(parsed.data.submissionId));
   });
 
   app.post("/api/dev/login", async (request, reply) => {

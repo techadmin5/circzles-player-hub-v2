@@ -36,6 +36,13 @@
       "when": 1788850340176,
       "tag": "0004_phase_3e_a_competition_configuration",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788858158912,
+      "tag": "0005_curly_spyke",
+      "breakpoints": true
     }
   ]
 }

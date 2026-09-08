@@ -7,6 +7,8 @@ export const pointTransactionDirection = pgEnum("point_transaction_direction", [
 export const videoUploadStatus = pgEnum("video_upload_status", ["SIGNED", "COMPLETE", "FAILED", "EXPIRED"]);
 export const submissionStatus = pgEnum("submission_status", ["PENDING_REVIEW", "APPROVED", "REJECTED", "RESUBMISSION_REQUIRED"]);
 export const puzzleCompetitionCategory = pgEnum("puzzle_competition_category", ["MAIN_LEVEL", "SIDE_QUEST"]);
+export const adminRole = pgEnum("admin_role", ["SUPER_ADMIN", "REVIEWER"]);
+export const submissionReviewDecision = pgEnum("submission_review_decision", ["APPROVED", "REJECTED", "RESUBMISSION_REQUIRED"]);
 
 export const users = pgTable("users", {
   userId: uuid("user_id").primaryKey().defaultRandom(),
@@ -265,6 +267,32 @@ export const submissions = pgTable("submissions", {
   playerPuzzleIndex: index("submissions_player_puzzle_id_idx").on(table.playerPuzzleId),
   completionTimeCheck: check("submissions_completion_time_ms_check", sql`${table.completionTimeMs} > 0`),
   levelIdCheck: check("submissions_level_id_check", sql`${table.levelId} > 0`),
+}));
+
+export const adminUsers = pgTable("admin_users", {
+  adminUserId: uuid("admin_user_id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => users.userId, { onDelete: "cascade" }),
+  role: adminRole("role").notNull(),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  userIdUnique: uniqueIndex("admin_users_user_id_unique").on(table.userId),
+  activeRoleIndex: index("admin_users_active_role_idx").on(table.active, table.role),
+}));
+
+export const submissionReviews = pgTable("submission_reviews", {
+  submissionReviewId: uuid("submission_review_id").primaryKey().defaultRandom(),
+  submissionId: uuid("submission_id").notNull().references(() => submissions.submissionId, { onDelete: "cascade" }),
+  reviewerAdminUserId: uuid("reviewer_admin_user_id").notNull().references(() => adminUsers.adminUserId, { onDelete: "restrict" }),
+  decision: submissionReviewDecision("decision").notNull(),
+  reviewNote: text("review_note"),
+  idempotencyKey: text("idempotency_key").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  reviewerIdempotencyUnique: uniqueIndex("submission_reviews_reviewer_id_idempotency_key_unique").on(table.reviewerAdminUserId, table.idempotencyKey),
+  submissionCreatedIndex: index("submission_reviews_submission_created_at_idx").on(table.submissionId, table.createdAt),
+  reviewerCreatedIndex: index("submission_reviews_reviewer_created_at_idx").on(table.reviewerAdminUserId, table.createdAt),
 }));
 
 export const puzzleCompetitionSettings = pgTable("puzzle_competition_settings", {

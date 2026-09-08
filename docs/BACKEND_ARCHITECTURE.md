@@ -196,3 +196,11 @@ Puzzle difficulty `levelId` supports one decimal place through PostgreSQL `NUMER
 `puzzle_competition_settings` has exactly one row per canonical `puzzleId`. Its explicit `MAIN_LEVEL` or `SIDE_QUEST` category drives future tabs; category is never inferred from `.5`. Active, leaderboard-enabled rows are listed predictably by category and `displayOrder`. Future trusted admin operations may use the internal repository/service upsert boundary, but Phase 3E-A exposes no mutation route.
 
 Reward authority lives in persisted settings through `rewardEnabled`, `synapseReward`, and `xpReward`. The Level 1-10 preset is an editable bootstrap helper for future admin use and is not attached to development puzzles or consulted by runtime reward logic. Side Quest rewards have no preset and must be configured independently.
+
+## Phase 3E-B1 Admin Review Foundation
+
+Admin authorization extends the existing cookie-session model. The backend hashes the session token and requires an active, unexpired, non-revoked `auth_sessions` row, an `ACTIVE` user, and an active `admin_users` row linked by `user_id`. Missing or invalid authentication returns `UNAUTHORIZED`; a valid non-admin, inactive admin, or insufficient role returns `FORBIDDEN`.
+
+Roles map to permissions in backend code: `REVIEWER` has `SUBMISSIONS_REVIEW`; `SUPER_ADMIN` has `SUBMISSIONS_REVIEW` and `COMPETITION_CONFIG`. Routes request permissions rather than trusting role, user, player, or admin values from the browser.
+
+The implemented admin surface is read-only: submission queue and detail queries expose public player identity and review-relevant puzzle, run, timing, status, player-puzzle, and video metadata. The queue defaults to pending review, supports bounded filters, and orders oldest first with submission UUID as a deterministic tie-breaker. Review decisions, reward grants, leaderboard mutation, audit writes, and admin UI remain deferred.

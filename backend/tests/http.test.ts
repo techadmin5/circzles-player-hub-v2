@@ -4,7 +4,9 @@ import { GameStateService, temporaryDevelopmentProgressionLevels } from "../src/
 import { IdentityService } from "../src/domain/identity.js";
 import { PuzzleOwnershipService } from "../src/domain/puzzles.js";
 import { SubmissionService } from "../src/domain/submissions.js";
-import { FakeGameStateRepository, FakeIdentityRepository, FakePuzzleRepository, FakeSubmissionRepository, FakeVideoStorage } from "./fakes.js";
+import { AdminAuthorizationService, hasAdminPermission } from "../src/domain/adminAuth.js";
+import { AdminSubmissionService, type AdminSubmissionDto } from "../src/domain/adminSubmissions.js";
+import { FakeAdminAuthorizationRepository, FakeAdminSubmissionRepository, FakeGameStateRepository, FakeIdentityRepository, FakePuzzleRepository, FakeSubmissionRepository, FakeVideoStorage } from "./fakes.js";
 import type { Env } from "../src/config/env.js";
 
 function env(overrides: Partial<Env> = {}): Env {
@@ -32,13 +34,44 @@ async function appWithFakes(overrides: Partial<Env> = {}) {
   const submissionRepo = new FakeSubmissionRepository(puzzleRepo);
   const videoStorage = new FakeVideoStorage();
   const submissionService = new SubmissionService(submissionRepo, videoStorage);
-  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, checkDb: async () => {} });
-  return { app, gameRepo, puzzleRepo, submissionRepo, videoStorage, testEnv };
+  const adminAuthRepo = new FakeAdminAuthorizationRepository(identityRepo);
+  const adminAuth = new AdminAuthorizationService(adminAuthRepo, testEnv.SESSION_SECRET);
+  const adminSubmissionRepo = new FakeAdminSubmissionRepository();
+  const adminSubmissions = new AdminSubmissionService(adminSubmissionRepo);
+  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, checkDb: async () => {} });
+  return { app, gameRepo, puzzleRepo, submissionRepo, videoStorage, adminAuthRepo, adminSubmissionRepo, testEnv };
 }
 
 async function login(app: Awaited<ReturnType<typeof appWithFakes>>["app"]) {
   const res = await app.inject({ method: "POST", url: "/api/dev/login" });
   return Array.isArray(res.headers["set-cookie"]) ? res.headers["set-cookie"][0] : res.headers["set-cookie"] ?? "";
+}
+
+function adminSubmission(overrides: Partial<AdminSubmissionDto> = {}): AdminSubmissionDto {
+  return {
+    submissionId: "60000000-0000-4000-8000-000000000001",
+    status: "PENDING_REVIEW",
+    submittedAt: "2026-01-02T03:04:05.000Z",
+    completionTimeMs: 161_000,
+    levelId: 22.5,
+    puzzleId: "70000000-0000-4000-8000-000000000001",
+    puzzleName: "Metamorphosis",
+    runCode: "META",
+    player: { publicPlayerId: "CZ-8F42KD", displayName: "Smokey_OP" },
+    playerPuzzleId: "80000000-0000-4000-8000-000000000001",
+    video: {
+      videoUploadId: "90000000-0000-4000-8000-000000000001",
+      storageProvider: "CLOUDINARY",
+      publicId: "circzles/submissions/test-video",
+      mimeType: "video/mp4",
+      declaredSizeBytes: 1024,
+      verifiedSizeBytes: 1024,
+      durationMs: 165_000,
+      status: "COMPLETE",
+      completedAt: "2026-01-02T03:03:00.000Z",
+    },
+    ...overrides,
+  };
 }
 
 describe("http auth poc", () => {
@@ -93,7 +126,17 @@ describe("http auth poc", () => {
     await puzzles.seedDevelopmentCatalog();
     const puzzleRepo = new FakePuzzleRepository();
     const submissions = new SubmissionService(new FakeSubmissionRepository(puzzleRepo), new FakeVideoStorage());
-    const app = buildApp({ env: testEnv, identity: new IdentityService(new FakeIdentityRepository(), testEnv.SESSION_SECRET), gameState, puzzles, submissions, checkDb: async () => { checked = true; } });
+    const identityRepo = new FakeIdentityRepository();
+    const app = buildApp({
+      env: testEnv,
+      identity: new IdentityService(identityRepo, testEnv.SESSION_SECRET),
+      gameState,
+      puzzles,
+      submissions,
+      adminAuth: new AdminAuthorizationService(new FakeAdminAuthorizationRepository(identityRepo), testEnv.SESSION_SECRET),
+      adminSubmissions: new AdminSubmissionService(new FakeAdminSubmissionRepository()),
+      checkDb: async () => { checked = true; },
+    });
     const res = await app.inject({ method: "GET", url: "/health" });
     expect(res.statusCode).toBe(200);
     expect(checked).toBe(true);
@@ -293,5 +336,125 @@ describe("http auth poc", () => {
     const created = await app.inject({ method: "POST", url: "/api/submissions", headers: { cookie }, payload: { playerPuzzleId: "30000000-0000-4000-8000-000000000001", completionTimeMs: 161000, videoUploadId } });
     expect(created.statusCode).toBe(201);
     expect(created.json()).toMatchObject({ puzzleId: "DEV-PUZZLE-METAMORPHOSIS-R1", levelId: 18, status: "PENDING_REVIEW" });
+  });
+});
+
+describe("admin review authorization and read API", () => {
+  it("maps admin roles to server-side permissions", () => {
+    expect(hasAdminPermission("REVIEWER", "SUBMISSIONS_REVIEW")).toBe(true);
+    expect(hasAdminPermission("REVIEWER", "COMPETITION_CONFIG")).toBe(false);
+    expect(hasAdminPermission("SUPER_ADMIN", "SUBMISSIONS_REVIEW")).toBe(true);
+    expect(hasAdminPermission("SUPER_ADMIN", "COMPETITION_CONFIG")).toBe(true);
+  });
+
+  it.each([
+    "/api/admin/submissions",
+    "/api/admin/submissions/60000000-0000-4000-8000-000000000001",
+  ])("requires an authenticated session for %s", async (url) => {
+    const { app } = await appWithFakes();
+    const res = await app.inject({ method: "GET", url });
+    expect(res.statusCode).toBe(401);
+    expect(res.json().code).toBe("UNAUTHORIZED");
+  });
+
+  it("rejects a valid non-admin player session", async () => {
+    const { app } = await appWithFakes({ NODE_ENV: "development" });
+    const cookie = await login(app);
+    const res = await app.inject({ method: "GET", url: "/api/admin/submissions", headers: { cookie } });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().code).toBe("FORBIDDEN");
+  });
+
+  it("rejects an inactive admin", async () => {
+    const { app, adminAuthRepo } = await appWithFakes({ NODE_ENV: "development" });
+    const cookie = await login(app);
+    adminAuthRepo.admins.set("user-1", { adminUserId: "50000000-0000-4000-8000-000000000001", role: "REVIEWER", active: false });
+    const res = await app.inject({ method: "GET", url: "/api/admin/submissions", headers: { cookie } });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().code).toBe("FORBIDDEN");
+  });
+
+  it("does not accept client-supplied identity as admin authority", async () => {
+    const { app } = await appWithFakes({ NODE_ENV: "development" });
+    const cookie = await login(app);
+    const res = await app.inject({ method: "GET", url: "/api/admin/submissions?adminUserId=50000000-0000-4000-8000-000000000001", headers: { cookie } });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().code).toBe("FORBIDDEN");
+  });
+
+  it("allows a reviewer to list pending submissions with deterministic oldest-first ordering", async () => {
+    const { app, adminAuthRepo, adminSubmissionRepo } = await appWithFakes({ NODE_ENV: "development" });
+    const cookie = await login(app);
+    adminAuthRepo.admins.set("user-1", { adminUserId: "50000000-0000-4000-8000-000000000001", role: "REVIEWER", active: true });
+    adminSubmissionRepo.items.push(
+      adminSubmission({ submissionId: "60000000-0000-4000-8000-000000000002", submittedAt: "2026-01-03T00:00:00.000Z" }),
+      adminSubmission(),
+      adminSubmission({ submissionId: "60000000-0000-4000-8000-000000000003", status: "APPROVED", submittedAt: "2026-01-01T00:00:00.000Z" }),
+    );
+    const res = await app.inject({ method: "GET", url: "/api/admin/submissions", headers: { cookie } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().map((item: AdminSubmissionDto) => item.submissionId)).toEqual([
+      "60000000-0000-4000-8000-000000000001",
+      "60000000-0000-4000-8000-000000000002",
+    ]);
+    expect(res.json()[0].levelId).toBe(22.5);
+  });
+
+  it("applies status, puzzle, level, and bounded limit filters", async () => {
+    const { app, adminAuthRepo, adminSubmissionRepo } = await appWithFakes({ NODE_ENV: "development" });
+    const cookie = await login(app);
+    adminAuthRepo.admins.set("user-1", { adminUserId: "50000000-0000-4000-8000-000000000001", role: "SUPER_ADMIN", active: true });
+    adminSubmissionRepo.items.push(
+      adminSubmission({ status: "APPROVED" }),
+      adminSubmission({ submissionId: "60000000-0000-4000-8000-000000000002", status: "APPROVED", puzzleId: "70000000-0000-4000-8000-000000000002" }),
+    );
+    const url = "/api/admin/submissions?status=APPROVED&puzzleId=70000000-0000-4000-8000-000000000001&levelId=22.5&limit=1";
+    const res = await app.inject({ method: "GET", url, headers: { cookie } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toHaveLength(1);
+    expect(res.json()[0].submissionId).toBe("60000000-0000-4000-8000-000000000001");
+  });
+
+  it("rejects invalid admin queue input and client-selected identity fields", async () => {
+    const { app, adminAuthRepo } = await appWithFakes({ NODE_ENV: "development" });
+    const cookie = await login(app);
+    adminAuthRepo.admins.set("user-1", { adminUserId: "50000000-0000-4000-8000-000000000001", role: "REVIEWER", active: true });
+    for (const url of [
+      "/api/admin/submissions?limit=101",
+      "/api/admin/submissions?userId=user-2",
+      "/api/admin/submissions/not-a-uuid",
+    ]) {
+      const res = await app.inject({ method: "GET", url, headers: { cookie } });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe("VALIDATION_FAILED");
+    }
+  });
+
+  it("returns a reviewer-safe submission detail DTO and a controlled 404", async () => {
+    const { app, adminAuthRepo, adminSubmissionRepo } = await appWithFakes({ NODE_ENV: "development" });
+    const cookie = await login(app);
+    adminAuthRepo.admins.set("user-1", { adminUserId: "50000000-0000-4000-8000-000000000001", role: "REVIEWER", active: true });
+    adminSubmissionRepo.items.push(adminSubmission());
+    const found = await app.inject({ method: "GET", url: "/api/admin/submissions/60000000-0000-4000-8000-000000000001", headers: { cookie } });
+    expect(found.statusCode).toBe(200);
+    expect(found.json()).toMatchObject({ puzzleName: "Metamorphosis", player: { publicPlayerId: "CZ-8F42KD", displayName: "Smokey_OP" } });
+    expect(JSON.stringify(found.json())).not.toContain("wix");
+    expect(JSON.stringify(found.json())).not.toContain("email");
+    const missing = await app.inject({ method: "GET", url: "/api/admin/submissions/60000000-0000-4000-8000-000000000099", headers: { cookie } });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json().code).toBe("SUBMISSION_NOT_FOUND");
+  });
+
+  it("does not expose an admin review mutation route", async () => {
+    const { app, adminAuthRepo } = await appWithFakes({ NODE_ENV: "development" });
+    const cookie = await login(app);
+    adminAuthRepo.admins.set("user-1", { adminUserId: "50000000-0000-4000-8000-000000000001", role: "SUPER_ADMIN", active: true });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/admin/submissions/60000000-0000-4000-8000-000000000001/review",
+      headers: { cookie },
+      payload: { decision: "APPROVED" },
+    });
+    expect(res.statusCode).toBe(404);
   });
 });

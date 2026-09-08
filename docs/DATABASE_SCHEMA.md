@@ -157,11 +157,15 @@ Columns: `video_upload_id` PK, `player_id` FK, `storage_provider`, `bucket`, `ob
 
 ### submission_reviews
 
-Purpose: admin review history.
+Phase 3E-B1 status: schema foundation only. No code writes review rows yet.
+
+Purpose: future admin review history.
 
 Columns: `submission_review_id` PK, `submission_id` FK, `reviewer_admin_user_id` FK, `decision`, `review_note`, `created_at`, `idempotency_key`.
 
-Constraints: unique `idempotency_key`; one approved reward-processing record per submission via `submission_reward_grants`.
+Decisions: `APPROVED`, `REJECTED`, `RESUBMISSION_REQUIRED`.
+
+Constraints: FKs to `submissions` and `admin_users`; unique `(reviewer_admin_user_id, idempotency_key)`. Approval mutation and reward processing remain deferred.
 
 ### submission_reward_grants
 
@@ -375,19 +379,23 @@ Constraints: unique `idempotency_key` when present.
 
 ### admin_users
 
-Purpose: admin account linkage.
+Phase 3E-B1 status: implemented.
 
-Columns: `admin_user_id` PK, `user_id` FK unique, `status`, `created_at`, `updated_at`.
+Purpose: one admin authorization record linked to an authenticated `users` account. Admin identity is deliberately not attached to `players`.
+
+Columns: `admin_user_id` UUID PK, `user_id` FK unique, `role admin_role`, `active boolean`, `created_at`, `updated_at`.
+
+Roles are `SUPER_ADMIN` and `REVIEWER`. Permissions are mapped in backend code: both roles have `SUBMISSIONS_REVIEW`; only `SUPER_ADMIN` has `COMPETITION_CONFIG`.
 
 ### admin_roles
 
-Purpose: named permission bundles.
+Future design only; Phase 3E-B1 does not create this table. Current named roles are represented by the `admin_role` enum and permissions are defined in code.
 
 Columns: `admin_role_id` PK, `name unique`, `permissions jsonb`, `created_at`, `updated_at`.
 
 ### admin_user_roles
 
-Purpose: admin role assignments.
+Future design only; Phase 3E-B1 does not create this table. Each current `admin_users` row has one enum role.
 
 Columns: `admin_user_id` FK, `admin_role_id` FK, `created_at`.
 

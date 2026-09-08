@@ -170,6 +170,8 @@ Server authority: validates file constraints and storage key.
 
 ### POST /api/admin/submissions/:submissionId/review
 
+Phase 3E-B1 status: deferred; no review mutation route exists yet.
+
 Authentication: admin permission required.
 
 Request:
@@ -256,11 +258,19 @@ Constraints prevent duplicates and self-requests.
 
 ## Admin Endpoints
 
-All `/api/admin/*` endpoints require admin session and permission checks.
+All `/api/admin/*` endpoints require a valid user session, an active `admin_users` row, and a server-side permission check. Client-supplied user, player, admin, or role identifiers are never authorization inputs.
+
+### Phase 3E-B1 implemented endpoints
+
+- `GET /api/admin/submissions` requires `SUBMISSIONS_REVIEW`. Query parameters are `status` (default `PENDING_REVIEW`), optional `puzzleId`, optional fractional `levelId`, and `limit` (default 50, maximum 100). Results are deterministically ordered by oldest `submittedAt`, then `submissionId`.
+- `GET /api/admin/submissions/:submissionId` requires `SUBMISSIONS_REVIEW` and returns `SUBMISSION_NOT_FOUND` for an unknown UUID.
+
+Both endpoints expose review-relevant submission, canonical puzzle, public player identity, player-puzzle, and video metadata. They do not expose email, Wix identity, session, token, secret, or private user fields. Phase 3E-B1 has no admin mutation endpoint.
+
+### Future admin endpoints
 
 - `GET /api/admin/overview`
 - `GET /api/admin/players`
-- `GET /api/admin/submissions`
 - `POST /api/admin/submissions/:id/review`
 - `GET|POST|PATCH /api/admin/missions`
 - `GET|POST|PATCH /api/admin/store/items`

@@ -4,6 +4,8 @@ import type { GameStateRepository, PlayerGameState, PointChangeInput, Progressio
 import { parseClaimCode, type DevelopmentPuzzleFixture, type PlayerPuzzleDto, type PuzzleDto, type PuzzleRepository } from "../src/domain/puzzles.js";
 import type { SubmissionDto, SubmissionRepository, VideoUploadRecord } from "../src/domain/submissions.js";
 import type { SignedVideoUpload, VerifiedVideoAsset, VideoStorage } from "../src/storage/videoStorage.js";
+import type { AdminAuthorizationRepository, AdminRole } from "../src/domain/adminAuth.js";
+import type { AdminSubmissionDto, AdminSubmissionFilter, AdminSubmissionRepository } from "../src/domain/adminSubmissions.js";
 
 interface StoredAccount {
   userId: string;
@@ -156,6 +158,26 @@ export class FakeIdentityRepository implements IdentityRepository {
     if (!session) return null;
     return this.accounts.find((item) => item.userId === session.userId)?.player ?? null;
   }
+}
+
+export class FakeAdminAuthorizationRepository implements AdminAuthorizationRepository {
+  admins = new Map<string, { adminUserId: string; role: AdminRole; active: boolean }>();
+  constructor(private identity: FakeIdentityRepository) {}
+
+  async findValidSession(tokenHash: string, now: Date) {
+    const session = this.identity.sessions.find((item) => item.tokenHash === tokenHash && item.expiresAt > now);
+    if (!session) return null;
+    const admin = this.admins.get(session.userId);
+    return { userId: session.userId, adminUserId: admin?.adminUserId ?? null, role: admin?.role ?? null, adminActive: admin?.active ?? null };
+  }
+}
+
+export class FakeAdminSubmissionRepository implements AdminSubmissionRepository {
+  items: AdminSubmissionDto[] = [];
+  async list(filter: AdminSubmissionFilter) {
+    return this.items.filter((item) => item.status === filter.status && (!filter.puzzleId || item.puzzleId === filter.puzzleId) && (filter.levelId === undefined || item.levelId === filter.levelId)).sort((a, b) => a.submittedAt.localeCompare(b.submittedAt) || a.submissionId.localeCompare(b.submissionId)).slice(0, filter.limit);
+  }
+  async get(submissionId: string) { return this.items.find((item) => item.submissionId === submissionId) ?? null; }
 }
 
 export class FakePuzzleRepository implements PuzzleRepository {
