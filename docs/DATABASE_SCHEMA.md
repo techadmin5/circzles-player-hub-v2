@@ -165,7 +165,7 @@ Columns: `submission_review_id` PK, `submission_id` FK, `reviewer_admin_user_id`
 
 Decisions: `APPROVED`, `REJECTED`, `RESUBMISSION_REQUIRED`.
 
-Constraints: FKs to `submissions` and `admin_users`; unique `(reviewer_admin_user_id, idempotency_key)`. Approval mutation and reward processing remain deferred.
+Constraints: restrictive-delete FKs to `submissions` and `admin_users`; unique `(reviewer_admin_user_id, idempotency_key)`. A submission or reviewer admin identity cannot be deleted while review history references it. Approval mutation and reward processing remain deferred.
 
 ### submission_reward_grants
 
@@ -384,6 +384,8 @@ Phase 3E-B1 status: implemented.
 Purpose: one admin authorization record linked to an authenticated `users` account. Admin identity is deliberately not attached to `players`.
 
 Columns: `admin_user_id` UUID PK, `user_id` FK unique, `role admin_role`, `active boolean`, `created_at`, `updated_at`.
+
+Deletion rule: the `users` FK is restrictive. Account lifecycle uses user/admin status flags so deleting a user cannot cascade through an admin identity referenced by review or audit history.
 
 Roles are `SUPER_ADMIN` and `REVIEWER`. Permissions are mapped in backend code: both roles have `SUBMISSIONS_REVIEW`; only `SUPER_ADMIN` has `COMPETITION_CONFIG`.
 

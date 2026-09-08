@@ -19,8 +19,8 @@ CREATE TABLE "submission_reviews" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "admin_users" ADD CONSTRAINT "admin_users_user_id_users_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("user_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "submission_reviews" ADD CONSTRAINT "submission_reviews_submission_id_submissions_submission_id_fk" FOREIGN KEY ("submission_id") REFERENCES "public"."submissions"("submission_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "admin_users" ADD CONSTRAINT "admin_users_user_id_users_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("user_id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "submission_reviews" ADD CONSTRAINT "submission_reviews_submission_id_submissions_submission_id_fk" FOREIGN KEY ("submission_id") REFERENCES "public"."submissions"("submission_id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "submission_reviews" ADD CONSTRAINT "submission_reviews_reviewer_admin_user_id_admin_users_admin_user_id_fk" FOREIGN KEY ("reviewer_admin_user_id") REFERENCES "public"."admin_users"("admin_user_id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "admin_users_user_id_unique" ON "admin_users" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "admin_users_active_role_idx" ON "admin_users" USING btree ("active","role");--> statement-breakpoint

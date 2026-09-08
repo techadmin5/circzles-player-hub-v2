@@ -99,7 +99,7 @@
           "columnsTo": [
             "user_id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "restrict",
           "onUpdate": "no action"
         }
       },
@@ -1753,7 +1753,7 @@
           "columnsTo": [
             "submission_id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "restrict",
           "onUpdate": "no action"
         },
         "submission_reviews_reviewer_admin_user_id_admin_users_admin_user_id_fk": {

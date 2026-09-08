@@ -16,7 +16,7 @@ No admin mutation route was added.
 
 ## Review Schema Foundation
 
-`submission_reviews` records the future reviewer, decision, optional note, and reviewer-scoped idempotency key. The enum supports `APPROVED`, `REJECTED`, and `RESUBMISSION_REQUIRED`. Phase 3E-B1 creates only the schema; no service or route inserts review records.
+`submission_reviews` records the future reviewer, decision, optional note, and reviewer-scoped idempotency key. The enum supports `APPROVED`, `REJECTED`, and `RESUBMISSION_REQUIRED`. Restrictive foreign keys prevent deletion of a reviewed submission or referenced admin identity, and the admin-to-user foreign key is also restrictive so account lifecycle uses status flags instead of erasing audit identity. Phase 3E-B1 creates only the schema; no service or route inserts review records.
 
 ## Migration
 

@@ -271,7 +271,7 @@ export const submissions = pgTable("submissions", {
 
 export const adminUsers = pgTable("admin_users", {
   adminUserId: uuid("admin_user_id").primaryKey().defaultRandom(),
-  userId: uuid("user_id").notNull().references(() => users.userId, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => users.userId, { onDelete: "restrict" }),
   role: adminRole("role").notNull(),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -283,7 +283,7 @@ export const adminUsers = pgTable("admin_users", {
 
 export const submissionReviews = pgTable("submission_reviews", {
   submissionReviewId: uuid("submission_review_id").primaryKey().defaultRandom(),
-  submissionId: uuid("submission_id").notNull().references(() => submissions.submissionId, { onDelete: "cascade" }),
+  submissionId: uuid("submission_id").notNull().references(() => submissions.submissionId, { onDelete: "restrict" }),
   reviewerAdminUserId: uuid("reviewer_admin_user_id").notNull().references(() => adminUsers.adminUserId, { onDelete: "restrict" }),
   decision: submissionReviewDecision("decision").notNull(),
   reviewNote: text("review_note"),
