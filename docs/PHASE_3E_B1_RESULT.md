@@ -20,7 +20,35 @@ No admin mutation route was added.
 
 ## Migration
 
-Migration `0005_curly_spyke.sql` is schema-only. It creates the admin/review enums, `admin_users`, `submission_reviews`, foreign keys, uniqueness constraints, and query indexes. It contains no seed or production data and was generated but not run.
+Migration `0005_curly_spyke.sql` is schema-only. It creates the admin/review enums, `admin_users`, `submission_reviews`, foreign keys, uniqueness constraints, and query indexes. It contains no seed or production data.
+
+The migration was applied successfully to the Neon development branch on 2026-09-08. Production was not touched and no seed command was run.
+
+Database verification confirmed:
+
+- `admin_users` exists.
+- `submission_reviews` exists.
+- `admin_role` exists.
+- `submission_review_decision` exists.
+- `admin_users.user_id -> users.user_id` uses `ON DELETE RESTRICT`.
+- `submission_reviews.submission_id -> submissions.submission_id` uses `ON DELETE RESTRICT`.
+- `submission_reviews.reviewer_admin_user_id -> admin_users.admin_user_id` uses `ON DELETE RESTRICT`.
+
+## Runtime Verification
+
+Phase 3E-B1 was exercised against the Neon development database and the running Fastify backend using the existing development player account and the real pending Phase 3D submission.
+
+Verification confirmed:
+
+- A valid ordinary player session receives `FORBIDDEN` from `GET /api/admin/submissions` when the user has no active `admin_users` record.
+- Temporary development `REVIEWER` access for the same authenticated user allowed `GET /api/admin/submissions` to return the real pending Metamorphosis R2 submission.
+- The queue response returned `PENDING_REVIEW`, `levelId` 22, canonical `puzzleId`, public player identity, player puzzle identity, and Cloudinary video metadata without secret/session/Wix fields.
+- `GET /api/admin/submissions/:submissionId` returned the same real submission through the reviewer-safe detail DTO.
+- Temporary reviewer access was removed after verification.
+- After removal, the same authenticated player session again received `FORBIDDEN` from the admin queue, confirming authorization is read from current PostgreSQL admin state and that no temporary admin access remained.
+- Temporary local verification scripts/state files were deleted after the test.
+
+Phase 3E-B1 is therefore runtime-verified on Neon development.
 
 ## Deferred
 
@@ -28,4 +56,4 @@ Review mutations, approval/rejection processing, XP or Synapse Point grants, lea
 
 ## Verification Status
 
-Automated tests use in-memory fakes and make no external database, Neon, Wix, Cloudinary, or production calls. No migration or seed command was run during Phase 3E-B1 implementation.
+Implementation validation before migration reported 6 backend test files with 109 tests passing, plus passing backend typecheck, backend lint, backend build, root lint, and root build. Runtime verification used Neon development only. No production migration, seed, Wix change, or `main` branch change occurred.
