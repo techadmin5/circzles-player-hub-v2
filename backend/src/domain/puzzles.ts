@@ -3,6 +3,7 @@ import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type * as schema from "../db/schema.js";
 import { playerPuzzles, puzzleClaimPrefixes, puzzleClaims, puzzleDesigns, puzzles } from "../db/schema.js";
 import { AppError, validationFailed } from "./errors.js";
+import { assertValidLevelId } from "./competitionSettings.js";
 
 type Db = NodePgDatabase<typeof schema>;
 
@@ -192,6 +193,7 @@ export class DrizzlePuzzleRepository implements PuzzleRepository {
 
   async seedDevelopmentCatalog(fixtures: DevelopmentPuzzleFixture[]) {
     for (const fixture of fixtures) {
+      assertValidLevelId(fixture.levelId);
       const [design] = await this.db.insert(puzzleDesigns).values({
         legacyWixId: fixture.designLegacyWixId,
         name: fixture.designName,
@@ -294,7 +296,7 @@ function toPuzzleDto(puzzle: typeof puzzles.$inferSelect): PuzzleDto {
     runCode: puzzle.runCode ?? undefined,
     pieceCount: puzzle.pieceCount ?? undefined,
     sizeLabel: puzzle.sizeLabel ?? undefined,
-    levelId: puzzle.levelId,
+    levelId: Number(puzzle.levelId),
     image: puzzle.image ?? "/puzzles/placeholder.svg",
     description: puzzle.description ?? "",
   };

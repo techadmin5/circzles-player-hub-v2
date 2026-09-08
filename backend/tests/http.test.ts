@@ -207,6 +207,23 @@ describe("http auth poc", () => {
     expect(res.json().runCode).toBe("R2");
   });
 
+  it("GET /api/puzzles/:puzzleId returns fractional levelId as a JSON number", async () => {
+    const { app, puzzleRepo } = await appWithFakes();
+    puzzleRepo.puzzles.set("55555555-5555-4555-8555-555555555555", {
+      id: "55555555-5555-4555-8555-555555555555",
+      name: "Side Quest",
+      runCode: "SQ",
+      levelId: 0.5,
+      image: "/puzzles/placeholder.svg",
+      description: "Fractional challenge",
+      active: true,
+    });
+    const res = await app.inject({ method: "GET", url: "/api/puzzles/55555555-5555-4555-8555-555555555555" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().levelId).toBe(0.5);
+    expect(typeof res.json().levelId).toBe("number");
+  });
+
   it("GET /api/puzzles/:puzzleId returns 404 for unknown or inactive puzzle ids", async () => {
     const { app, puzzleRepo } = await appWithFakes();
     puzzleRepo.puzzles.set("33333333-3333-4333-8333-333333333333", {

@@ -1,4 +1,4 @@
-import { bigint, boolean, check, index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { bigint, boolean, check, index, integer, jsonb, numeric, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const userStatus = pgEnum("user_status", ["ACTIVE", "SUSPENDED", "DELETED"]);
@@ -6,6 +6,7 @@ export const sessionStatus = pgEnum("session_status", ["ACTIVE", "REVOKED", "EXP
 export const pointTransactionDirection = pgEnum("point_transaction_direction", ["CREDIT", "DEBIT", "CORRECTION"]);
 export const videoUploadStatus = pgEnum("video_upload_status", ["SIGNED", "COMPLETE", "FAILED", "EXPIRED"]);
 export const submissionStatus = pgEnum("submission_status", ["PENDING_REVIEW", "APPROVED", "REJECTED", "RESUBMISSION_REQUIRED"]);
+export const puzzleCompetitionCategory = pgEnum("puzzle_competition_category", ["MAIN_LEVEL", "SIDE_QUEST"]);
 
 export const users = pgTable("users", {
   userId: uuid("user_id").primaryKey().defaultRandom(),
@@ -150,7 +151,7 @@ export const puzzles = pgTable("puzzles", {
   runCode: text("run_code"),
   pieceCount: integer("piece_count"),
   sizeLabel: text("size_label"),
-  levelId: integer("level_id").notNull(),
+  levelId: numeric("level_id", { precision: 4, scale: 1, mode: "number" }).notNull(),
   image: text("image"),
   description: text("description"),
   status: text("status").notNull().default("ACTIVE"),
@@ -246,7 +247,7 @@ export const submissions = pgTable("submissions", {
   playerId: uuid("player_id").notNull().references(() => players.playerId, { onDelete: "cascade" }),
   playerPuzzleId: uuid("player_puzzle_id").notNull().references(() => playerPuzzles.playerPuzzleId, { onDelete: "restrict" }),
   puzzleId: uuid("puzzle_id").notNull().references(() => puzzles.puzzleId, { onDelete: "restrict" }),
-  levelId: integer("level_id").notNull(),
+  levelId: numeric("level_id", { precision: 4, scale: 1, mode: "number" }).notNull(),
   completionTimeMs: integer("completion_time_ms").notNull(),
   videoUploadId: uuid("video_upload_id").notNull().references(() => videoUploads.videoUploadId, { onDelete: "restrict" }),
   status: submissionStatus("status").notNull().default("PENDING_REVIEW"),
@@ -264,4 +265,24 @@ export const submissions = pgTable("submissions", {
   playerPuzzleIndex: index("submissions_player_puzzle_id_idx").on(table.playerPuzzleId),
   completionTimeCheck: check("submissions_completion_time_ms_check", sql`${table.completionTimeMs} > 0`),
   levelIdCheck: check("submissions_level_id_check", sql`${table.levelId} > 0`),
+}));
+
+export const puzzleCompetitionSettings = pgTable("puzzle_competition_settings", {
+  puzzleCompetitionSettingId: uuid("puzzle_competition_setting_id").primaryKey().defaultRandom(),
+  puzzleId: uuid("puzzle_id").notNull().references(() => puzzles.puzzleId, { onDelete: "cascade" }),
+  category: puzzleCompetitionCategory("category").notNull(),
+  leaderboardEnabled: boolean("leaderboard_enabled").notNull().default(false),
+  displayOrder: integer("display_order").notNull(),
+  rewardEnabled: boolean("reward_enabled").notNull().default(false),
+  synapseReward: integer("synapse_reward").notNull().default(0),
+  xpReward: integer("xp_reward").notNull().default(0),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  puzzleIdUnique: uniqueIndex("puzzle_competition_settings_puzzle_id_unique").on(table.puzzleId),
+  navigationIndex: index("puzzle_competition_settings_navigation_idx").on(table.active, table.leaderboardEnabled, table.category, table.displayOrder),
+  displayOrderCheck: check("puzzle_competition_settings_display_order_check", sql`${table.displayOrder} >= 0`),
+  synapseRewardCheck: check("puzzle_competition_settings_synapse_reward_check", sql`${table.synapseReward} >= 0`),
+  xpRewardCheck: check("puzzle_competition_settings_xp_reward_check", sql`${table.xpReward} >= 0`),
 }));

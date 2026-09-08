@@ -176,5 +176,5 @@ function toSubmissionDto(row: { submission: typeof submissions.$inferSelect; puz
   const seconds = Math.floor(ms / 1000) % 60;
   const millis = ms % 1000;
   const base = hours > 0 ? `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}` : `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-  return { id: row.submission.submissionId, playerPuzzleId: row.submission.playerPuzzleId, puzzleId: row.submission.puzzleId, puzzleName: row.puzzle.name, levelId: row.submission.levelId, completionTimeMs: ms, completionTime: millis ? `${base}.${String(millis).padStart(3, "0")}` : base, status: row.submission.status, createdAt: row.submission.createdAt.toISOString(), videoUploadId: row.submission.videoUploadId };
+  return { id: row.submission.submissionId, playerPuzzleId: row.submission.playerPuzzleId, puzzleId: row.submission.puzzleId, puzzleName: row.puzzle.name, levelId: Number(row.submission.levelId), completionTimeMs: ms, completionTime: millis ? `${base}.${String(millis).padStart(3, "0")}` : base, status: row.submission.status, createdAt: row.submission.createdAt.toISOString(), videoUploadId: row.submission.videoUploadId };
 }

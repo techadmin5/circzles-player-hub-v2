@@ -79,13 +79,21 @@ Phase 3C status: implemented.
 
 Purpose: canonical playable puzzle variant catalog.
 
-Columns: `puzzle_id` PK, `puzzle_design_id` FK, `legacy_wix_id`, `name`, `run_code`, `piece_count`, `size_label`, `level_id int`, `image`, `description`, `status`, `created_at`, `updated_at`, `deleted_at`.
+Columns: `puzzle_id` PK, `puzzle_design_id` FK, `legacy_wix_id`, `name`, `run_code`, `piece_count`, `size_label`, `level_id numeric(4,1)`, `image`, `description`, `status`, `created_at`, `updated_at`, `deleted_at`.
 
 Rules: `puzzle_id` is the stable playable variant id. The same design/name may have multiple playable variants with separate `puzzle_id` values, ownership, submissions, and leaderboards. `level_id` is puzzle difficulty. Do not rename to `levelNumber`.
 
 Constraints: unique `legacy_wix_id`, CHECK `level_id > 0`, CHECK `piece_count is null or piece_count > 0`.
 
 Indexes: `puzzles(puzzle_design_id)`, `puzzles(level_id)`, `puzzles(status)`, `puzzles(legacy_wix_id)`.
+
+### puzzle_competition_settings
+
+Purpose: PostgreSQL-backed leaderboard navigation and future reward configuration keyed to canonical playable `puzzle_id`.
+
+Columns: `puzzle_competition_setting_id` UUID PK, `puzzle_id` FK unique, explicit `category` enum (`MAIN_LEVEL`, `SIDE_QUEST`), `leaderboard_enabled` default false, non-negative `display_order`, `reward_enabled` default false, non-negative `synapse_reward` default 0, non-negative `xp_reward` default 0, `active` default true, `created_at`, `updated_at`.
+
+Rules: one row per puzzle variant. The table does not duplicate `level_id`; consumers join the canonical puzzle. Side Quests are identified by category, never inferred from fractional values. Only active, leaderboard-enabled settings for active puzzles belong in navigation.
 
 Phase 3C status: implemented.
 
@@ -133,7 +141,7 @@ Phase 3C status: implemented. Code-claim ownership is created in the same transa
 
 Purpose: player solve attempts.
 
-Columns: `submission_id` PK, `player_id` FK, `player_puzzle_id` FK, `puzzle_id` FK, `level_id int not null`, `claimed_completion_ms int`, `video_object_key`, `video_upload_id` FK nullable, `status`, `submitted_at`, `created_at`, `updated_at`, `legacy_wix_id`, `idempotency_key`.
+Columns: `submission_id` PK, `player_id` FK, `player_puzzle_id` FK, `puzzle_id` FK, `level_id numeric(4,1) not null`, `completion_time_ms int`, `video_upload_id` FK, `status`, `submitted_at`, `created_at`, `updated_at`, `legacy_wix_id`, `idempotency_key`.
 
 Rules: `level_id` is copied from referenced puzzle at creation/recovery for historical query stability.
 
@@ -165,7 +173,7 @@ Columns: `submission_reward_grant_id` PK, `submission_id` FK unique, `point_tran
 
 Purpose: best approved result for a player within a puzzle/season scope.
 
-Columns: `leaderboard_entry_id` PK, `player_id` FK, `puzzle_id` FK, `level_id int`, `season_id` FK nullable, `best_submission_id` FK, `best_approved_time_ms int`, `rank_status`, `created_at`, `updated_at`, `disqualified_at`.
+Columns: `leaderboard_entry_id` PK, `player_id` FK, `puzzle_id` FK, future fractional-compatible `level_id`, `season_id` FK nullable, `best_submission_id` FK, `best_approved_time_ms int`, `rank_status`, `created_at`, `updated_at`, `disqualified_at`.
 
 Constraints: unique `(player_id, puzzle_id, season_id)` with season null handled by partial unique indexes.
 
@@ -423,3 +431,7 @@ Migration `0003_phase_3d_submissions.sql` adds schema only.
 `video_uploads` stores player ownership, provider/public ID, declared file metadata, authoritative verified bytes/duration, `SIGNED|COMPLETE|FAILED|EXPIRED` lifecycle state, expiry/completion times, and a non-sensitive failure code. Public IDs are unique; player/status and expiry are indexed.
 
 `submissions` stores player, active ownership, canonical puzzle and `level_id`, positive millisecond completion time, one verified video upload, review status, timestamps, optional legacy Wix ID, and optional player-scoped idempotency key. A unique video upload constraint prevents reuse. Player/status, puzzle/status, level/status, and ownership indexes support future review and listing queries.
+
+## Phase 3E-A Implemented Tables
+
+Migration `0004_phase_3e_a_competition_configuration.sql` changes `puzzles.level_id` and `submissions.level_id` from integer to `NUMERIC(4,1)` and creates `puzzle_competition_settings` plus its category enum, constraints, FK, and indexes. The migration contains schema only and has not been applied.

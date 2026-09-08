@@ -73,6 +73,16 @@ describe("submission pipeline", () => {
     expect(created).toMatchObject({ status: "PENDING_REVIEW", puzzleId: "DEV-PUZZLE-METAMORPHOSIS-R2", levelId: 22, completionTimeMs: 161234 });
   });
 
+  it("preserves a fractional canonical levelId as a number in submission DTOs", async () => {
+    const { service, puzzleRepo } = await setup();
+    const puzzle = puzzleRepo.puzzles.get("DEV-PUZZLE-METAMORPHOSIS-R2");
+    if (!puzzle) throw new Error("missing fixture");
+    puzzle.levelId = 3.5;
+    const created = await service.createSubmission("player-1", { playerPuzzleId: "30000000-0000-4000-8000-000000000002", completionTimeMs: 161234, videoUploadId: await verifiedUpload(service) });
+    expect(created.levelId).toBe(3.5);
+    expect(typeof created.levelId).toBe("number");
+  });
+
   it("replays the same idempotency key and payload as the same submission", async () => {
     const { service } = await setup();
     const input = { playerPuzzleId: "30000000-0000-4000-8000-000000000001", completionTimeMs: 161000, videoUploadId: await verifiedUpload(service) };

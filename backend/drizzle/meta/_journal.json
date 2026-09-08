@@ -29,6 +29,13 @@
       "when": 1788780311164,
       "tag": "0003_phase_3d_submissions",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788850340176,
+      "tag": "0004_phase_3e_a_competition_configuration",
+      "breakpoints": true
     }
   ]
 }

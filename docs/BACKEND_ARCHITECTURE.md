@@ -188,3 +188,11 @@ Recommended DTO refinements before production API wiring:
 The browser uploads directly to Cloudinary using a backend-generated public ID. It then asks the backend to finalize the upload. Submission creation joins the authenticated player's active `player_puzzles` row to the canonical puzzle, derives `puzzleId` and `levelId`, requires a `COMPLETE` upload owned by that player, and writes `PENDING_REVIEW` without XP, points, rewards, or leaderboard effects.
 
 Optional environment variables are `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET`. The secret remains backend-only and is covered by the rule against secret logging.
+
+## Phase 3E-A Competition Configuration
+
+Puzzle difficulty `levelId` supports one decimal place through PostgreSQL `NUMERIC(4,1)` on canonical puzzles and submission snapshots. Drizzle maps both columns in number mode, and DTO adapters explicitly return JavaScript numbers. `progressionLevel` remains an unrelated integer XP/RPG concept.
+
+`puzzle_competition_settings` has exactly one row per canonical `puzzleId`. Its explicit `MAIN_LEVEL` or `SIDE_QUEST` category drives future tabs; category is never inferred from `.5`. Active, leaderboard-enabled rows are listed predictably by category and `displayOrder`. Future trusted admin operations may use the internal repository/service upsert boundary, but Phase 3E-A exposes no mutation route.
+
+Reward authority lives in persisted settings through `rewardEnabled`, `synapseReward`, and `xpReward`. The Level 1-10 preset is an editable bootstrap helper for future admin use and is not attached to development puzzles or consulted by runtime reward logic. Side Quest rewards have no preset and must be configured independently.
