@@ -26,4 +26,16 @@ Admin review, approval/rejection workflow, rewards, XP, Synapse Points, leaderbo
 
 ## Verification Status
 
-Automated tests use a fake storage provider and perform no Cloudinary or internet calls. Real Cloudinary runtime upload/verification has not been performed. Migration `0003_phase_3d_submissions.sql` has not been run against Neon. No seed, production action, or real Wix data change was performed.
+Automated tests use a fake storage provider and perform no Cloudinary or internet calls.
+
+Phase 3D runtime verification is complete in the development environment:
+
+- Migration `0003_phase_3d_submissions.sql` was successfully applied to the Neon development database.
+- The backend health check passed after migration.
+- Authenticated development login worked.
+- `GET /api/submissions` worked against Neon.
+- A Cloudinary signed upload was successfully tested with a real MP4.
+- Backend Cloudinary verification/finalization returned `COMPLETE`.
+- A real development submission was successfully created with status `PENDING_REVIEW`, puzzle name `Metamorphosis`, `levelId` `22`, and completion time `02:41`.
+
+No production database action occurred, no real Wix data was modified, and production deployment has not been performed.
