@@ -152,41 +152,7 @@ export class DrizzleGameStateRepository implements GameStateRepository {
   }
 
   async grantXp(input: XpGrantInput) {
-    return this.db.transaction(async (tx) => {
-      await ensurePlayerGameStateInTransaction(tx, input.playerId);
-      await lockPlayerProgression(tx, input.playerId);
-      if (input.idempotencyKey) {
-        const existing = await tx.select().from(xpTransactions).where(and(eq(xpTransactions.playerId, input.playerId), eq(xpTransactions.idempotencyKey, input.idempotencyKey))).limit(1);
-        if (existing[0]) {
-          assertXpIdempotencyMatch(existing[0], input);
-          return { transactionId: existing[0].xpTransactionId, idempotent: true, totalXpAfter: existing[0].totalXpAfter, state: await readGameState(tx, input.playerId, existing[0].totalXpAfter) };
-        }
-      }
-
-      const current = await readProgressionCache(tx, input.playerId);
-      const totalXpAfter = current.totalXp + input.amount;
-      const rank = await levelForXp(tx, totalXpAfter);
-      const [transaction] = await tx.insert(xpTransactions).values({
-        playerId: input.playerId,
-        amount: input.amount,
-        reason: input.reason,
-        sourceType: input.sourceType,
-        sourceId: input.sourceId,
-        totalXpAfter,
-        idempotencyKey: input.idempotencyKey,
-        metadata: input.metadata ?? {},
-      }).returning();
-      if (!transaction) throw new AppError("XP_TRANSACTION_FAILED", "Could not record XP transaction.", 500);
-
-      await tx.update(playerProgression).set({
-        totalXp: totalXpAfter,
-        progressionLevel: rank.progressionLevel,
-        rankName: rank.rankName,
-        updatedAt: new Date(),
-      }).where(eq(playerProgression.playerId, input.playerId));
-
-      return { transactionId: transaction.xpTransactionId, idempotent: false, totalXpAfter, state: await readGameState(tx, input.playerId, totalXpAfter) };
-    });
+    return this.db.transaction((tx) => grantXpInTransaction(tx, input));
   }
 
   async creditPoints(input: PointChangeInput) {
@@ -198,41 +164,55 @@ export class DrizzleGameStateRepository implements GameStateRepository {
   }
 
   private async changePoints(input: PointChangeInput, direction: "CREDIT" | "DEBIT") {
-    return this.db.transaction(async (tx) => {
-      await ensurePlayerGameStateInTransaction(tx, input.playerId);
-      await lockWallet(tx, input.playerId);
-      if (input.idempotencyKey) {
-        const existing = await tx.select().from(pointTransactions).where(and(eq(pointTransactions.playerId, input.playerId), eq(pointTransactions.idempotencyKey, input.idempotencyKey))).limit(1);
-        if (existing[0]) {
-          assertPointIdempotencyMatch(existing[0], input, direction);
-          return { transactionId: existing[0].transactionId, idempotent: true, balanceAfter: existing[0].balanceAfter };
-        }
-      }
-
-      const wallet = await readWallet(tx, input.playerId);
-      const balanceAfter = direction === "CREDIT" ? wallet.balance + input.amount : wallet.balance - input.amount;
-      if (balanceAfter < 0) throw insufficientPoints();
-      const [transaction] = await tx.insert(pointTransactions).values({
-        playerId: input.playerId,
-        amount: input.amount,
-        direction,
-        reason: input.reason,
-        sourceType: input.sourceType,
-        sourceId: input.sourceId,
-        balanceAfter,
-        metadata: input.metadata ?? {},
-        idempotencyKey: input.idempotencyKey,
-      }).returning();
-      if (!transaction) throw new AppError("POINT_TRANSACTION_FAILED", "Could not record point transaction.", 500);
-      await tx.update(wallets).set({ balance: balanceAfter, updatedAt: new Date() }).where(eq(wallets.playerId, input.playerId));
-      return { transactionId: transaction.transactionId, idempotent: false, balanceAfter };
-    });
+    return this.db.transaction((tx) => changePointsInTransaction(tx, input, direction));
   }
 }
 
-type Transaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
+export type GameStateTransaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
-async function ensurePlayerGameStateInTransaction(tx: Transaction, playerId: string) {
+export async function grantXpInTransaction(tx: GameStateTransaction, input: XpGrantInput): Promise<XpGrantResult> {
+  await ensurePlayerGameStateInTransaction(tx, input.playerId);
+  await lockPlayerProgression(tx, input.playerId);
+  if (input.idempotencyKey) {
+    const existing = await tx.select().from(xpTransactions).where(and(eq(xpTransactions.playerId, input.playerId), eq(xpTransactions.idempotencyKey, input.idempotencyKey))).limit(1);
+    if (existing[0]) {
+      assertXpIdempotencyMatch(existing[0], input);
+      return { transactionId: existing[0].xpTransactionId, idempotent: true, totalXpAfter: existing[0].totalXpAfter, state: await readGameState(tx, input.playerId, existing[0].totalXpAfter) };
+    }
+  }
+  const current = await readProgressionCache(tx, input.playerId);
+  const totalXpAfter = current.totalXp + input.amount;
+  const rank = await levelForXp(tx, totalXpAfter);
+  const [transaction] = await tx.insert(xpTransactions).values({ ...input, totalXpAfter, metadata: input.metadata ?? {} }).returning();
+  if (!transaction) throw new AppError("XP_TRANSACTION_FAILED", "Could not record XP transaction.", 500);
+  await tx.update(playerProgression).set({ totalXp: totalXpAfter, progressionLevel: rank.progressionLevel, rankName: rank.rankName, updatedAt: new Date() }).where(eq(playerProgression.playerId, input.playerId));
+  return { transactionId: transaction.xpTransactionId, idempotent: false, totalXpAfter, state: await readGameState(tx, input.playerId, totalXpAfter) };
+}
+
+export async function creditPointsInTransaction(tx: GameStateTransaction, input: PointChangeInput): Promise<PointChangeResult> {
+  return changePointsInTransaction(tx, input, "CREDIT");
+}
+
+async function changePointsInTransaction(tx: GameStateTransaction, input: PointChangeInput, direction: "CREDIT" | "DEBIT"): Promise<PointChangeResult> {
+  await ensurePlayerGameStateInTransaction(tx, input.playerId);
+  await lockWallet(tx, input.playerId);
+  if (input.idempotencyKey) {
+    const existing = await tx.select().from(pointTransactions).where(and(eq(pointTransactions.playerId, input.playerId), eq(pointTransactions.idempotencyKey, input.idempotencyKey))).limit(1);
+    if (existing[0]) {
+      assertPointIdempotencyMatch(existing[0], input, direction);
+      return { transactionId: existing[0].transactionId, idempotent: true, balanceAfter: existing[0].balanceAfter };
+    }
+  }
+  const wallet = await readWallet(tx, input.playerId);
+  const balanceAfter = direction === "CREDIT" ? wallet.balance + input.amount : wallet.balance - input.amount;
+  if (balanceAfter < 0) throw insufficientPoints();
+  const [transaction] = await tx.insert(pointTransactions).values({ ...input, direction, balanceAfter, metadata: input.metadata ?? {} }).returning();
+  if (!transaction) throw new AppError("POINT_TRANSACTION_FAILED", "Could not record point transaction.", 500);
+  await tx.update(wallets).set({ balance: balanceAfter, updatedAt: new Date() }).where(eq(wallets.playerId, input.playerId));
+  return { transactionId: transaction.transactionId, idempotent: false, balanceAfter };
+}
+
+async function ensurePlayerGameStateInTransaction(tx: GameStateTransaction, playerId: string) {
   const initial = await firstActiveLevel(tx);
   await tx.insert(wallets).values({ playerId }).onConflictDoNothing({ target: wallets.playerId });
   await tx.insert(playerProgression).values({
@@ -243,14 +223,14 @@ async function ensurePlayerGameStateInTransaction(tx: Transaction, playerId: str
   }).onConflictDoNothing({ target: playerProgression.playerId });
 }
 
-async function firstActiveLevel(tx: Transaction) {
+async function firstActiveLevel(tx: GameStateTransaction) {
   const rows = await tx.select().from(progressionLevels).where(eq(progressionLevels.active, true)).orderBy(asc(progressionLevels.xpRequired)).limit(1);
   const level = rows[0];
   if (!level) throw new AppError("PROGRESSION_NOT_CONFIGURED", "Progression levels are not configured.", 500);
   return level;
 }
 
-async function levelForXp(tx: Transaction, totalXp: number) {
+async function levelForXp(tx: GameStateTransaction, totalXp: number) {
   const rows = await tx.select().from(progressionLevels)
     .where(sql`${progressionLevels.active} = true and ${progressionLevels.xpRequired} <= ${totalXp}`)
     .orderBy(desc(progressionLevels.xpRequired))
@@ -258,7 +238,7 @@ async function levelForXp(tx: Transaction, totalXp: number) {
   return rows[0] ?? firstActiveLevel(tx);
 }
 
-async function nextXpThreshold(tx: Transaction, totalXp: number) {
+async function nextXpThreshold(tx: GameStateTransaction, totalXp: number) {
   const rows = await tx.select().from(progressionLevels)
     .where(sql`${progressionLevels.active} = true and ${progressionLevels.xpRequired} > ${totalXp}`)
     .orderBy(asc(progressionLevels.xpRequired))
@@ -266,7 +246,7 @@ async function nextXpThreshold(tx: Transaction, totalXp: number) {
   return rows[0]?.xpRequired ?? totalXp;
 }
 
-async function readGameState(tx: Transaction, playerId: string, totalXpOverride?: number): Promise<PlayerGameState> {
+async function readGameState(tx: GameStateTransaction, playerId: string, totalXpOverride?: number): Promise<PlayerGameState> {
   const progression = await readProgressionCache(tx, playerId);
   const wallet = await readWallet(tx, playerId);
   const totalXp = totalXpOverride ?? progression.totalXp;
@@ -279,25 +259,25 @@ async function readGameState(tx: Transaction, playerId: string, totalXpOverride?
   };
 }
 
-async function readProgressionCache(tx: Transaction, playerId: string) {
+async function readProgressionCache(tx: GameStateTransaction, playerId: string) {
   const rows = await tx.select().from(playerProgression).where(eq(playerProgression.playerId, playerId)).limit(1);
   const row = rows[0];
   if (!row) throw new AppError("PLAYER_PROGRESSION_NOT_FOUND", "Player progression state was not initialized.", 500);
   return row;
 }
 
-async function readWallet(tx: Transaction, playerId: string) {
+async function readWallet(tx: GameStateTransaction, playerId: string) {
   const rows = await tx.select().from(wallets).where(eq(wallets.playerId, playerId)).limit(1);
   const row = rows[0];
   if (!row) throw new AppError("WALLET_NOT_FOUND", "Player wallet was not initialized.", 500);
   return row;
 }
 
-async function lockPlayerProgression(tx: Transaction, playerId: string) {
+async function lockPlayerProgression(tx: GameStateTransaction, playerId: string) {
   await tx.execute(sql`select player_progression_id from ${playerProgression} where ${playerProgression.playerId} = ${playerId} for update`);
 }
 
-async function lockWallet(tx: Transaction, playerId: string) {
+async function lockWallet(tx: GameStateTransaction, playerId: string) {
   await tx.execute(sql`select wallet_id from ${wallets} where ${wallets.playerId} = ${playerId} for update`);
 }
 

@@ -295,6 +295,24 @@ export const submissionReviews = pgTable("submission_reviews", {
   reviewerCreatedIndex: index("submission_reviews_reviewer_created_at_idx").on(table.reviewerAdminUserId, table.createdAt),
 }));
 
+export const submissionRewardGrants = pgTable("submission_reward_grants", {
+  submissionRewardGrantId: uuid("submission_reward_grant_id").primaryKey().defaultRandom(),
+  playerId: uuid("player_id").notNull().references(() => players.playerId, { onDelete: "restrict" }),
+  puzzleId: uuid("puzzle_id").notNull().references(() => puzzles.puzzleId, { onDelete: "restrict" }),
+  submissionId: uuid("submission_id").notNull().references(() => submissions.submissionId, { onDelete: "restrict" }),
+  rewardEnabledSnapshot: boolean("reward_enabled_snapshot").notNull(),
+  synapseReward: integer("synapse_reward").notNull(),
+  xpReward: integer("xp_reward").notNull(),
+  pointTransactionId: uuid("point_transaction_id").references(() => pointTransactions.transactionId, { onDelete: "restrict" }),
+  xpTransactionId: uuid("xp_transaction_id").references(() => xpTransactions.xpTransactionId, { onDelete: "restrict" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  playerPuzzleUnique: uniqueIndex("submission_reward_grants_player_id_puzzle_id_unique").on(table.playerId, table.puzzleId),
+  submissionUnique: uniqueIndex("submission_reward_grants_submission_id_unique").on(table.submissionId),
+  synapseRewardCheck: check("submission_reward_grants_synapse_reward_check", sql`${table.synapseReward} >= 0`),
+  xpRewardCheck: check("submission_reward_grants_xp_reward_check", sql`${table.xpReward} >= 0`),
+}));
+
 export const puzzleCompetitionSettings = pgTable("puzzle_competition_settings", {
   puzzleCompetitionSettingId: uuid("puzzle_competition_setting_id").primaryKey().defaultRandom(),
   puzzleId: uuid("puzzle_id").notNull().references(() => puzzles.puzzleId, { onDelete: "cascade" }),

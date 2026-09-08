@@ -170,7 +170,7 @@ Server authority: validates file constraints and storage key.
 
 ### POST /api/admin/submissions/:submissionId/review
 
-Phase 3E-B1 status: deferred; no review mutation route exists yet.
+Phase 3E-C status: intentionally deferred; no review mutation route exists yet. The trusted internal review engine is implemented, but HTTP exposure waits for leaderboard processing in Phase 3E-D so approval-side competition effects cannot be partially available.
 
 Authentication: admin permission required.
 
@@ -185,6 +185,8 @@ Idempotency: required through `Idempotency-Key`.
 Transaction: update submission, insert review, award points/XP once, update leaderboard, evaluate missions, notify player, audit log.
 
 Errors: `SUBMISSION_ALREADY_APPROVED`, `FORBIDDEN`, `VALIDATION_FAILED`.
+
+The eventual route must derive the reviewer from admin authorization and require an idempotency key. It must never accept player, puzzle, reward, XP, SP, role, permission, or target status as browser authority.
 
 ### GET /api/leaderboards
 

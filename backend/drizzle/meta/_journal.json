@@ -43,6 +43,13 @@
       "when": 1788858158912,
       "tag": "0005_curly_spyke",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788863887586,
+      "tag": "0006_rich_tenebrous",
+      "breakpoints": true
     }
   ]
 }

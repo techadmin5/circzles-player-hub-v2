@@ -169,9 +169,15 @@ Constraints: restrictive-delete FKs to `submissions` and `admin_users`; unique `
 
 ### submission_reward_grants
 
-Purpose: idempotency guard for approval awards.
+Phase 3E-C status: implemented.
 
-Columns: `submission_reward_grant_id` PK, `submission_id` FK unique, `point_transaction_id` FK nullable, `xp_transaction_id` FK nullable, `leaderboard_entry_id` FK nullable, `created_at`.
+Purpose: immutable first-approved-completion processing snapshot and database idempotency guard. The identity is canonical `(player_id, puzzle_id)`, never level, puzzle name, run text, design, SKU, or submission.
+
+Columns: `submission_reward_grant_id` PK, `player_id` FK, `puzzle_id` FK, `submission_id` FK unique, `reward_enabled_snapshot`, `synapse_reward`, `xp_reward`, `point_transaction_id` FK nullable, `xp_transaction_id` FK nullable, `created_at`.
+
+Constraints: unique `(player_id, puzzle_id)`, unique `submission_id`, non-negative SP/XP snapshots, and restrictive deletion for every FK. Nullable ledger references represent disabled or zero-value rewards without invalid zero ledger entries.
+
+The row is created for the first approved completion even when settings are missing, inactive, disabled, or zero. This freezes non-eligibility and prevents later configuration changes from granting the base reward retroactively.
 
 ### leaderboard_entries
 

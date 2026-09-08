@@ -204,3 +204,13 @@ Admin authorization extends the existing cookie-session model. The backend hashe
 Roles map to permissions in backend code: `REVIEWER` has `SUBMISSIONS_REVIEW`; `SUPER_ADMIN` has `SUBMISSIONS_REVIEW` and `COMPETITION_CONFIG`. Routes request permissions rather than trusting role, user, player, or admin values from the browser.
 
 The implemented admin surface is read-only: submission queue and detail queries expose public player identity and review-relevant puzzle, run, timing, status, player-puzzle, and video metadata. The queue defaults to pending review, supports bounded filters, and orders oldest first with submission UUID as a deterministic tie-breaker. Review decisions, reward grants, leaderboard mutation, audit writes, and admin UI remain deferred.
+
+## Phase 3E-C Internal Review Engine
+
+`SubmissionReviewService` is a trusted internal boundary; it is not connected to an HTTP mutation route. Its repository locks the submission and performs review history insertion, status transition, first-completion reward snapshot, ledger credits, and ledger-reference persistence in one PostgreSQL transaction. Any failure rolls back status, history, grant, ledgers, wallet, and progression cache together.
+
+The base completion reward is processed once per `(playerId, canonical puzzleId)`, enforced by `submission_reward_grants`. The first approved solve always creates a snapshot. Only an active persisted `puzzle_competition_settings` row with `rewardEnabled=true` supplies runtime SP and XP values; presets are never runtime authority. Missing, inactive, disabled, and zero-value settings produce a disabled/zero snapshot and no zero-value ledger transactions.
+
+The first-completion insert is the concurrency arbiter. Only the transaction that inserts the unique player/puzzle grant may award ledgers. SP and XP use the existing wallet/progression locks and ledger algorithms through transaction-aware helpers with deterministic player-scoped idempotency keys. Later approved solves retain review history but cannot replace or repeat the first-completion reward.
+
+Review idempotency is scoped to reviewer and key. Exact payload replay returns the original logical result; mismatched reuse and new decisions for reviewed submissions fail with controlled conflicts. Leaderboard entries, PB processing, ranking, and the review POST route remain deferred to Phase 3E-D.
