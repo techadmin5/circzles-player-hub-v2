@@ -12,6 +12,7 @@ import type { LeaderboardCatalog, LeaderboardCatalogItem, LeaderboardCategory, L
 import type { PublicPlayerProfile } from "@/types";
 import { PublicPlayerProfileModal } from "./PublicPlayerProfileModal";
 import { LeaderboardPlacementEffect } from "./LeaderboardPlacementEffect";
+import { LeaderboardPlayerIdentity } from "./LeaderboardPlayerIdentity";
 
 const CATEGORIES: Array<{ id: LeaderboardCategory; label: string }> = [
   { id: "MAIN_LEVEL", label: "Levels" },
@@ -174,14 +175,14 @@ function PodiumEntry({ entry, onOpenProfile }: { entry: LeaderboardRow; onOpenPr
   const placement = Math.min(3, Math.max(1, entry.rank)) as 1 | 2 | 3;
   return (
     <button type="button" onClick={() => onOpenProfile(entry.publicPlayerId)} aria-label={`View ${entry.displayName}'s public profile`}
-      className={cn("cz-raised relative isolate grid min-h-32 overflow-hidden content-between gap-4 p-4 text-left transition-transform hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cz-aqua)]", placement === 1 && "sm:min-h-36", entry.isCurrentPlayer && "cz-ring-aqua")}>
+      className={cn("cz-raised relative isolate grid overflow-hidden content-between gap-2 px-4 py-3 text-left transition-transform hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cz-aqua)] sm:min-h-32 sm:gap-4 sm:p-4", placement === 1 && "sm:min-h-36", entry.isCurrentPlayer && "cz-ring-aqua")}>
       <LeaderboardPlacementEffect placement={placement} />
       <div className="relative z-10 flex items-center justify-between gap-3">
         <Medal size={22} style={{ color: tones[entry.rank - 1] ?? "var(--cz-text-secondary)" }} aria-hidden="true" />
         <span className="cz-num text-sm font-bold">#{entry.rank}</span>
       </div>
-      <div className="relative z-10 min-w-0">
-        <p className="truncate font-semibold">{entry.displayName}{entry.isCurrentPlayer ? " (You)" : ""}</p>
+      <div className="relative z-10 min-w-0 pr-20">
+        <LeaderboardPlayerIdentity publicPlayerId={entry.publicPlayerId} displayName={entry.displayName} isCurrentPlayer={entry.isCurrentPlayer} />
         <p className="cz-num mt-1 text-xl font-bold text-[var(--cz-gold)]">{entry.bestTime}</p>
       </div>
     </button>
@@ -193,7 +194,7 @@ function StandingRow({ entry, onOpenProfile }: { entry: LeaderboardRow; onOpenPr
     <button type="button" onClick={() => onOpenProfile(entry.publicPlayerId)} aria-label={`View ${entry.displayName}'s public profile`}
       className={cn("grid min-h-14 w-full grid-cols-[44px_minmax(0,1fr)_minmax(88px,auto)] items-center gap-2 rounded-md px-3 py-2 text-left transition-colors hover:bg-white/[0.04] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--cz-aqua)]", entry.isCurrentPlayer ? "bg-[var(--cz-aqua-dim)] text-[var(--cz-aqua)]" : "border-t border-[var(--cz-hairline)]")}>
       <span className="cz-num font-bold">#{entry.rank}</span>
-      <span className="min-w-0 truncate text-sm font-semibold">{entry.displayName}{entry.isCurrentPlayer ? " (You)" : ""}</span>
+      <LeaderboardPlayerIdentity compact publicPlayerId={entry.publicPlayerId} displayName={entry.displayName} isCurrentPlayer={entry.isCurrentPlayer} />
       <span className="cz-num text-right text-sm font-bold">{entry.bestTime}</span>
     </button>
   );

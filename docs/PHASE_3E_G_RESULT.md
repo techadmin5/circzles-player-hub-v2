@@ -6,19 +6,23 @@ Phase 3E-G adds the required animated presentation to leaderboard placements one
 
 Animation logic is isolated in `LeaderboardPlacementEffect`. Only the Top-3 cards mount that component; standard ranks, outside-Top-10 player rows, loading states, error states, and empty states do not mount Lottie.
 
-The visual hierarchy is intentionally distinct:
+The final rank-specific asset mapping is:
 
-- First place has the largest and brightest gold orbit, strongest glow, and slightly taller desktop card.
-- Second place has a smaller, quieter silver treatment.
-- Third place has the lightest bronze treatment.
+- Rank #1 -> `src/assets/lottie/leaderboard/rank1.json`
+- Rank #2 -> `src/assets/lottie/leaderboard/rank2.json`
+- Rank #3 -> `src/assets/lottie/leaderboard/rank3.json`
+
+The original colors in each Lottie are preserved. First place retains the strongest gold card emphasis, second place retains its silver treatment, and third place retains its bronze treatment.
 
 All text and controls remain above the decorative layer. The effect is clipped to the card, cannot create page overflow, and uses `pointer-events: none`, `aria-hidden`, and no focusable controls.
 
-## Temporary Local Asset
+## Visual Review
 
-`src/assets/lottie/leaderboard-energy.json` is a small, transparent, repository-owned temporary orbit-and-pulse animation. It contains no remote asset references or third-party artwork. Rank-specific presentation varies its scale, opacity, filtering, border, and shadow while reusing one animation payload.
+The leaderboard and public-profile experience has been visually reviewed on desktop and mobile. Mobile Top-3 cards use the approved compact layout, while preserving readable rank, player identity, and best-time information without interference from the Lottie artwork.
 
-Final branded Lottie artwork can replace this JSON file without changing leaderboard ranking, selection, or profile-popup logic.
+Leaderboard rows use a neutral initials avatar slot until authoritative avatar and equipped-frame data is available from the backend. The public-profile modal is centered on both desktop and mobile, sits above mobile navigation, and retains its high-contrast close control and responsive profile header.
+
+A real friendship action remains deferred until a persistent Friends backend is implemented.
 
 ## Motion And Performance
 

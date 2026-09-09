@@ -25,6 +25,19 @@ export const players: Player[] = [
   { ...currentPlayer, internalId: "p4", publicPlayerId: "CZ-L7MIND", displayName: "MindMint", rank: "Nobleman", progressionLevel: 32, xp: 25000, xpNeeded: 42000, synapsePoints: 22100, state: "Karnataka", streak: 8 },
 ];
 
+const additionalLeaderboardPlayers: Player[] = [
+  { ...currentPlayer, internalId: "p5", publicPlayerId: "CZ-V7K2PX", displayName: "GridSage", rank: "Master", progressionLevel: 48, state: "Tamil Nadu" },
+  { ...currentPlayer, internalId: "p6", publicPlayerId: "CZ-R4D8MN", displayName: "CipherNova", rank: "Hero", progressionLevel: 51, state: "Rajasthan" },
+  { ...currentPlayer, internalId: "p7", publicPlayerId: "CZ-T9Q6HW", displayName: "PatternPilot", rank: "Knight", progressionLevel: 27, state: "Telangana" },
+  { ...currentPlayer, internalId: "p8", publicPlayerId: "CZ-B3Y7FC", displayName: "LoopSmith", rank: "Nobleman", progressionLevel: 36, state: "West Bengal" },
+  { ...currentPlayer, internalId: "p9", publicPlayerId: "CZ-K8P4ZS", displayName: "PrismRush", rank: "Knight", progressionLevel: 24, state: "Kerala" },
+  { ...currentPlayer, internalId: "p10", publicPlayerId: "CZ-H6W2RJ", displayName: "SolveForge", rank: "Nobleman", progressionLevel: 34, state: "Punjab" },
+  { ...currentPlayer, internalId: "p11", publicPlayerId: "CZ-M9C5TX", displayName: "ArcMaven", rank: "Master", progressionLevel: 43, state: "Delhi" },
+  { ...currentPlayer, internalId: "p12", publicPlayerId: "CZ-Q7N3VB", displayName: "NodeKnight", rank: "Knight", progressionLevel: 29, state: "Assam" },
+];
+
+const leaderboardPlayers = [...players, ...additionalLeaderboardPlayers];
+
 const puzzleNames = ["Lion", "Metamorphosis", "Synthesis", "Mind Map", "Midnight Bazaar", "Abyss", "Peacock", "Colorstrom", "Spiritual Awakening", "Beyond Dreams", "Pluto", "Aapdo Dham", "Gold Fishing", "DNA-Coded Carbon", "Rickshaw"];
 
 export const puzzles: Puzzle[] = puzzleNames.map((name, index) => ({
@@ -55,8 +68,7 @@ export const submissions: Submission[] = playerPuzzles.slice(0, 8).map((puzzle, 
   reviewNote: index % 3 === 0 ? "Video angle needs a clearer final-state frame." : undefined,
 }));
 
-export const leaderboard: LeaderboardEntry[] = Array.from({ length: 12 }, (_, index) => {
-  const player = players[index % players.length];
+export const leaderboard: LeaderboardEntry[] = leaderboardPlayers.map((player, index) => {
   return {
     rank: index + 1,
     player,

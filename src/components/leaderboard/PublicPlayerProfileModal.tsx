@@ -69,18 +69,18 @@ export function PublicPlayerProfileModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-end bg-black/70 p-0 backdrop-blur-sm sm:place-items-center sm:p-4"
+    <div className="fixed inset-0 z-[100] grid place-items-center bg-black/70 p-4 backdrop-blur-sm"
       onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="public-profile-title"
-        className="cz-surface cz-grain relative max-h-[90vh] w-full overflow-y-auto rounded-t-lg border-[var(--cz-hairline)] p-5 shadow-2xl sm:max-w-md sm:rounded-lg">
+        className="cz-surface cz-grain relative max-h-[calc(100dvh-2rem)] w-[min(92vw,24rem)] overflow-y-auto rounded-lg border-[var(--cz-hairline)] p-4 shadow-2xl sm:p-5">
         <button ref={closeRef} type="button" onClick={onClose} aria-label="Close player profile"
-          className="cz-btn cz-btn-ghost absolute right-3 top-3 h-9 w-9 p-0" title="Close">
-          <X size={18} />
+          className="absolute right-3 top-3 z-30 flex h-9 w-9 items-center justify-center rounded-lg border border-white/20 bg-black/50 text-white opacity-100 shadow-sm hover:border-white/35 hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cz-aqua)]" title="Close">
+          <X size={20} strokeWidth={2.25} className="block shrink-0 text-white opacity-100" aria-hidden="true" />
         </button>
 
         {!profile && !error && <ProfileLoading publicPlayerId={publicPlayerId} />}
         {error && (
-          <div className="grid min-h-56 place-items-center gap-3 px-4 py-8 text-center" role="alert">
+          <div className="grid min-h-52 place-items-center gap-3 px-3 py-6 text-center" role="alert">
             <AlertCircle size={28} className="text-[var(--cz-danger)]" />
             <div>
               <h2 id="public-profile-title" className="cz-display font-bold">Profile unavailable</h2>
@@ -97,7 +97,7 @@ export function PublicPlayerProfileModal({
 
 function ProfileLoading({ publicPlayerId }: { publicPlayerId: string }) {
   return (
-    <div className="grid min-h-56 animate-pulse content-center justify-items-center gap-4" aria-busy="true" aria-label="Loading player profile">
+    <div className="grid min-h-52 animate-pulse content-center justify-items-center gap-4" aria-busy="true" aria-label="Loading player profile">
       <div className="h-16 w-16 rounded-full bg-white/10" />
       <div className="h-5 w-36 rounded bg-white/10" />
       <p className="text-xs text-[var(--cz-text-tertiary)]">{publicPlayerId}</p>
@@ -108,9 +108,9 @@ function ProfileLoading({ publicPlayerId }: { publicPlayerId: string }) {
 function ProfileContent({ profile }: { profile: PublicPlayerProfile }) {
   const initials = profile.displayName.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "CZ";
   return (
-    <div className="grid gap-5">
-      <div className="flex items-center gap-4 pr-10">
-        <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-full border border-[rgba(61,234,212,0.45)] bg-[var(--cz-aqua-dim)] text-lg font-bold text-[var(--cz-aqua)]">
+    <div className="grid gap-4 sm:gap-5">
+      <div className="flex items-center gap-3 pr-10 sm:gap-4">
+        <div className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-full border border-[rgba(61,234,212,0.45)] bg-[var(--cz-aqua-dim)] text-lg font-bold text-[var(--cz-aqua)] sm:h-16 sm:w-16">
           {profile.avatarUrl ? <Image unoptimized src={profile.avatarUrl} alt="" width={64} height={64} className="h-full w-full object-cover" /> : <span aria-hidden="true">{initials}</span>}
         </div>
         <div className="min-w-0">
@@ -120,7 +120,7 @@ function ProfileContent({ profile }: { profile: PublicPlayerProfile }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3">
         <div className="cz-raised min-w-0 p-3">
           <p className="flex items-center gap-1.5 text-[0.65rem] uppercase tracking-wide text-[var(--cz-text-tertiary)]"><Shield size={13} /> Progression rank</p>
           <p className="mt-2 truncate font-semibold">{profile.progressionRank}</p>
@@ -132,7 +132,7 @@ function ProfileContent({ profile }: { profile: PublicPlayerProfile }) {
       </div>
 
       {profile.equippedFrame && <p className="flex items-center gap-2 text-sm text-[var(--cz-text-secondary)]"><CircleUserRound size={16} /> {profile.equippedFrame}</p>}
-      <div className="border-t border-[var(--cz-hairline)] pt-4">
+      <div className="border-t border-[var(--cz-hairline)] pt-3 sm:pt-4">
         {profile.displayedBadges.length > 0 ? (
           <div className="flex flex-wrap gap-2">{profile.displayedBadges.map((badge) => <span key={badge} className="cz-chip"><Award size={12} /> {badge}</span>)}</div>
         ) : <p className="text-xs text-[var(--cz-text-tertiary)]">No displayed badges yet</p>}
