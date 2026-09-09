@@ -4,6 +4,7 @@ import type * as schema from "../db/schema.js";
 import { playerPuzzles, puzzles, submissions, videoUploads } from "../db/schema.js";
 import type { VideoStorage, VerifiedVideoAsset } from "../storage/videoStorage.js";
 import { AppError, validationFailed } from "./errors.js";
+import { insertGameEventInTransaction } from "./gameEvents.js";
 
 type Db = NodePgDatabase<typeof schema>;
 export const MAX_VIDEO_SIZE_BYTES = 500 * 1024 * 1024;
@@ -134,6 +135,11 @@ export class DrizzleSubmissionRepository implements SubmissionRepository {
         if (!upload) throw new AppError("VIDEO_UPLOAD_NOT_FOUND", "Video upload was not found.", 404);
         if (upload.status !== "COMPLETE") throw new AppError("VIDEO_UPLOAD_NOT_COMPLETE", "Video upload has not been verified.", 409);
         const [created] = await tx.insert(submissions).values({ playerId: input.playerId, playerPuzzleId: owned.playerPuzzle.playerPuzzleId, puzzleId: owned.puzzle.puzzleId, levelId: owned.puzzle.levelId, completionTimeMs: input.completionTimeMs, videoUploadId: input.videoUploadId, idempotencyKey: input.idempotencyKey, status: "PENDING_REVIEW" }).returning();
+        await insertGameEventInTransaction(tx, {
+          playerId: input.playerId, eventType: "submission.created", sourceType: "SUBMISSION", sourceId: created.submissionId,
+          idempotencyKey: `submission.created:${created.submissionId}`,
+          payload: { submissionId: created.submissionId, puzzleId: created.puzzleId, playerPuzzleId: created.playerPuzzleId, levelId: Number(created.levelId), completionTimeMs: created.completionTimeMs },
+        });
         return toSubmissionDto({ submission: created, puzzle: owned.puzzle });
       });
     } catch (error) {

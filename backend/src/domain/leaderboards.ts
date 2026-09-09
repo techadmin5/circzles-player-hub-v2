@@ -96,7 +96,9 @@ export async function processPersonalBestInTransaction(tx: GameStateTransaction,
   approvedAt: Date;
   submittedAt: Date;
 }) {
-  await tx.insert(leaderboardEntries).values({
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${input.playerId}:${input.puzzleId}`}, 0))`);
+  const [previous] = await tx.select().from(leaderboardEntries).where(and(eq(leaderboardEntries.playerId, input.playerId), eq(leaderboardEntries.puzzleId, input.puzzleId))).limit(1).for("update");
+  const changed = await tx.insert(leaderboardEntries).values({
     playerId: input.playerId,
     puzzleId: input.puzzleId,
     bestSubmissionId: input.submissionId,
@@ -113,7 +115,8 @@ export async function processPersonalBestInTransaction(tx: GameStateTransaction,
       updatedAt: new Date(),
     },
     setWhere: sql`(excluded.best_completion_time_ms, excluded.best_approved_at, excluded.best_submitted_at, excluded.best_submission_id) < (${leaderboardEntries.bestCompletionTimeMs}, ${leaderboardEntries.bestApprovedAt}, ${leaderboardEntries.bestSubmittedAt}, ${leaderboardEntries.bestSubmissionId})`,
-  });
+  }).returning({ bestCompletionTimeMs: leaderboardEntries.bestCompletionTimeMs });
+  return { improved: changed.length > 0, previousBestTimeMs: previous?.bestCompletionTimeMs ?? null, newBestTimeMs: input.completionTimeMs };
 }
 
 export function formatLeaderboardTime(milliseconds: number) {

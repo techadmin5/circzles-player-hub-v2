@@ -34,11 +34,13 @@ describe("game state progression and economy", () => {
   });
 
   it("XP crossing a threshold updates rank and progression level", async () => {
-    const { gameState } = await service();
+    const { repo, gameState } = await service();
     const result = await gameState.grantXp({ playerId: "player-1", amount: 8000, reason: "test", sourceType: "test" });
     expect(result.state.progressionLevel).toBe(15);
     expect(result.state.rankName).toBe("Knight");
     expect(result.state.xpNeeded).toBe(12800);
+    expect(repo.gameEvents.filter((event) => event.eventType === "xp.earned")).toHaveLength(1);
+    expect(repo.gameEvents.filter((event) => event.eventType === "progression.level_up").map((event) => event.payload.newProgressionLevel)).toEqual([5, 10, 15]);
   });
 
   it("duplicate XP idempotency key does not double-award", async () => {
@@ -49,6 +51,7 @@ describe("game state progression and economy", () => {
     expect(second.idempotent).toBe(true);
     expect(repo.xpTransactions).toHaveLength(1);
     expect(state.totalXp).toBe(500);
+    expect(repo.gameEvents.filter((event) => event.eventType === "xp.earned")).toHaveLength(1);
   });
 
   it("same idempotency key can exist for two different players", async () => {
@@ -84,6 +87,7 @@ describe("game state progression and economy", () => {
     const result = await gameState.creditPoints({ playerId: "player-1", amount: 250, reason: "test", sourceType: "test" });
     expect(result.balanceAfter).toBe(250);
     expect(repo.pointTransactions).toHaveLength(1);
+    expect(repo.gameEvents.filter((event) => event.eventType === "points.earned")).toHaveLength(1);
     expect((await gameState.getPlayerGameState("player-1")).synapsePoints).toBe(250);
   });
 
@@ -94,6 +98,7 @@ describe("game state progression and economy", () => {
     expect(debit.balanceAfter).toBe(150);
     expect(repo.pointTransactions).toHaveLength(2);
     expect((await gameState.getPlayerGameState("player-1")).synapsePoints).toBe(150);
+    expect(repo.gameEvents.filter((event) => event.eventType === "points.earned")).toHaveLength(1);
   });
 
   it("insufficient point debit fails safely", async () => {

@@ -170,6 +170,8 @@ The intended submission media flow remains:
 
 Each operation must commit or roll back all resulting ledgers, inventory grants, mission progress, leaderboard updates, notifications, and audit records together.
 
+Phase 3F-A applies this rule to the internal append-only `game_events` stream. Existing authoritative producers write events through the same Drizzle transaction as puzzle ownership, submissions, reviews, PBs, points, XP, and progression changes. There is no public event-write API; future external ingestion requires a separately authenticated and validated boundary.
+
 ## Frontend Contract Recommendations
 
 No immediate frontend changes are required before backend implementation.

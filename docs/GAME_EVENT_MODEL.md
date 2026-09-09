@@ -141,3 +141,11 @@ All event-generating operations should supply deterministic idempotency keys whe
 - `puzzle.added:{playerId}:{puzzleId}`
 
 Duplicate events should be ignored or treated as successful replays.
+
+## Phase 3F-A Implementation
+
+The durable stream is now implemented with extensible text event types and TypeScript validation for currently supported producers. Event insertion accepts an existing Drizzle transaction so authoritative domain state and its event commit or roll back together.
+
+Current producers emit `puzzle.added`, submission lifecycle decisions, `personal_best.improved`, `points.earned`, `xp.earned`, and `progression.level_up`. PB events require an actual insert/improvement; point events require a new credit; XP events require a new grant. Multi-level XP jumps emit one level-up event per crossed configured progression level.
+
+`processed_at` remains null in Phase 3F-A. Phase 3F-B may lock pending rows, evaluate rules, retry safely, and mark them processed. Browsers have no game-event write endpoint.

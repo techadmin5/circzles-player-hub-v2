@@ -3,6 +3,7 @@ import { AppError } from "../src/domain/errors.js";
 import { GameStateService, temporaryDevelopmentProgressionLevels } from "../src/domain/gameState.js";
 import { SubmissionReviewService, type SubmissionReviewInput, type SubmissionReviewRepository, type SubmissionReviewResult } from "../src/domain/submissionReviews.js";
 import { FakeGameStateRepository } from "./fakes.js";
+import type { GameEventInput } from "../src/domain/gameEvents.js";
 
 interface TestSubmission { submissionId: string; playerId: string; puzzleId: string; status: "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "RESUBMISSION_REQUIRED"; completionTimeMs?: number; submittedAt?: string }
 interface TestSetting { active: boolean; rewardEnabled: boolean; synapseReward: number; xpReward: number }
@@ -16,6 +17,7 @@ class InMemorySubmissionReviewRepository implements SubmissionReviewRepository {
   reviews: TestReview[] = [];
   grants: TestGrant[] = [];
   pbs = new Map<string, TestPb>();
+  events: GameEventInput[] = [];
   failAfterRewards = false;
   private sequence: Promise<void> = Promise.resolve();
 
@@ -41,6 +43,8 @@ class InMemorySubmissionReviewRepository implements SubmissionReviewRepository {
       const review = { id: `review-${this.reviews.length + 1}`, ...input };
       this.reviews.push(review);
       submission.status = input.decision;
+      const reviewEventType = input.decision === "APPROVED" ? "submission.approved" : input.decision === "REJECTED" ? "submission.rejected" : "submission.resubmission_required";
+      this.events.push({ playerId: submission.playerId, eventType: reviewEventType, sourceType: "SUBMISSION_REVIEW", sourceId: review.id, idempotencyKey: `${reviewEventType}:${submission.submissionId}`, payload: { submissionId: submission.submissionId, puzzleId: submission.puzzleId, decision: input.decision } });
 
       if (input.decision === "APPROVED" && !this.grants.some((grant) => grant.playerId === submission.playerId && grant.puzzleId === submission.puzzleId)) {
         const setting = this.settings.get(submission.puzzleId);
@@ -63,7 +67,10 @@ class InMemorySubmissionReviewRepository implements SubmissionReviewRepository {
         const candidate: TestPb = { playerId: submission.playerId, puzzleId: submission.puzzleId, submissionId: submission.submissionId, completionTimeMs: submission.completionTimeMs ?? 200_000, approvedAt: `2026-09-08T00:00:${String(this.reviews.length).padStart(2, "0")}.000Z`, submittedAt: submission.submittedAt ?? "2026-09-07T00:00:00.000Z" };
         const key = `${submission.playerId}:${submission.puzzleId}`;
         const existingPb = this.pbs.get(key);
-        if (!existingPb || comparePb(candidate, existingPb) < 0) this.pbs.set(key, candidate);
+        if (!existingPb || comparePb(candidate, existingPb) < 0) {
+          this.pbs.set(key, candidate);
+          this.events.push({ playerId: submission.playerId, eventType: "personal_best.improved", sourceType: "SUBMISSION", sourceId: submission.submissionId, idempotencyKey: `personal_best.improved:${submission.submissionId}`, payload: { submissionId: submission.submissionId, puzzleId: submission.puzzleId, previousBestTimeMs: existingPb?.completionTimeMs ?? null, newBestTimeMs: candidate.completionTimeMs } });
+        }
       }
       if (this.failAfterRewards) throw new Error("simulated transaction failure");
       return this.result(review, false);
@@ -89,14 +96,14 @@ class InMemorySubmissionReviewRepository implements SubmissionReviewRepository {
 
   private snapshot() {
     return {
-      submissions: structuredClone(this.submissions), reviews: structuredClone(this.reviews), grants: structuredClone(this.grants), pbs: structuredClone(this.pbs),
-      states: structuredClone(this.gameRepo.states), wallets: structuredClone(this.gameRepo.wallets), xp: structuredClone(this.gameRepo.xpTransactions), points: structuredClone(this.gameRepo.pointTransactions),
+      submissions: structuredClone(this.submissions), reviews: structuredClone(this.reviews), grants: structuredClone(this.grants), pbs: structuredClone(this.pbs), events: structuredClone(this.events),
+      states: structuredClone(this.gameRepo.states), wallets: structuredClone(this.gameRepo.wallets), xp: structuredClone(this.gameRepo.xpTransactions), points: structuredClone(this.gameRepo.pointTransactions), gameEvents: structuredClone(this.gameRepo.gameEvents),
     };
   }
 
   private restore(snapshot: ReturnType<InMemorySubmissionReviewRepository["snapshot"]>) {
-    this.submissions = snapshot.submissions; this.reviews = snapshot.reviews; this.grants = snapshot.grants; this.pbs = snapshot.pbs;
-    this.gameRepo.states = snapshot.states; this.gameRepo.wallets = snapshot.wallets; this.gameRepo.xpTransactions = snapshot.xp; this.gameRepo.pointTransactions = snapshot.points;
+    this.submissions = snapshot.submissions; this.reviews = snapshot.reviews; this.grants = snapshot.grants; this.pbs = snapshot.pbs; this.events = snapshot.events;
+    this.gameRepo.states = snapshot.states; this.gameRepo.wallets = snapshot.wallets; this.gameRepo.xpTransactions = snapshot.xp; this.gameRepo.pointTransactions = snapshot.points; this.gameRepo.gameEvents = snapshot.gameEvents;
   }
 }
 
@@ -167,6 +174,7 @@ describe("submission review decision engine", () => {
   it.each(["REJECTED", "RESUBMISSION_REQUIRED"] as const)("records %s without reward processing", async (decision) => {
     await service.review({ ...approve("submission-1"), decision, idempotencyKey: decision });
     expect(repo.submissions.get("submission-1")?.status).toBe(decision); expect(repo.reviews).toHaveLength(1); expect(repo.grants).toHaveLength(0); expect(repo.pbs).toHaveLength(0);
+    expect(repo.events.map((event) => event.eventType)).toEqual([decision === "REJECTED" ? "submission.rejected" : "submission.resubmission_required"]);
   });
 
   it("returns an exact idempotent replay without duplicates", async () => {
@@ -174,6 +182,8 @@ describe("submission review decision engine", () => {
     const replay = await service.review(approve("submission-1", "same-key"));
     expect(replay).toMatchObject({ submissionReviewId: first.submissionReviewId, idempotent: true });
     expect(repo.reviews).toHaveLength(1); expect(repo.grants).toHaveLength(1); expect(gameRepo.xpTransactions).toHaveLength(1);
+    expect(repo.events.filter((event) => event.eventType === "submission.approved")).toHaveLength(1);
+    expect(repo.events.filter((event) => event.eventType === "personal_best.improved")).toHaveLength(1);
   });
 
   it("rejects mismatched idempotency reuse", async () => {
@@ -206,6 +216,7 @@ describe("submission review decision engine", () => {
     expect(repo.reviews).toHaveLength(0); expect(repo.grants).toHaveLength(0); expect(gameRepo.pointTransactions).toHaveLength(0); expect(gameRepo.xpTransactions).toHaveLength(0);
     expect(gameRepo.wallets.has("player-1")).toBe(false); expect(gameRepo.states.has("player-1")).toBe(false);
     expect(repo.pbs).toHaveLength(0);
+    expect(repo.events).toHaveLength(0); expect(gameRepo.gameEvents).toHaveLength(0);
   });
 
   it("replaces a PB with a faster later approval but grants no second reward", async () => {
@@ -214,6 +225,7 @@ describe("submission review decision engine", () => {
     repo.submissions.set("submission-2", { submissionId: "submission-2", playerId: "player-1", puzzleId: "puzzle-1", status: "PENDING_REVIEW", completionTimeMs: 185_000 });
     await service.review(approve("submission-2"));
     expect(repo.pbs.get("player-1:puzzle-1")?.submissionId).toBe("submission-2"); expect(repo.grants).toHaveLength(1);
+    expect(repo.events.filter((event) => event.eventType === "personal_best.improved")).toHaveLength(2);
   });
 
   it("keeps the PB for a slower or equal-time later approval", async () => {
@@ -224,6 +236,7 @@ describe("submission review decision engine", () => {
       await service.review(approve(id));
     }
     expect(repo.pbs.get("player-1:puzzle-1")?.submissionId).toBe("submission-1");
+    expect(repo.events.filter((event) => event.eventType === "personal_best.improved")).toHaveLength(1);
   });
 
   it("stores independent PBs by canonical player and puzzle identity", async () => {

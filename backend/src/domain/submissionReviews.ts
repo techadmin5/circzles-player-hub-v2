@@ -9,6 +9,7 @@ import {
 import { AppError, validationFailed } from "./errors.js";
 import { creditPointsInTransaction, grantXpInTransaction } from "./gameState.js";
 import { processPersonalBestInTransaction } from "./leaderboards.js";
+import { insertGameEventInTransaction } from "./gameEvents.js";
 
 export type SubmissionReviewDecision = "APPROVED" | "REJECTED" | "RESUBMISSION_REQUIRED";
 
@@ -88,6 +89,13 @@ export class DrizzleSubmissionReviewRepository implements SubmissionReviewReposi
 
       await tx.update(submissions).set({ status: input.decision, updatedAt: new Date() }).where(eq(submissions.submissionId, submission.submissionId));
 
+      const reviewEventType = input.decision === "APPROVED" ? "submission.approved" : input.decision === "REJECTED" ? "submission.rejected" : "submission.resubmission_required";
+      await insertGameEventInTransaction(tx, {
+        playerId: submission.playerId, eventType: reviewEventType, sourceType: "SUBMISSION_REVIEW", sourceId: review.submissionReviewId,
+        idempotencyKey: `${reviewEventType}:${submission.submissionId}`,
+        payload: { submissionId: submission.submissionId, puzzleId: submission.puzzleId, levelId: Number(submission.levelId), completionTimeMs: submission.completionTimeMs, decision: input.decision },
+      });
+
       if (input.decision === "APPROVED") {
         const [setting] = await tx.select().from(puzzleCompetitionSettings).where(and(
           eq(puzzleCompetitionSettings.puzzleId, submission.puzzleId),
@@ -131,7 +139,7 @@ export class DrizzleSubmissionReviewRepository implements SubmissionReviewReposi
           }).where(eq(submissionRewardGrants.submissionRewardGrantId, grant.submissionRewardGrantId));
         }
 
-        await processPersonalBestInTransaction(tx, {
+        const personalBest = await processPersonalBestInTransaction(tx, {
           playerId: submission.playerId,
           puzzleId: submission.puzzleId,
           submissionId: submission.submissionId,
@@ -139,6 +147,13 @@ export class DrizzleSubmissionReviewRepository implements SubmissionReviewReposi
           approvedAt: review.createdAt,
           submittedAt: submission.submittedAt,
         });
+        if (personalBest.improved) {
+          await insertGameEventInTransaction(tx, {
+            playerId: submission.playerId, eventType: "personal_best.improved", sourceType: "SUBMISSION", sourceId: submission.submissionId,
+            idempotencyKey: `personal_best.improved:${submission.submissionId}`,
+            payload: { submissionId: submission.submissionId, puzzleId: submission.puzzleId, levelId: Number(submission.levelId), completionTimeMs: submission.completionTimeMs, previousBestTimeMs: personalBest.previousBestTimeMs, newBestTimeMs: personalBest.newBestTimeMs },
+          });
+        }
       }
 
       return reviewResult(tx, review, false);

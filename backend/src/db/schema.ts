@@ -130,6 +130,23 @@ export const pointTransactions = pgTable("point_transactions", {
   balanceAfterCheck: check("point_transactions_balance_after_check", sql`${table.balanceAfter} >= 0`),
 }));
 
+export const gameEvents = pgTable("game_events", {
+  gameEventId: uuid("game_event_id").primaryKey().defaultRandom(),
+  playerId: uuid("player_id").notNull().references(() => players.playerId, { onDelete: "restrict" }),
+  eventType: text("event_type").notNull(),
+  sourceType: text("source_type").notNull(),
+  sourceId: text("source_id").notNull(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+  idempotencyKey: text("idempotency_key").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+}, (table) => ({
+  playerIdempotencyUnique: uniqueIndex("game_events_player_id_idempotency_key_unique").on(table.playerId, table.idempotencyKey),
+  playerCreatedAtIndex: index("game_events_player_id_created_at_idx").on(table.playerId, table.createdAt),
+  eventTypeCreatedAtIndex: index("game_events_event_type_created_at_idx").on(table.eventType, table.createdAt),
+  unprocessedCreatedAtIndex: index("game_events_unprocessed_created_at_idx").on(table.createdAt).where(sql`${table.processedAt} is null`),
+}));
+
 export const puzzleDesigns = pgTable("puzzle_designs", {
   puzzleDesignId: uuid("puzzle_design_id").primaryKey().defaultRandom(),
   legacyWixId: text("legacy_wix_id"),

@@ -84,11 +84,12 @@ describe("submission pipeline", () => {
   });
 
   it("replays the same idempotency key and payload as the same submission", async () => {
-    const { service } = await setup();
+    const { service, repo } = await setup();
     const input = { playerPuzzleId: "30000000-0000-4000-8000-000000000001", completionTimeMs: 161000, videoUploadId: await verifiedUpload(service) };
     const first = await service.createSubmission("player-1", input, "submission-retry-1");
     const replay = await service.createSubmission("player-1", input, "submission-retry-1");
     expect(replay.id).toBe(first.id);
+    expect(repo.gameEvents.filter((event) => event.eventType === "submission.created")).toHaveLength(1);
   });
 
   it("rejects a reused idempotency key with different submission data", async () => {

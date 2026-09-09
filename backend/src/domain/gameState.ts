@@ -2,6 +2,7 @@ import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "../db/client.js";
 import { playerProgression, pointTransactions, progressionLevels, wallets, xpTransactions } from "../db/schema.js";
 import { AppError, insufficientPoints, validationFailed } from "./errors.js";
+import { insertGameEventInTransaction } from "./gameEvents.js";
 
 export interface ProgressionLevelConfig {
   progressionLevel: number;
@@ -183,9 +184,22 @@ export async function grantXpInTransaction(tx: GameStateTransaction, input: XpGr
   const current = await readProgressionCache(tx, input.playerId);
   const totalXpAfter = current.totalXp + input.amount;
   const rank = await levelForXp(tx, totalXpAfter);
+  const crossedLevels = await tx.select().from(progressionLevels).where(sql`${progressionLevels.active} = true and ${progressionLevels.progressionLevel} > ${current.progressionLevel} and ${progressionLevels.progressionLevel} <= ${rank.progressionLevel}`).orderBy(asc(progressionLevels.progressionLevel));
   const [transaction] = await tx.insert(xpTransactions).values({ ...input, totalXpAfter, metadata: input.metadata ?? {} }).returning();
   if (!transaction) throw new AppError("XP_TRANSACTION_FAILED", "Could not record XP transaction.", 500);
   await tx.update(playerProgression).set({ totalXp: totalXpAfter, progressionLevel: rank.progressionLevel, rankName: rank.rankName, updatedAt: new Date() }).where(eq(playerProgression.playerId, input.playerId));
+  await insertGameEventInTransaction(tx, {
+    playerId: input.playerId, eventType: "xp.earned", sourceType: "XP_TRANSACTION", sourceId: transaction.xpTransactionId,
+    idempotencyKey: `xp.earned:${transaction.xpTransactionId}`,
+    payload: { amount: input.amount, source: input.sourceType, previousProgressionLevel: current.progressionLevel, resultingProgressionLevel: rank.progressionLevel, resultingXp: totalXpAfter },
+  });
+  for (const level of crossedLevels) {
+    await insertGameEventInTransaction(tx, {
+      playerId: input.playerId, eventType: "progression.level_up", sourceType: "XP_TRANSACTION", sourceId: transaction.xpTransactionId,
+      idempotencyKey: `progression.level_up:${input.playerId}:${level.progressionLevel}:${transaction.xpTransactionId}`,
+      payload: { previousProgressionLevel: current.progressionLevel, newProgressionLevel: level.progressionLevel, rankName: level.rankName, triggerXpTransactionId: transaction.xpTransactionId },
+    });
+  }
   return { transactionId: transaction.xpTransactionId, idempotent: false, totalXpAfter, state: await readGameState(tx, input.playerId, totalXpAfter) };
 }
 
@@ -209,6 +223,13 @@ async function changePointsInTransaction(tx: GameStateTransaction, input: PointC
   const [transaction] = await tx.insert(pointTransactions).values({ ...input, direction, balanceAfter, metadata: input.metadata ?? {} }).returning();
   if (!transaction) throw new AppError("POINT_TRANSACTION_FAILED", "Could not record point transaction.", 500);
   await tx.update(wallets).set({ balance: balanceAfter, updatedAt: new Date() }).where(eq(wallets.playerId, input.playerId));
+  if (direction === "CREDIT") {
+    await insertGameEventInTransaction(tx, {
+      playerId: input.playerId, eventType: "points.earned", sourceType: "POINT_TRANSACTION", sourceId: transaction.transactionId,
+      idempotencyKey: `points.earned:${transaction.transactionId}`,
+      payload: { amount: input.amount, source: input.sourceType, resultingBalance: balanceAfter },
+    });
+  }
   return { transactionId: transaction.transactionId, idempotent: false, balanceAfter };
 }
 

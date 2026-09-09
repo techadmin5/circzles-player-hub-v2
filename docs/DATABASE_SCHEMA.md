@@ -453,3 +453,8 @@ Migration `0003_phase_3d_submissions.sql` adds schema only.
 ## Phase 3E-A Implemented Tables
 
 Migration `0004_phase_3e_a_competition_configuration.sql` changes `puzzles.level_id` and `submissions.level_id` from integer to `NUMERIC(4,1)` and creates `puzzle_competition_settings` plus its category enum, constraints, FK, and indexes. The migration contains schema only and has not been applied.
+# Phase 3F-A Game Events
+
+`game_events` is an internal append-only stream with UUID `game_event_id`, restrictive `player_id` foreign key, extensible text `event_type`, required `source_type` and `source_id`, JSONB `payload`, required `idempotency_key`, database-generated `created_at`, and nullable `processed_at`.
+
+The table enforces `UNIQUE(player_id, idempotency_key)` and indexes `(player_id, created_at)`, `(event_type, created_at)`, plus pending rows by `created_at WHERE processed_at IS NULL`. Null `processed_at` is reserved for Phase 3F-B processing; Phase 3F-A inserts no seed or business-event data.

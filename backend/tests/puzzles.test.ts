@@ -70,6 +70,7 @@ describe("puzzle ownership", () => {
     await service.claimByCode("player-1", "DEV-MM-R1-001");
     await service.claimByCode("player-1", "DEV-MM-R2-001");
     expect(repo.claims).toHaveLength(2);
+    expect(repo.gameEvents.filter((event) => event.eventType === "puzzle.added")).toHaveLength(2);
     expect(repo.ownerships.map((ownership) => ownership.puzzleId)).toEqual([
       "DEV-PUZZLE-METAMORPHOSIS-R1",
       "DEV-PUZZLE-METAMORPHOSIS-R2",
@@ -97,6 +98,7 @@ describe("puzzle ownership", () => {
     await service.claimByCode("player-1", "DEV-MM-R1-777");
     await expect(service.claimByCode("player-2", "DEV-MM-R1-777")).rejects.toMatchObject({ code: "PUZZLE_CODE_ALREADY_CLAIMED" });
     expect(repo.claims).toHaveLength(1);
+    expect(repo.gameEvents.filter((event) => event.eventType === "puzzle.added")).toHaveLength(1);
   });
 
   it("does not consume a second physical code when the player already owns the puzzle variant", async () => {

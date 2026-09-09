@@ -9,6 +9,7 @@ import type { AdminSubmissionDto, AdminSubmissionFilter, AdminSubmissionReposito
 import type { LeaderboardCatalogDto, LeaderboardDto, LeaderboardRepository } from "../src/domain/leaderboards.js";
 import type { SubmissionReviewInput, SubmissionReviewRepository, SubmissionReviewResult } from "../src/domain/submissionReviews.js";
 import type { PublicPlayerProfileDto, PublicProfileRepository } from "../src/domain/publicProfiles.js";
+import type { GameEventInput } from "../src/domain/gameEvents.js";
 
 interface StoredAccount {
   userId: string;
@@ -22,6 +23,7 @@ export class FakeGameStateRepository implements GameStateRepository {
   public wallets = new Map<string, number>();
   public xpTransactions: Array<{ xpTransactionId: string; playerId: string; amount: number; sourceType: string; totalXpAfter: number; idempotencyKey?: string }> = [];
   public pointTransactions: Array<{ transactionId: string; playerId: string; amount: number; direction: "CREDIT" | "DEBIT"; sourceType: string; balanceAfter: number; idempotencyKey?: string }> = [];
+  public gameEvents: GameEventInput[] = [];
 
   async seedProgressionLevels(levels: ProgressionLevelConfig[]) {
     for (const level of levels) {
@@ -57,6 +59,10 @@ export class FakeGameStateRepository implements GameStateRepository {
     this.states.set(input.playerId, { progressionLevel: rank.progressionLevel, rankName: rank.rankName, totalXp: totalXpAfter });
     const transaction = { xpTransactionId: `xp-${this.xpTransactions.length + 1}`, playerId: input.playerId, amount: input.amount, sourceType: input.sourceType, totalXpAfter, idempotencyKey: input.idempotencyKey };
     this.xpTransactions.push(transaction);
+    this.gameEvents.push({ playerId: input.playerId, eventType: "xp.earned", sourceType: "XP_TRANSACTION", sourceId: transaction.xpTransactionId, idempotencyKey: `xp.earned:${transaction.xpTransactionId}`, payload: { amount: input.amount } });
+    for (const level of this.progressionLevels.filter((item) => item.progressionLevel > current.progressionLevel && item.progressionLevel <= rank.progressionLevel)) {
+      this.gameEvents.push({ playerId: input.playerId, eventType: "progression.level_up", sourceType: "XP_TRANSACTION", sourceId: transaction.xpTransactionId, idempotencyKey: `progression.level_up:${input.playerId}:${level.progressionLevel}:${transaction.xpTransactionId}`, payload: { previousProgressionLevel: current.progressionLevel, newProgressionLevel: level.progressionLevel, rankName: level.rankName, triggerXpTransactionId: transaction.xpTransactionId } });
+    }
     return { transactionId: transaction.xpTransactionId, idempotent: false, totalXpAfter, state: await this.getPlayerGameState(input.playerId) };
   }
 
@@ -81,6 +87,7 @@ export class FakeGameStateRepository implements GameStateRepository {
     this.wallets.set(input.playerId, balanceAfter);
     const transaction = { transactionId: `pt-${this.pointTransactions.length + 1}`, playerId: input.playerId, amount: input.amount, direction, sourceType: input.sourceType, balanceAfter, idempotencyKey: input.idempotencyKey };
     this.pointTransactions.push(transaction);
+    if (direction === "CREDIT") this.gameEvents.push({ playerId: input.playerId, eventType: "points.earned", sourceType: "POINT_TRANSACTION", sourceId: transaction.transactionId, idempotencyKey: `points.earned:${transaction.transactionId}`, payload: { amount: input.amount } });
     return { transactionId: transaction.transactionId, idempotent: false, balanceAfter };
   }
 
@@ -224,6 +231,7 @@ export class FakePuzzleRepository implements PuzzleRepository {
   public prefixes = new Map<string, { puzzleId: string; active: boolean }>();
   public claims: Array<{ playerId: string; puzzleId: string; normalizedCode: string; normalizedPrefix: string; serialNumber: bigint }> = [];
   public ownerships: Array<{ playerPuzzleId?: string; playerId: string; puzzleId: string; status: PlayerPuzzleDto["status"] }> = [];
+  public gameEvents: GameEventInput[] = [];
 
   async getOwnedPuzzles(playerId: string) {
     return this.ownerships
@@ -247,6 +255,7 @@ export class FakePuzzleRepository implements PuzzleRepository {
     if (existingOwnership) throw new AppError("PUZZLE_ALREADY_OWNED", "Player already owns this puzzle variant.", 409);
     this.claims.push({ playerId, puzzleId, normalizedCode: parsed.normalizedCode, normalizedPrefix: parsed.normalizedPrefix, serialNumber: parsed.serialNumber });
     this.ownerships.push({ playerId, puzzleId, status: "OWNED" });
+    this.gameEvents.push({ playerId, eventType: "puzzle.added", sourceType: "PUZZLE_CLAIM", sourceId: parsed.normalizedCode, idempotencyKey: `puzzle.added:${playerId}:${puzzleId}`, payload: { puzzleId } });
     return this.toPlayerPuzzle(puzzleId, "OWNED");
   }
 
@@ -299,6 +308,7 @@ export class FakeVideoStorage implements VideoStorage {
 export class FakeSubmissionRepository implements SubmissionRepository {
   uploads = new Map<string, VideoUploadRecord & { failureCode?: string }>();
   submissions: SubmissionDto[] = [];
+  gameEvents: GameEventInput[] = [];
   private nextUpload = 1;
   private nextSubmission = 1;
   constructor(private puzzles: FakePuzzleRepository) {}
@@ -330,6 +340,7 @@ export class FakeSubmissionRepository implements SubmissionRepository {
     const id = `20000000-0000-4000-8000-${String(this.nextSubmission++).padStart(12, "0")}`;
     const result = { id, playerPuzzleId: input.playerPuzzleId, puzzleId: puzzle.id, puzzleName: puzzle.name, levelId: puzzle.levelId, completionTimeMs: input.completionTimeMs, completionTime: "02:41", status: "PENDING_REVIEW" as const, createdAt: new Date().toISOString(), videoUploadId: input.videoUploadId, playerId: input.playerId, idempotencyKey: input.idempotencyKey };
     this.submissions.push(result);
+    this.gameEvents.push({ playerId: input.playerId, eventType: "submission.created", sourceType: "SUBMISSION", sourceId: id, idempotencyKey: `submission.created:${id}`, payload: { submissionId: id, puzzleId: puzzle.id, playerPuzzleId: input.playerPuzzleId, levelId: puzzle.levelId, completionTimeMs: input.completionTimeMs } });
     return result;
   }
   async getSubmissions(playerId: string) { return this.submissions.filter((item) => (item as SubmissionDto & { playerId?: string }).playerId === playerId); }

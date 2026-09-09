@@ -4,6 +4,7 @@ import type * as schema from "../db/schema.js";
 import { playerPuzzles, puzzleClaimPrefixes, puzzleClaims, puzzleDesigns, puzzles } from "../db/schema.js";
 import { AppError, validationFailed } from "./errors.js";
 import { assertValidLevelId } from "./competitionSettings.js";
+import { insertGameEventInTransaction } from "./gameEvents.js";
 
 type Db = NodePgDatabase<typeof schema>;
 
@@ -182,6 +183,12 @@ export class DrizzlePuzzleRepository implements PuzzleRepository {
           source: "CODE_CLAIM",
           status: "OWNED",
         }).returning();
+
+        await insertGameEventInTransaction(tx, {
+          playerId, eventType: "puzzle.added", sourceType: "PUZZLE_CLAIM", sourceId: claim.puzzleClaimId,
+          idempotencyKey: `puzzle.added:${playerId}:${match.puzzle.puzzleId}`,
+          payload: { puzzleId: match.puzzle.puzzleId, levelId: Number(match.puzzle.levelId), puzzleClaimPrefixId: match.prefix.puzzleClaimPrefixId },
+        });
 
         return toPlayerPuzzleDto(match.puzzle, ownership.status, ownership.playerPuzzleId);
       });
