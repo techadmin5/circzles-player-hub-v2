@@ -15,6 +15,8 @@ const envSchema = z.object({
   CLOUDINARY_CLOUD_NAME: z.string().optional(),
   CLOUDINARY_API_KEY: z.string().optional(),
   CLOUDINARY_API_SECRET: z.string().optional(),
+  MISSION_PROCESSOR_INTERVAL_MS: z.coerce.number().int().min(100).default(5000),
+  MISSION_PROCESSOR_BATCH_SIZE: z.coerce.number().int().min(1).max(1000).default(50),
 });
 
 export type Env = z.infer<typeof envSchema>;

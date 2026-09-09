@@ -15,6 +15,7 @@ import type { AdminSubmissionService } from "../domain/adminSubmissions.js";
 import type { LeaderboardService } from "../domain/leaderboards.js";
 import type { SubmissionReviewService } from "../domain/submissionReviews.js";
 import type { PublicProfileService } from "../domain/publicProfiles.js";
+import type { PlayerMissionService } from "../domain/missions.js";
 
 export interface AppDeps {
   env: Env;
@@ -27,6 +28,7 @@ export interface AppDeps {
   leaderboards: LeaderboardService;
   submissionReviews: SubmissionReviewService;
   publicProfiles: PublicProfileService;
+  missions: PlayerMissionService;
   checkDb: () => Promise<void>;
 }
 
@@ -69,7 +71,7 @@ const reviewSubmissionBodySchema = z.object({
   reviewNote: z.string().max(2000).optional(),
 }).strict();
 
-export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, checkDb }: AppDeps) {
+export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, checkDb }: AppDeps) {
   const app = Fastify({
     logger: env.NODE_ENV === "test" ? false : {
       level: "info",
@@ -165,6 +167,11 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
   app.get("/api/leaderboards/catalog", async (request, reply) => {
     await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
     return reply.send(await leaderboards.getCatalog());
+  });
+
+  app.get("/api/missions", async (request, reply) => {
+    const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+    return reply.send({ missions: await missions.list(player.internalId) });
   });
 
   app.get("/api/leaderboards", async (request, reply) => {

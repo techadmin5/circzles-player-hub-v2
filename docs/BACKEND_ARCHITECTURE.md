@@ -172,6 +172,8 @@ Each operation must commit or roll back all resulting ledgers, inventory grants,
 
 Phase 3F-A applies this rule to the internal append-only `game_events` stream. Existing authoritative producers write events through the same Drizzle transaction as puzzle ownership, submissions, reviews, PBs, points, XP, and progression changes. There is no public event-write API; future external ingestion requires a separately authenticated and validated boundary.
 
+Phase 3F-B adds a data-driven mission evaluator and per-period player progress. A lightweight server-owned runner processes locked event batches without overlapping local ticks. Evaluation, capped progress, completion-event emission, and source-event acknowledgement share one transaction. Mission reads are authenticated; claims and reward grants remain separate Phase 3F-C authority.
+
 ## Frontend Contract Recommendations
 
 No immediate frontend changes are required before backend implementation.

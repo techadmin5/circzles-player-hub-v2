@@ -9,7 +9,8 @@ import { AdminSubmissionService, type AdminSubmissionDto } from "../src/domain/a
 import { LeaderboardService } from "../src/domain/leaderboards.js";
 import { SubmissionReviewService } from "../src/domain/submissionReviews.js";
 import { PublicProfileService } from "../src/domain/publicProfiles.js";
-import { FakeAdminAuthorizationRepository, FakeAdminSubmissionRepository, FakeGameStateRepository, FakeIdentityRepository, FakeLeaderboardRepository, FakePublicProfileRepository, FakePuzzleRepository, FakeSubmissionRepository, FakeSubmissionReviewRepository, FakeVideoStorage } from "./fakes.js";
+import { PlayerMissionService } from "../src/domain/missions.js";
+import { FakeAdminAuthorizationRepository, FakeAdminSubmissionRepository, FakeGameStateRepository, FakeIdentityRepository, FakeLeaderboardRepository, FakePlayerMissionRepository, FakePublicProfileRepository, FakePuzzleRepository, FakeSubmissionRepository, FakeSubmissionReviewRepository, FakeVideoStorage } from "./fakes.js";
 import type { Env } from "../src/config/env.js";
 
 function env(overrides: Partial<Env> = {}): Env {
@@ -20,6 +21,8 @@ function env(overrides: Partial<Env> = {}): Env {
     FRONTEND_ORIGIN: "http://localhost:3000",
     SESSION_SECRET: "test-session-secret-with-at-least-32-chars",
     COOKIE_SECURE: false,
+    MISSION_PROCESSOR_INTERVAL_MS: 5000,
+    MISSION_PROCESSOR_BATCH_SIZE: 50,
     ...overrides,
   };
 }
@@ -47,8 +50,10 @@ async function appWithFakes(overrides: Partial<Env> = {}) {
   const submissionReviews = new SubmissionReviewService(reviewRepo);
   const publicProfileRepo = new FakePublicProfileRepository();
   const publicProfiles = new PublicProfileService(publicProfileRepo);
-  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, checkDb: async () => {} });
-  return { app, gameRepo, puzzleRepo, submissionRepo, videoStorage, adminAuthRepo, adminSubmissionRepo, leaderboardRepo, reviewRepo, publicProfileRepo, testEnv };
+  const missionRepo = new FakePlayerMissionRepository();
+  const missions = new PlayerMissionService(missionRepo);
+  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, checkDb: async () => {} });
+  return { app, gameRepo, puzzleRepo, submissionRepo, videoStorage, adminAuthRepo, adminSubmissionRepo, leaderboardRepo, reviewRepo, publicProfileRepo, missionRepo, testEnv };
 }
 
 async function login(app: Awaited<ReturnType<typeof appWithFakes>>["app"]) {
@@ -147,6 +152,7 @@ describe("http auth poc", () => {
       leaderboards: new LeaderboardService(new FakeLeaderboardRepository()),
       submissionReviews: new SubmissionReviewService(new FakeSubmissionReviewRepository()),
       publicProfiles: new PublicProfileService(new FakePublicProfileRepository()),
+      missions: new PlayerMissionService(new FakePlayerMissionRepository()),
       checkDb: async () => { checked = true; },
     });
     const res = await app.inject({ method: "GET", url: "/health" });
@@ -546,6 +552,25 @@ describe("leaderboard HTTP API", () => {
     const cookie = await login(app);
     const res = await app.inject({ method: "GET", url: "/api/leaderboards?puzzleId=70000000-0000-4000-8000-000000000099", headers: { cookie } });
     expect(res.statusCode).toBe(404); expect(res.json().code).toBe("LEADERBOARD_NOT_FOUND");
+  });
+});
+
+describe("missions HTTP API", () => {
+  it("requires authentication and returns safe current-player mission DTOs", async () => {
+    const { app, missionRepo } = await appWithFakes();
+    expect((await app.inject({ method: "GET", url: "/api/missions" })).statusCode).toBe(401);
+    const cookie = await login(app);
+    missionRepo.missions.set("player-1", [{ missionId: "mission-1", title: "Daily solves", description: "Complete verified puzzles.", category: "DAILY", periodType: "DAILY", periodKey: "2026-09-09", status: "CLAIMABLE", progress: { current: 3, target: 3 }, claimable: true, startsAt: null, endsAt: null, rewards: [{ type: "XP", amount: 500, label: "500 XP" }] }]);
+    const response = await app.inject({ method: "GET", url: "/api/missions", headers: { cookie } });
+    expect(response.statusCode).toBe(200); expect(response.json().missions[0]).toMatchObject({ status: "CLAIMABLE", progress: { current: 3, target: 3 }, claimable: true });
+    const serialized = JSON.stringify(response.json()).toLowerCase();
+    for (const field of ["playerid", "userid", "email", "wix", "session", "admin"]) expect(serialized).not.toContain(field);
+  });
+
+  it("returns no-progress and configured reward previews", async () => {
+    const { app, missionRepo } = await appWithFakes(); const cookie = await login(app);
+    missionRepo.missions.set("player-1", [{ missionId: "mission-2", title: "Add puzzles", description: "Add two.", category: "WEEKLY", periodType: "WEEKLY", periodKey: "2026-W37", status: "IN_PROGRESS", progress: { current: 0, target: 2 }, claimable: false, startsAt: null, endsAt: null, rewards: [{ type: "SYNAPSE_POINTS", amount: 250, label: "250 Synapse Points" }] }]);
+    const body = (await app.inject({ method: "GET", url: "/api/missions", headers: { cookie } })).json(); expect(body.missions[0]).toMatchObject({ progress: { current: 0, target: 2 }, rewards: [{ type: "SYNAPSE_POINTS", amount: 250 }] });
   });
 });
 

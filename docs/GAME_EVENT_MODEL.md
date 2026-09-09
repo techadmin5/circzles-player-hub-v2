@@ -149,3 +149,9 @@ The durable stream is now implemented with extensible text event types and TypeS
 Current producers emit `puzzle.added`, submission lifecycle decisions, `personal_best.improved`, `points.earned`, `xp.earned`, and `progression.level_up`. PB events require an actual insert/improvement; point events require a new credit; XP events require a new grant. Multi-level XP jumps emit one level-up event per crossed configured progression level.
 
 `processed_at` remains null in Phase 3F-A. Phase 3F-B may lock pending rows, evaluate rules, retry safely, and mark them processed. Browsers have no game-event write endpoint.
+
+## Phase 3F-B Processing
+
+The mission processor now consumes pending events transactionally with row locking and `SKIP LOCKED`. Eligibility and UTC daily/ISO-week periods use event creation time. Flat scalar payload equality is the only conditions language. Progress targets are snapshotted per period.
+
+When progress first reaches its target, the processor emits `mission.completed` once with mission, category, period, and completion time. No reward values are represented as granted. In this phase `processed_at` means the event completed mission evaluation; future activity and notification projectors need independent cursors.

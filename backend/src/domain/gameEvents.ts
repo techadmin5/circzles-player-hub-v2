@@ -8,6 +8,7 @@ export const implementedGameEventTypes = [
   "puzzle.added", "submission.created", "submission.approved", "submission.rejected",
   "submission.resubmission_required", "personal_best.improved", "points.earned",
   "xp.earned", "progression.level_up",
+  "mission.completed",
 ] as const;
 
 export type GameEventType = typeof implementedGameEventTypes[number];

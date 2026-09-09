@@ -218,11 +218,17 @@ Until authoritative cosmetic systems exist, `avatarUrl` and `equippedFrame` are 
 
 ### POST /api/missions/:missionId/claim
 
+Phase 3F-C only; not implemented in Phase 3F-B.
+
 Request: none beyond path and optional idempotency header.
 
 Server authority: validates progress and grants rewards.
 
 Transaction: mark claimed, grant point/XP/inventory/coupon rewards, emit events.
+
+### GET /api/missions
+
+Phase 3F-B status: implemented and authenticated. The backend derives the player from the session and returns `{ missions: [...] }` containing current active mission identity, category, explicit period type/key, authoritative or zero-default progress, `claimable`, optional dates, and XP/Synapse Point reward previews. It never accepts or exposes an internal player ID. Reward previews are configuration only; no claim or grant occurs.
 
 ### POST /api/store/items/:itemId/purchase
 

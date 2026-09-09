@@ -10,6 +10,7 @@ import type { LeaderboardCatalogDto, LeaderboardDto, LeaderboardRepository } fro
 import type { SubmissionReviewInput, SubmissionReviewRepository, SubmissionReviewResult } from "../src/domain/submissionReviews.js";
 import type { PublicPlayerProfileDto, PublicProfileRepository } from "../src/domain/publicProfiles.js";
 import type { GameEventInput } from "../src/domain/gameEvents.js";
+import type { MissionDto, PlayerMissionRepository } from "../src/domain/missions.js";
 
 interface StoredAccount {
   userId: string;
@@ -206,6 +207,11 @@ export class FakePublicProfileRepository implements PublicProfileRepository {
   async findByPublicPlayerId(publicPlayerId: string) {
     return this.profiles.get(publicPlayerId) ?? null;
   }
+}
+
+export class FakePlayerMissionRepository implements PlayerMissionRepository {
+  missions = new Map<string, MissionDto[]>();
+  async listForPlayer(playerId: string) { return this.missions.get(playerId) ?? []; }
 }
 
 export class FakeSubmissionReviewRepository implements SubmissionReviewRepository {

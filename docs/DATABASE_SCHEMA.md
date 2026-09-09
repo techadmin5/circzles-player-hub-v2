@@ -458,3 +458,12 @@ Migration `0004_phase_3e_a_competition_configuration.sql` changes `puzzles.level
 `game_events` is an internal append-only stream with UUID `game_event_id`, restrictive `player_id` foreign key, extensible text `event_type`, required `source_type` and `source_id`, JSONB `payload`, required `idempotency_key`, database-generated `created_at`, and nullable `processed_at`.
 
 The table enforces `UNIQUE(player_id, idempotency_key)` and indexes `(player_id, created_at)`, `(event_type, created_at)`, plus pending rows by `created_at WHERE processed_at IS NULL`. Null `processed_at` is reserved for Phase 3F-B processing; Phase 3F-A inserts no seed or business-event data.
+
+## Phase 3F-B Missions
+
+- `missions` stores explicit category, period type, optional UTC eligibility window, active state, and display order.
+- `mission_rules` stores one rule per mission with event/source/puzzle/fractional-level filters, positive target, and flat scalar JSON conditions.
+- `mission_rewards` stores ordered active XP or Synapse Point configuration; it is not a grant ledger.
+- `player_mission_progress` stores player/mission/period progress, immutable target snapshot, status, completion/claim timestamps, and last event reference.
+
+Progress is unique on `(player_id, mission_id, period_key)`. Historical foreign keys are restrictive, counts are bounded by the target snapshot, and Phase 3F-B produces only `IN_PROGRESS` or `CLAIMABLE`.

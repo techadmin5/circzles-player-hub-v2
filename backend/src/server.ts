@@ -11,6 +11,7 @@ import { AdminSubmissionService, DrizzleAdminSubmissionRepository } from "./doma
 import { DrizzleLeaderboardRepository, LeaderboardService } from "./domain/leaderboards.js";
 import { DrizzleSubmissionReviewRepository, SubmissionReviewService } from "./domain/submissionReviews.js";
 import { DrizzlePublicProfileRepository, PublicProfileService } from "./domain/publicProfiles.js";
+import { DrizzleMissionRepository, MissionEventProcessor, MissionProcessorRunner, PlayerMissionService } from "./domain/missions.js";
 
 const env = loadEnv();
 const { pool, db } = createDb(env.DATABASE_URL);
@@ -24,6 +25,9 @@ const adminSubmissions = new AdminSubmissionService(new DrizzleAdminSubmissionRe
 const leaderboards = new LeaderboardService(new DrizzleLeaderboardRepository(db));
 const submissionReviews = new SubmissionReviewService(new DrizzleSubmissionReviewRepository(db));
 const publicProfiles = new PublicProfileService(new DrizzlePublicProfileRepository(db));
+const missionRepository = new DrizzleMissionRepository(db);
+const missions = new PlayerMissionService(missionRepository);
+const missionProcessor = new MissionEventProcessor(missionRepository);
 const app = buildApp({
   env,
   identity,
@@ -35,12 +39,17 @@ const app = buildApp({
   leaderboards,
   submissionReviews,
   publicProfiles,
+  missions,
   checkDb: async () => {
     await pool.query("select 1");
   },
 });
 
+const missionRunner = new MissionProcessorRunner(missionProcessor, env.MISSION_PROCESSOR_INTERVAL_MS, env.MISSION_PROCESSOR_BATCH_SIZE, (error) => app.log.error(error, "Mission processor tick failed"));
+app.addHook("onClose", async () => missionRunner.stop());
+
 const address = await app.listen({ port: env.PORT, host: "0.0.0.0" });
+missionRunner.start();
 app.log.info({ address }, "CircZles backend started");
 
 process.on("SIGINT", async () => {

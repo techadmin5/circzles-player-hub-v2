@@ -366,3 +366,77 @@ export const puzzleCompetitionSettings = pgTable("puzzle_competition_settings", 
   synapseRewardCheck: check("puzzle_competition_settings_synapse_reward_check", sql`${table.synapseReward} >= 0`),
   xpRewardCheck: check("puzzle_competition_settings_xp_reward_check", sql`${table.xpReward} >= 0`),
 }));
+
+export const missions = pgTable("missions", {
+  missionId: uuid("mission_id").primaryKey().defaultRandom(),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  category: text("category").notNull(),
+  periodType: text("period_type").notNull(),
+  startsAt: timestamp("starts_at", { withTimezone: true }),
+  endsAt: timestamp("ends_at", { withTimezone: true }),
+  active: boolean("active").notNull().default(true),
+  displayOrder: integer("display_order").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  visibilityIndex: index("missions_visibility_idx").on(table.active, table.startsAt, table.endsAt, table.displayOrder),
+  displayOrderCheck: check("missions_display_order_check", sql`${table.displayOrder} >= 0`),
+  dateWindowCheck: check("missions_date_window_check", sql`${table.startsAt} is null or ${table.endsAt} is null or ${table.endsAt} > ${table.startsAt}`),
+}));
+
+export const missionRules = pgTable("mission_rules", {
+  missionRuleId: uuid("mission_rule_id").primaryKey().defaultRandom(),
+  missionId: uuid("mission_id").notNull().references(() => missions.missionId, { onDelete: "restrict" }),
+  eventType: text("event_type").notNull(),
+  targetCount: integer("target_count").notNull(),
+  sourceType: text("source_type"),
+  puzzleId: uuid("puzzle_id").references(() => puzzles.puzzleId, { onDelete: "restrict" }),
+  levelId: numeric("level_id", { precision: 4, scale: 1, mode: "number" }),
+  conditions: jsonb("conditions").$type<Record<string, string | number | boolean | null>>().notNull().default({}),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  missionUnique: uniqueIndex("mission_rules_mission_id_unique").on(table.missionId),
+  eventActiveIndex: index("mission_rules_event_type_active_idx").on(table.eventType, table.active),
+  targetCountCheck: check("mission_rules_target_count_check", sql`${table.targetCount} > 0`),
+  levelIdCheck: check("mission_rules_level_id_check", sql`${table.levelId} is null or ${table.levelId} > 0`),
+}));
+
+export const missionRewards = pgTable("mission_rewards", {
+  missionRewardId: uuid("mission_reward_id").primaryKey().defaultRandom(),
+  missionId: uuid("mission_id").notNull().references(() => missions.missionId, { onDelete: "restrict" }),
+  rewardType: text("reward_type").notNull(),
+  amount: integer("amount").notNull(),
+  active: boolean("active").notNull().default(true),
+  displayOrder: integer("display_order").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  missionOrderIndex: index("mission_rewards_mission_id_display_order_idx").on(table.missionId, table.displayOrder),
+  amountCheck: check("mission_rewards_amount_check", sql`${table.amount} > 0`),
+  displayOrderCheck: check("mission_rewards_display_order_check", sql`${table.displayOrder} >= 0`),
+}));
+
+export const playerMissionProgress = pgTable("player_mission_progress", {
+  playerMissionProgressId: uuid("player_mission_progress_id").primaryKey().defaultRandom(),
+  playerId: uuid("player_id").notNull().references(() => players.playerId, { onDelete: "restrict" }),
+  missionId: uuid("mission_id").notNull().references(() => missions.missionId, { onDelete: "restrict" }),
+  periodKey: text("period_key").notNull(),
+  currentCount: integer("current_count").notNull().default(0),
+  targetCountSnapshot: integer("target_count_snapshot").notNull(),
+  status: text("status").notNull().default("IN_PROGRESS"),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  claimedAt: timestamp("claimed_at", { withTimezone: true }),
+  lastGameEventId: uuid("last_game_event_id").references(() => gameEvents.gameEventId, { onDelete: "restrict" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  playerMissionPeriodUnique: uniqueIndex("player_mission_progress_player_mission_period_unique").on(table.playerId, table.missionId, table.periodKey),
+  playerStatusIndex: index("player_mission_progress_player_status_idx").on(table.playerId, table.status),
+  missionPeriodIndex: index("player_mission_progress_mission_period_idx").on(table.missionId, table.periodKey),
+  currentCountCheck: check("player_mission_progress_current_count_check", sql`${table.currentCount} >= 0 and ${table.currentCount} <= ${table.targetCountSnapshot}`),
+  targetCountCheck: check("player_mission_progress_target_count_snapshot_check", sql`${table.targetCountSnapshot} > 0`),
+  statusCheck: check("player_mission_progress_status_check", sql`${table.status} in ('IN_PROGRESS', 'CLAIMABLE', 'CLAIMED')`),
+}));

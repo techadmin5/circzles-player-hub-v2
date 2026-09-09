@@ -22,4 +22,4 @@ Payloads contain canonical IDs and mission-relevant server-derived facts only. T
 
 ## Migration Status
 
-`backend/drizzle/0008_blue_doctor_strange.sql` is schema-only and was generated but not applied. No database was migrated or seeded.
+`backend/drizzle/0008_blue_doctor_strange.sql` was applied to Neon DEVELOPMENT after Phase 3F-A. Read-only verification confirmed the `game_events` table, its player-scoped idempotency unique index, and its player foreign key. Production remained untouched.
