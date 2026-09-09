@@ -9,6 +9,8 @@ import { ApiClientError } from "@/lib/apiClient";
 import { cn } from "@/lib/utils";
 import { leaderboardService } from "@/services";
 import type { LeaderboardCatalog, LeaderboardCatalogItem, LeaderboardCategory, LeaderboardResponse, LeaderboardRow } from "@/types";
+import type { PublicPlayerProfile } from "@/types";
+import { PublicPlayerProfileModal } from "./PublicPlayerProfileModal";
 
 const CATEGORIES: Array<{ id: LeaderboardCategory; label: string }> = [
   { id: "MAIN_LEVEL", label: "Levels" },
@@ -26,6 +28,9 @@ export function LeaderboardExplorer({ mode }: { mode: DataMode }) {
   const [boardLoading, setBoardLoading] = useState(false);
   const [boardError, setBoardError] = useState<string | null>(null);
   const [boardAttempt, setBoardAttempt] = useState(0);
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
+  const [profileCache] = useState(() => new Map<string, PublicPlayerProfile>());
+  const closeProfile = useCallback(() => setSelectedProfileId(null), []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -117,14 +122,15 @@ export function LeaderboardExplorer({ mode }: { mode: DataMode }) {
             setBoardError(null);
             setBoardAttempt((value) => value + 1);
           }} />}
-          {board && <CompetitionBoard board={board} />}
+          {board && <CompetitionBoard board={board} onOpenProfile={setSelectedProfileId} />}
         </>
       )}
+      {selectedProfileId && <PublicPlayerProfileModal key={selectedProfileId} publicPlayerId={selectedProfileId} cache={profileCache} onClose={closeProfile} />}
     </div>
   );
 }
 
-function CompetitionBoard({ board }: { board: LeaderboardResponse }) {
+function CompetitionBoard({ board, onOpenProfile }: { board: LeaderboardResponse; onOpenProfile: (publicPlayerId: string) => void }) {
   const entries = board.entries.slice(0, 10);
   const top = entries.slice(0, 3);
   const rest = entries.slice(3);
@@ -141,13 +147,13 @@ function CompetitionBoard({ board }: { board: LeaderboardResponse }) {
         <EmptyState title="No ranked solves yet." body="Be the first to set a verified time." icon={<Trophy size={24} />} />
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-3">{top.map((entry) => <PodiumEntry key={entry.publicPlayerId} entry={entry} />)}</div>
+          <div className="grid gap-3 sm:grid-cols-3">{top.map((entry) => <PodiumEntry key={entry.publicPlayerId} entry={entry} onOpenProfile={onOpenProfile} />)}</div>
           {rest.length > 0 && (
             <Surface className="overflow-hidden p-2">
               <div className="grid grid-cols-[44px_minmax(0,1fr)_minmax(88px,auto)] gap-2 px-3 py-2 text-[0.65rem] font-semibold uppercase tracking-wide text-[var(--cz-text-tertiary)]">
                 <span>Rank</span><span>Player</span><span className="text-right">Best time</span>
               </div>
-              {rest.map((entry) => <StandingRow key={entry.publicPlayerId} entry={entry} />)}
+              {rest.map((entry) => <StandingRow key={entry.publicPlayerId} entry={entry} onOpenProfile={onOpenProfile} />)}
             </Surface>
           )}
         </>
@@ -155,17 +161,18 @@ function CompetitionBoard({ board }: { board: LeaderboardResponse }) {
       {board.currentPlayerEntry && !entries.some((entry) => entry.isCurrentPlayer) && (
         <Surface className="p-2 cz-ring-aqua">
           <p className="px-3 pt-1 text-[0.62rem] font-semibold uppercase tracking-wide text-[var(--cz-aqua)]">Your rank</p>
-          <StandingRow entry={board.currentPlayerEntry} />
+          <StandingRow entry={board.currentPlayerEntry} onOpenProfile={onOpenProfile} />
         </Surface>
       )}
     </div>
   );
 }
 
-function PodiumEntry({ entry }: { entry: LeaderboardRow }) {
+function PodiumEntry({ entry, onOpenProfile }: { entry: LeaderboardRow; onOpenProfile: (publicPlayerId: string) => void }) {
   const tones = ["var(--cz-gold)", "var(--cz-text-secondary)", "#c58b5b"];
   return (
-    <div className={cn("cz-raised grid min-h-32 content-between gap-4 p-4", entry.isCurrentPlayer && "cz-ring-aqua")}>
+    <button type="button" onClick={() => onOpenProfile(entry.publicPlayerId)} aria-label={`View ${entry.displayName}'s public profile`}
+      className={cn("cz-raised grid min-h-32 content-between gap-4 p-4 text-left transition-colors hover:border-[rgba(61,234,212,0.45)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cz-aqua)]", entry.isCurrentPlayer && "cz-ring-aqua")}>
       <div className="flex items-center justify-between gap-3">
         <Medal size={22} style={{ color: tones[entry.rank - 1] ?? "var(--cz-text-secondary)" }} aria-hidden="true" />
         <span className="cz-num text-sm font-bold">#{entry.rank}</span>
@@ -174,17 +181,18 @@ function PodiumEntry({ entry }: { entry: LeaderboardRow }) {
         <p className="truncate font-semibold">{entry.displayName}{entry.isCurrentPlayer ? " (You)" : ""}</p>
         <p className="cz-num mt-1 text-xl font-bold text-[var(--cz-gold)]">{entry.bestTime}</p>
       </div>
-    </div>
+    </button>
   );
 }
 
-function StandingRow({ entry }: { entry: LeaderboardRow }) {
+function StandingRow({ entry, onOpenProfile }: { entry: LeaderboardRow; onOpenProfile: (publicPlayerId: string) => void }) {
   return (
-    <div className={cn("grid min-h-14 grid-cols-[44px_minmax(0,1fr)_minmax(88px,auto)] items-center gap-2 rounded-md px-3 py-2", entry.isCurrentPlayer ? "bg-[var(--cz-aqua-dim)] text-[var(--cz-aqua)]" : "border-t border-[var(--cz-hairline)]")}>
+    <button type="button" onClick={() => onOpenProfile(entry.publicPlayerId)} aria-label={`View ${entry.displayName}'s public profile`}
+      className={cn("grid min-h-14 w-full grid-cols-[44px_minmax(0,1fr)_minmax(88px,auto)] items-center gap-2 rounded-md px-3 py-2 text-left transition-colors hover:bg-white/[0.04] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--cz-aqua)]", entry.isCurrentPlayer ? "bg-[var(--cz-aqua-dim)] text-[var(--cz-aqua)]" : "border-t border-[var(--cz-hairline)]")}>
       <span className="cz-num font-bold">#{entry.rank}</span>
       <span className="min-w-0 truncate text-sm font-semibold">{entry.displayName}{entry.isCurrentPlayer ? " (You)" : ""}</span>
       <span className="cz-num text-right text-sm font-bold">{entry.bestTime}</span>
-    </div>
+    </button>
   );
 }
 

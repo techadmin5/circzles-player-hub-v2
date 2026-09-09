@@ -1,7 +1,7 @@
 import { activity, coupons, currentPlayer, friendRequests, inventory, leaderboard, missions, notifications, playerPuzzles, players, puzzles, season, storeItems, submissions } from "@/mocks/data";
-import type { LeaderboardCatalog, LeaderboardResponse, RewardWheelResult } from "@/types";
+import type { LeaderboardCatalog, LeaderboardResponse, PublicPlayerProfile, RewardWheelResult } from "@/types";
 import { dataMode } from "@/config/dataMode";
-import { apiClient } from "@/lib/apiClient";
+import { apiClient, ApiClientError } from "@/lib/apiClient";
 import { mockDelay } from "./mockRuntime";
 
 const canUseBrowserApi = () => dataMode === "api" && typeof window !== "undefined";
@@ -17,6 +17,21 @@ export const playerService = {
     return currentPlayer;
   },
   async getProfile(playerId: string) { await mockDelay(); return players.find((p) => p.publicPlayerId === playerId) ?? currentPlayer; },
+  async getPublicProfile(publicPlayerId: string, signal?: AbortSignal): Promise<PublicPlayerProfile> {
+    if (canUseBrowserApi()) return apiClient.getPublicPlayerProfile(publicPlayerId, signal);
+    await mockDelay();
+    const player = players.find((item) => item.publicPlayerId === publicPlayerId) ?? (currentPlayer.publicPlayerId === publicPlayerId ? currentPlayer : null);
+    if (!player) throw new ApiClientError("PLAYER_NOT_FOUND", "Player was not found.", 404);
+    return {
+      publicPlayerId: player.publicPlayerId,
+      displayName: player.displayName,
+      progressionRank: player.rank,
+      approvedPuzzlesSolved: 4,
+      avatarUrl: null,
+      equippedFrame: null,
+      displayedBadges: [],
+    };
+  },
   async renameDisplayName(displayName: string) { await mockDelay(); return { ...currentPlayer, displayName }; },
 };
 

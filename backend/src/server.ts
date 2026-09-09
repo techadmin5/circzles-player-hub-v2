@@ -10,6 +10,7 @@ import { AdminAuthorizationService, DrizzleAdminAuthorizationRepository } from "
 import { AdminSubmissionService, DrizzleAdminSubmissionRepository } from "./domain/adminSubmissions.js";
 import { DrizzleLeaderboardRepository, LeaderboardService } from "./domain/leaderboards.js";
 import { DrizzleSubmissionReviewRepository, SubmissionReviewService } from "./domain/submissionReviews.js";
+import { DrizzlePublicProfileRepository, PublicProfileService } from "./domain/publicProfiles.js";
 
 const env = loadEnv();
 const { pool, db } = createDb(env.DATABASE_URL);
@@ -22,6 +23,7 @@ const adminAuth = new AdminAuthorizationService(new DrizzleAdminAuthorizationRep
 const adminSubmissions = new AdminSubmissionService(new DrizzleAdminSubmissionRepository(db));
 const leaderboards = new LeaderboardService(new DrizzleLeaderboardRepository(db));
 const submissionReviews = new SubmissionReviewService(new DrizzleSubmissionReviewRepository(db));
+const publicProfiles = new PublicProfileService(new DrizzlePublicProfileRepository(db));
 const app = buildApp({
   env,
   identity,
@@ -32,6 +34,7 @@ const app = buildApp({
   adminSubmissions,
   leaderboards,
   submissionReviews,
+  publicProfiles,
   checkDb: async () => {
     await pool.query("select 1");
   },

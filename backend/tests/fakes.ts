@@ -8,6 +8,7 @@ import type { AdminAuthorizationRepository, AdminRole } from "../src/domain/admi
 import type { AdminSubmissionDto, AdminSubmissionFilter, AdminSubmissionRepository } from "../src/domain/adminSubmissions.js";
 import type { LeaderboardCatalogDto, LeaderboardDto, LeaderboardRepository } from "../src/domain/leaderboards.js";
 import type { SubmissionReviewInput, SubmissionReviewRepository, SubmissionReviewResult } from "../src/domain/submissionReviews.js";
+import type { PublicPlayerProfileDto, PublicProfileRepository } from "../src/domain/publicProfiles.js";
 
 interface StoredAccount {
   userId: string;
@@ -190,6 +191,13 @@ export class FakeLeaderboardRepository implements LeaderboardRepository {
     const board = this.boards.get(puzzleId);
     if (!board) throw new AppError("LEADERBOARD_NOT_FOUND", "Leaderboard was not found.", 404);
     return board;
+  }
+}
+
+export class FakePublicProfileRepository implements PublicProfileRepository {
+  profiles = new Map<string, PublicPlayerProfileDto>();
+  async findByPublicPlayerId(publicPlayerId: string) {
+    return this.profiles.get(publicPlayerId) ?? null;
   }
 }
 

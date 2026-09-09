@@ -122,6 +122,16 @@ export interface LeaderboardResponse {
   currentPlayerEntry: LeaderboardRow | null;
 }
 
+export interface PublicPlayerProfile {
+  publicPlayerId: string;
+  displayName: string;
+  progressionRank: string;
+  approvedPuzzlesSolved: number;
+  avatarUrl: string | null;
+  equippedFrame: string | null;
+  displayedBadges: string[];
+}
+
 export interface ProgressionLevel {
   progressionLevel: number;
   rank: RankName;

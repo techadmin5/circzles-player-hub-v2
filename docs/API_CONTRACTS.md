@@ -41,7 +41,7 @@ Common codes:
 | frontend service | endpoint |
 |---|---|
 | `playerService.getCurrentPlayer()` | `GET /api/me` |
-| `playerService.getProfile(playerId)` | `GET /api/players/:publicPlayerId` |
+| `playerService.getPublicProfile(publicPlayerId)` | `GET /api/players/:publicPlayerId/public-profile` |
 | `playerService.renameDisplayName(displayName)` | `POST /api/me/display-name` |
 | `puzzleService.getOwnedPuzzles()` | `GET /api/me/puzzles` |
 | `puzzleService.getPuzzle(id)` | `GET /api/puzzles/:puzzleId` |
@@ -197,6 +197,24 @@ Returns `mainLevels` and `sideQuests` from active, leaderboard-enabled competiti
 ### GET /api/leaderboards
 
 Phase 3E-D requires authenticated `puzzleId=<canonical UUID>` and rejects additional filters. The configured leaderboard must currently be visible. Returns the puzzle, top 10 rows, and the authenticated player's real ranked row only when outside the top 10. Ranks use exact milliseconds and deterministic approval/submission ordering and are never persisted or calculated by the frontend. Country, state, friends, seasons, and period filters remain deferred.
+
+### GET /api/players/:publicPlayerId/public-profile
+
+Authentication: current player session required.
+
+Phase 3E-F looks up an active player by validated `publicPlayerId` and returns only:
+
+- `publicPlayerId`
+- `displayName`
+- `progressionRank`
+- `approvedPuzzlesSolved`
+- `avatarUrl`
+- `equippedFrame`
+- `displayedBadges`
+
+`approvedPuzzlesSolved` counts distinct canonical `puzzleId` values from approved submissions. Duplicate approved attempts count once, and pending, rejected, or resubmission-required attempts do not count. Unknown, suspended, and deleted players return `PLAYER_NOT_FOUND`.
+
+Until authoritative cosmetic systems exist, `avatarUrl` and `equippedFrame` are `null`, and `displayedBadges` is empty. The endpoint never exposes internal user/player IDs, email, Wix identity, session data, admin data, XP history, wallet balance, or private location.
 
 ### POST /api/missions/:missionId/claim
 

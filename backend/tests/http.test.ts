@@ -8,7 +8,8 @@ import { AdminAuthorizationService, hasAdminPermission } from "../src/domain/adm
 import { AdminSubmissionService, type AdminSubmissionDto } from "../src/domain/adminSubmissions.js";
 import { LeaderboardService } from "../src/domain/leaderboards.js";
 import { SubmissionReviewService } from "../src/domain/submissionReviews.js";
-import { FakeAdminAuthorizationRepository, FakeAdminSubmissionRepository, FakeGameStateRepository, FakeIdentityRepository, FakeLeaderboardRepository, FakePuzzleRepository, FakeSubmissionRepository, FakeSubmissionReviewRepository, FakeVideoStorage } from "./fakes.js";
+import { PublicProfileService } from "../src/domain/publicProfiles.js";
+import { FakeAdminAuthorizationRepository, FakeAdminSubmissionRepository, FakeGameStateRepository, FakeIdentityRepository, FakeLeaderboardRepository, FakePublicProfileRepository, FakePuzzleRepository, FakeSubmissionRepository, FakeSubmissionReviewRepository, FakeVideoStorage } from "./fakes.js";
 import type { Env } from "../src/config/env.js";
 
 function env(overrides: Partial<Env> = {}): Env {
@@ -44,8 +45,10 @@ async function appWithFakes(overrides: Partial<Env> = {}) {
   const leaderboards = new LeaderboardService(leaderboardRepo);
   const reviewRepo = new FakeSubmissionReviewRepository();
   const submissionReviews = new SubmissionReviewService(reviewRepo);
-  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, checkDb: async () => {} });
-  return { app, gameRepo, puzzleRepo, submissionRepo, videoStorage, adminAuthRepo, adminSubmissionRepo, leaderboardRepo, reviewRepo, testEnv };
+  const publicProfileRepo = new FakePublicProfileRepository();
+  const publicProfiles = new PublicProfileService(publicProfileRepo);
+  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, checkDb: async () => {} });
+  return { app, gameRepo, puzzleRepo, submissionRepo, videoStorage, adminAuthRepo, adminSubmissionRepo, leaderboardRepo, reviewRepo, publicProfileRepo, testEnv };
 }
 
 async function login(app: Awaited<ReturnType<typeof appWithFakes>>["app"]) {
@@ -143,6 +146,7 @@ describe("http auth poc", () => {
       adminSubmissions: new AdminSubmissionService(new FakeAdminSubmissionRepository()),
       leaderboards: new LeaderboardService(new FakeLeaderboardRepository()),
       submissionReviews: new SubmissionReviewService(new FakeSubmissionReviewRepository()),
+      publicProfiles: new PublicProfileService(new FakePublicProfileRepository()),
       checkDb: async () => { checked = true; },
     });
     const res = await app.inject({ method: "GET", url: "/health" });
@@ -542,5 +546,47 @@ describe("leaderboard HTTP API", () => {
     const cookie = await login(app);
     const res = await app.inject({ method: "GET", url: "/api/leaderboards?puzzleId=70000000-0000-4000-8000-000000000099", headers: { cookie } });
     expect(res.statusCode).toBe(404); expect(res.json().code).toBe("LEADERBOARD_NOT_FOUND");
+  });
+});
+
+describe("public player profile HTTP API", () => {
+  it("requires authentication and validates public player ids", async () => {
+    const { app } = await appWithFakes({ NODE_ENV: "development" });
+    expect((await app.inject({ method: "GET", url: "/api/players/CZ-8F42KD/public-profile" })).statusCode).toBe(401);
+    const cookie = await login(app);
+    const invalid = await app.inject({ method: "GET", url: "/api/players/not-a-player/public-profile", headers: { cookie } });
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.json().code).toBe("VALIDATION_FAILED");
+  });
+
+  it("returns the safe DTO and controlled PLAYER_NOT_FOUND", async () => {
+    const { app, publicProfileRepo } = await appWithFakes({ NODE_ENV: "development" });
+    const cookie = await login(app);
+    publicProfileRepo.profiles.set("CZ-8F42KD", {
+      publicPlayerId: "CZ-8F42KD",
+      displayName: "Smokey_OP",
+      progressionRank: "Peasant",
+      approvedPuzzlesSolved: 4,
+      avatarUrl: null,
+      equippedFrame: null,
+      displayedBadges: [],
+    });
+    const found = await app.inject({ method: "GET", url: "/api/players/CZ-8F42KD/public-profile", headers: { cookie } });
+    expect(found.statusCode).toBe(200);
+    expect(found.json()).toEqual({
+      publicPlayerId: "CZ-8F42KD",
+      displayName: "Smokey_OP",
+      progressionRank: "Peasant",
+      approvedPuzzlesSolved: 4,
+      avatarUrl: null,
+      equippedFrame: null,
+      displayedBadges: [],
+    });
+    const responseKeys = Object.keys(found.json());
+    for (const privateField of ["internalId", "playerId", "userId", "email", "wixMemberId", "session", "admin", "xp", "synapsePoints"]) expect(responseKeys).not.toContain(privateField);
+
+    const missing = await app.inject({ method: "GET", url: "/api/players/CZ-AAAAAA/public-profile", headers: { cookie } });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json().code).toBe("PLAYER_NOT_FOUND");
   });
 });

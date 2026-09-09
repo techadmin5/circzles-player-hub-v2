@@ -14,6 +14,7 @@ import type { AdminAuthorizationService } from "../domain/adminAuth.js";
 import type { AdminSubmissionService } from "../domain/adminSubmissions.js";
 import type { LeaderboardService } from "../domain/leaderboards.js";
 import type { SubmissionReviewService } from "../domain/submissionReviews.js";
+import type { PublicProfileService } from "../domain/publicProfiles.js";
 
 export interface AppDeps {
   env: Env;
@@ -25,6 +26,7 @@ export interface AppDeps {
   adminSubmissions: AdminSubmissionService;
   leaderboards: LeaderboardService;
   submissionReviews: SubmissionReviewService;
+  publicProfiles: PublicProfileService;
   checkDb: () => Promise<void>;
 }
 
@@ -59,12 +61,15 @@ const adminSubmissionQuerySchema = z.object({
 }).strict();
 const adminSubmissionParamsSchema = z.object({ submissionId: z.string().uuid() }).strict();
 const leaderboardQuerySchema = z.object({ puzzleId: z.string().uuid() }).strict();
+const publicProfileParamsSchema = z.object({
+  publicPlayerId: z.string().regex(/^CZ-[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/),
+}).strict();
 const reviewSubmissionBodySchema = z.object({
   decision: z.enum(["APPROVED", "REJECTED", "RESUBMISSION_REQUIRED"]),
   reviewNote: z.string().max(2000).optional(),
 }).strict();
 
-export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, checkDb }: AppDeps) {
+export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, checkDb }: AppDeps) {
   const app = Fastify({
     logger: env.NODE_ENV === "test" ? false : {
       level: "info",
@@ -167,6 +172,13 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
     const parsed = leaderboardQuerySchema.safeParse(request.query);
     if (!parsed.success) throw validationFailed("Invalid leaderboard query.", parsed.error.flatten());
     return reply.send(await leaderboards.getLeaderboard(parsed.data.puzzleId, player.internalId));
+  });
+
+  app.get("/api/players/:publicPlayerId/public-profile", async (request, reply) => {
+    await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+    const parsed = publicProfileParamsSchema.safeParse(request.params);
+    if (!parsed.success) throw validationFailed("Invalid public player id.", parsed.error.flatten());
+    return reply.send(await publicProfiles.getPublicProfile(parsed.data.publicPlayerId));
   });
 
   app.get("/api/admin/submissions", async (request, reply) => {
