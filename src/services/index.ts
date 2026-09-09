@@ -1,5 +1,5 @@
 import { activity, coupons, currentPlayer, friendRequests, inventory, leaderboard, missions, notifications, playerPuzzles, players, puzzles, season, storeItems, submissions } from "@/mocks/data";
-import type { LeaderboardFilter, RewardWheelResult } from "@/types";
+import type { LeaderboardCatalog, LeaderboardResponse, RewardWheelResult } from "@/types";
 import { dataMode } from "@/config/dataMode";
 import { apiClient } from "@/lib/apiClient";
 import { mockDelay } from "./mockRuntime";
@@ -44,7 +44,38 @@ export const submissionService = {
   async createSubmission(input: { playerPuzzleId: string; completionTimeMs: number; videoUploadId: string }, idempotencyKey: string) { if (canUseBrowserApi()) return apiClient.createSubmission(input, idempotencyKey); await mockDelay(); return { ...submissions[0], id: "sub-new", status: "PENDING_REVIEW" as const, ...input }; },
 };
 
-export const leaderboardService = { async getLeaderboard(filters?: Partial<LeaderboardFilter>) { await mockDelay(); void filters; return { entries: leaderboard, yourRank: 18 }; } };
+const mockLeaderboardCatalog: LeaderboardCatalog = {
+  mainLevels: [
+    { puzzleId: "10000000-0000-4000-8000-000000000001", puzzleName: "Metamorphosis", runCode: "R1", levelId: 1, category: "MAIN_LEVEL", displayOrder: 1 },
+    { puzzleId: "10000000-0000-4000-8000-000000000002", puzzleName: "Serpentine", runCode: "R1", levelId: 2, category: "MAIN_LEVEL", displayOrder: 2 },
+    { puzzleId: "10000000-0000-4000-8000-000000000003", puzzleName: "Metamorphosis", runCode: "R2", levelId: 3, category: "MAIN_LEVEL", displayOrder: 3 },
+  ],
+  sideQuests: [
+    { puzzleId: "20000000-0000-4000-8000-000000000001", puzzleName: "Midnight Circuit", runCode: "SQ1", levelId: 3.5, category: "SIDE_QUEST", displayOrder: 1 },
+  ],
+};
+
+function mockLeaderboardResponse(puzzleId: string): LeaderboardResponse {
+  const puzzle = [...mockLeaderboardCatalog.mainLevels, ...mockLeaderboardCatalog.sideQuests].find((item) => item.puzzleId === puzzleId) ?? mockLeaderboardCatalog.mainLevels[0];
+  return {
+    puzzle,
+    entries: leaderboard.slice(0, 10).map((entry, index) => ({
+      rank: index + 1,
+      publicPlayerId: entry.player.publicPlayerId,
+      displayName: entry.player.displayName,
+      bestTimeMs: 72_420 + index * 3_017,
+      bestTime: `0${Math.floor((72_420 + index * 3_017) / 60_000)}:${String(Math.floor(((72_420 + index * 3_017) % 60_000) / 1000)).padStart(2, "0")}.${String((72_420 + index * 3_017) % 1000).padStart(3, "0")}`,
+      isCurrentPlayer: index === 4,
+    })),
+    currentPlayerEntry: null,
+  };
+}
+
+export const leaderboardService = {
+  async getLeaderboardCatalog(signal?: AbortSignal) { if (canUseBrowserApi()) return apiClient.getLeaderboardCatalog(signal); await mockDelay(); return mockLeaderboardCatalog; },
+  async getLeaderboard(puzzleId: string, signal?: AbortSignal) { if (canUseBrowserApi()) return apiClient.getLeaderboard(puzzleId, signal); await mockDelay(); return mockLeaderboardResponse(puzzleId); },
+  async getMockLeaderboard() { await mockDelay(); return { entries: leaderboard, yourRank: 18 }; },
+};
 export const missionService = { async getMissions() { await mockDelay(); return missions; }, async claimMission(missionId: string) { await mockDelay(); return { missionId, status: "CLAIMED" as const, awarded: missions[0].rewards }; } };
 export const storeService = { async getItems() { await mockDelay(); return storeItems; }, async purchaseItem(itemId: string) { await mockDelay(); return { itemId, resultingBalance: currentPlayer.synapsePoints - 3000, state: "OWNED" as const }; } };
 export const inventoryService = { async getInventory() { await mockDelay(); return inventory; }, async equipItem(itemId: string) { await mockDelay(); return { itemId, state: "Equipped" as const }; } };

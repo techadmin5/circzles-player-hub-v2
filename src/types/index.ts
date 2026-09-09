@@ -88,6 +88,40 @@ export interface LeaderboardEntry {
   isCurrentPlayer?: boolean;
 }
 
+export type LeaderboardCategory = "MAIN_LEVEL" | "SIDE_QUEST";
+
+export interface LeaderboardPuzzle {
+  puzzleId: string;
+  puzzleName: string;
+  runCode?: string;
+  levelId: number;
+  category: LeaderboardCategory;
+}
+
+export interface LeaderboardCatalogItem extends LeaderboardPuzzle {
+  displayOrder: number;
+}
+
+export interface LeaderboardCatalog {
+  mainLevels: LeaderboardCatalogItem[];
+  sideQuests: LeaderboardCatalogItem[];
+}
+
+export interface LeaderboardRow {
+  rank: number;
+  publicPlayerId: string;
+  displayName: string;
+  bestTimeMs: number;
+  bestTime: string;
+  isCurrentPlayer: boolean;
+}
+
+export interface LeaderboardResponse {
+  puzzle: LeaderboardPuzzle;
+  entries: LeaderboardRow[];
+  currentPlayerEntry: LeaderboardRow | null;
+}
+
 export interface ProgressionLevel {
   progressionLevel: number;
   rank: RankName;

@@ -1,4 +1,4 @@
-import type { PlayerProfile, PlayerPuzzle, Puzzle, SignedVideoUpload, Submission } from "@/types";
+import type { LeaderboardCatalog, LeaderboardResponse, PlayerProfile, PlayerPuzzle, Puzzle, SignedVideoUpload, Submission } from "@/types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 const phase3aDefaultStats: PlayerProfile["stats"] = {
@@ -78,6 +78,8 @@ export const apiClient = {
   getSubmissions: async () => request<Submission[]>("/api/submissions"),
   getSubmission: async (submissionId: string) => request<Submission>(`/api/submissions/${encodeURIComponent(submissionId)}`),
   createSubmission: async (input: { playerPuzzleId: string; completionTimeMs: number; videoUploadId: string }, idempotencyKey: string) => request<Submission>("/api/submissions", { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(input) }),
+  getLeaderboardCatalog: async (signal?: AbortSignal) => request<LeaderboardCatalog>("/api/leaderboards/catalog", { signal }),
+  getLeaderboard: async (puzzleId: string, signal?: AbortSignal) => request<LeaderboardResponse>(`/api/leaderboards?puzzleId=${encodeURIComponent(puzzleId)}`, { signal }),
 };
 
 export function uploadVideoDirectly(signed: SignedVideoUpload, file: File, onProgress: (percent: number) => void) {

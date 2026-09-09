@@ -5,7 +5,7 @@ export default async function Page() {
   const [player, puzzles, leaderboard] = await Promise.all([
     playerService.getMockCurrentPlayer(),
     puzzleService.getOwnedPuzzles(),
-    leaderboardService.getLeaderboard(),
+    leaderboardService.getMockLeaderboard(),
   ]);
 
   return <UiLabClient player={player} puzzles={puzzles} leaderboard={leaderboard.entries} />;

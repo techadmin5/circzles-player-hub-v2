@@ -39,7 +39,7 @@ export default async function Page() {
     puzzleService.getOwnedPuzzles(),
     missionService.getMissions(),
     activityService.getActivity(),
-    leaderboardService.getLeaderboard(),
+    leaderboardService.getMockLeaderboard(),
     seasonService.getCurrentSeason(),
   ]);
   const activeMission = missions.find((m) => m.status === "ACTIVE") ?? missions[0];
