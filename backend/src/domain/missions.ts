@@ -187,11 +187,11 @@ export class DrizzleMissionClaimRepository implements MissionClaimRepository {
       const points = synapseReward > 0 ? await creditPointsInTransaction(tx, { playerId: input.playerId, amount: synapseReward, reason: "Mission reward", sourceType: "MISSION_REWARD", sourceId: claim.missionClaimId, idempotencyKey: `mission.reward.sp:${input.playerId}:${mission.missionId}:${periodKey}`, metadata }) : undefined;
       const xp = xpReward > 0 ? await grantXpInTransaction(tx, { playerId: input.playerId, amount: xpReward, reason: "Mission reward", sourceType: "MISSION_REWARD", sourceId: claim.missionClaimId, idempotencyKey: `mission.reward.xp:${input.playerId}:${mission.missionId}:${periodKey}`, metadata }) : undefined;
       await tx.update(missionClaims).set({ pointTransactionId: points?.transactionId, xpTransactionId: xp?.transactionId }).where(eq(missionClaims.missionClaimId, claim.missionClaimId));
-      const [claimedProgress] = await tx.update(playerMissionProgress).set({ status: "CLAIMED", claimedAt: sql`now()`, updatedAt: sql`now()` }).where(eq(playerMissionProgress.playerMissionProgressId, progress.playerMissionProgressId)).returning();
+      const claimedAt = claim.createdAt;
+      const [claimedProgress] = await tx.update(playerMissionProgress).set({ status: "CLAIMED", claimedAt, updatedAt: sql`now()` }).where(eq(playerMissionProgress.playerMissionProgressId, progress.playerMissionProgressId)).returning();
       if (!claimedProgress) throw new AppError("MISSION_CLAIM_FAILED", "Mission progress could not be marked claimed.", 500);
-      const claimedAt = claimedProgress.claimedAt ?? new Date();
       await insertGameEventInTransaction(tx, { playerId: input.playerId, eventType: "mission.claimed", sourceType: "MISSION", sourceId: claim.missionClaimId, idempotencyKey: `mission.claimed:${input.playerId}:${mission.missionId}:${periodKey}`, payload: { missionId: mission.missionId, periodKey, synapseReward, xpReward, claimedAt: claimedAt.toISOString() } });
-      return claimResult(tx, { ...claim, pointTransactionId: points?.transactionId ?? null, xpTransactionId: xp?.transactionId ?? null, createdAt: claimedAt }, false);
+      return claimResult(tx, { ...claim, pointTransactionId: points?.transactionId ?? null, xpTransactionId: xp?.transactionId ?? null }, false);
     });
   }
 }
