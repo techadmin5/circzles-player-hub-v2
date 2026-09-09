@@ -11,7 +11,7 @@ import { AdminSubmissionService, DrizzleAdminSubmissionRepository } from "./doma
 import { DrizzleLeaderboardRepository, LeaderboardService } from "./domain/leaderboards.js";
 import { DrizzleSubmissionReviewRepository, SubmissionReviewService } from "./domain/submissionReviews.js";
 import { DrizzlePublicProfileRepository, PublicProfileService } from "./domain/publicProfiles.js";
-import { DrizzleMissionRepository, MissionEventProcessor, MissionProcessorRunner, PlayerMissionService } from "./domain/missions.js";
+import { DrizzleMissionClaimRepository, DrizzleMissionRepository, MissionClaimService, MissionEventProcessor, MissionProcessorRunner, PlayerMissionService } from "./domain/missions.js";
 
 const env = loadEnv();
 const { pool, db } = createDb(env.DATABASE_URL);
@@ -28,6 +28,7 @@ const publicProfiles = new PublicProfileService(new DrizzlePublicProfileReposito
 const missionRepository = new DrizzleMissionRepository(db);
 const missions = new PlayerMissionService(missionRepository);
 const missionProcessor = new MissionEventProcessor(missionRepository);
+const missionClaims = new MissionClaimService(new DrizzleMissionClaimRepository(db));
 const app = buildApp({
   env,
   identity,
@@ -40,6 +41,7 @@ const app = buildApp({
   submissionReviews,
   publicProfiles,
   missions,
+  missionClaims,
   checkDb: async () => {
     await pool.query("select 1");
   },

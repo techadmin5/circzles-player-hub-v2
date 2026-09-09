@@ -218,13 +218,15 @@ Until authoritative cosmetic systems exist, `avatarUrl` and `equippedFrame` are 
 
 ### POST /api/missions/:missionId/claim
 
-Phase 3F-C only; not implemented in Phase 3F-B.
+Phase 3F-C status: implemented and authenticated.
 
-Request: none beyond path and optional idempotency header.
+Request: a canonical mission UUID in the path, mandatory `Idempotency-Key` header (maximum 200 characters), and no authoritative body fields. An empty JSON object is tolerated, but player, period, progress, reward, XP, and Synapse Point values are rejected.
 
-Server authority: validates progress and grants rewards.
+Server authority: derives the player and current UTC period, validates that the mission is currently available, locks the current progress row, requires `CLAIMABLE`, and reads active persisted reward configuration. Only positive XP and Synapse Point rewards are supported in this phase.
 
-Transaction: mark claimed, grant point/XP/inventory/coupon rewards, emit events.
+Transaction: reserve one immutable claim, aggregate and snapshot configured rewards, grant point/XP ledgers with deterministic keys and source type `MISSION_REWARD`, mark progress `CLAIMED`, and emit `mission.claimed`. All writes commit or roll back together. Exact same-key retries return the original claim result; cross-mission key reuse conflicts, and a second logical claim for the same player/mission/period is rejected.
+
+Response: claim id, mission id, period key, claimed timestamp, awarded XP/SP totals, current game-state DTO, and an `idempotent` replay indicator. Internal player and ledger identifiers are not exposed.
 
 ### GET /api/missions
 

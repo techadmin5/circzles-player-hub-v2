@@ -20,4 +20,4 @@ The real backend server starts a lightweight configurable interval runner. In-pr
 
 Authenticated `GET /api/missions` derives the player from the session and returns currently active mission definitions, authoritative progress or zero-progress defaults, claimability, dates, and reward previews. It exposes no internal player identity. Mission claiming and reward grants remain deferred to Phase 3F-C.
 
-`backend/drizzle/0009_premium_ozymandias.sql` was generated and audited but not applied. It contains schema only and no production mission fixtures.
+`backend/drizzle/0009_premium_ozymandias.sql` contains schema only and no production mission fixtures. It was successfully applied to the Neon DEVELOPMENT database and verified read-only: `missions`, `mission_rules`, `mission_rewards`, and `player_mission_progress` are present. No production database action occurred.

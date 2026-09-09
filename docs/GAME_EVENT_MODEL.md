@@ -155,3 +155,9 @@ Current producers emit `puzzle.added`, submission lifecycle decisions, `personal
 The mission processor now consumes pending events transactionally with row locking and `SKIP LOCKED`. Eligibility and UTC daily/ISO-week periods use event creation time. Flat scalar payload equality is the only conditions language. Progress targets are snapshotted per period.
 
 When progress first reaches its target, the processor emits `mission.completed` once with mission, category, period, and completion time. No reward values are represented as granted. In this phase `processed_at` means the event completed mission evaluation; future activity and notification projectors need independent cursors.
+
+## Phase 3F-C Claims
+
+An authenticated claim is a separate server-authoritative action. The backend derives player and current period, locks claimable progress, reads active reward configuration, snapshots aggregated XP/SP, grants both ledgers, marks progress claimed, and emits `mission.claimed` in one transaction. Browser-supplied reward, progress, identity, and period values are never authoritative.
+
+The claim event uses deterministic key `mission.claimed:{playerId}:{missionId}:{periodKey}`. Reward ledgers use `mission.reward.sp:{playerId}:{missionId}:{periodKey}` and `mission.reward.xp:{playerId}:{missionId}:{periodKey}`, with source type `MISSION_REWARD`. Player-scoped claim idempotency and one claim per progress row/player/mission/period prevent duplicate grants under retries and concurrent requests.

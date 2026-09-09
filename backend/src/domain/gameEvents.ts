@@ -9,6 +9,7 @@ export const implementedGameEventTypes = [
   "submission.resubmission_required", "personal_best.improved", "points.earned",
   "xp.earned", "progression.level_up",
   "mission.completed",
+  "mission.claimed",
 ] as const;
 
 export type GameEventType = typeof implementedGameEventTypes[number];

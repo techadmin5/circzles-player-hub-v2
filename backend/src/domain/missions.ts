@@ -1,8 +1,9 @@
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import type { Database } from "../db/client.js";
-import { gameEvents, missionRewards, missionRules, missions, playerMissionProgress } from "../db/schema.js";
+import { gameEvents, missionClaims, missionRewards, missionRules, missions, playerMissionProgress } from "../db/schema.js";
 import { insertGameEventInTransaction } from "./gameEvents.js";
-import { validationFailed } from "./errors.js";
+import { AppError, validationFailed } from "./errors.js";
+import { creditPointsInTransaction, getPlayerGameStateInTransaction, grantXpInTransaction } from "./gameState.js";
 
 export const missionCategories = ["DAILY", "WEEKLY", "SPRINT", "SEASON", "EVENT", "ACHIEVEMENT"] as const;
 export const missionPeriodTypes = ["DAILY", "WEEKLY", "LIFETIME", "FIXED"] as const;
@@ -30,6 +31,26 @@ export interface PlayerMissionRepository { listForPlayer(playerId: string, now: 
 export class PlayerMissionService {
   constructor(private repo: PlayerMissionRepository) {}
   list(playerId: string, now = new Date()) { return this.repo.listForPlayer(playerId, now); }
+}
+
+export interface MissionClaimInput { playerId: string; missionId: string; idempotencyKey: string; now?: Date }
+export interface MissionClaimResult {
+  missionClaimId: string;
+  missionId: string;
+  periodKey: string;
+  status: "CLAIMED";
+  claimedAt: string;
+  idempotent: boolean;
+  awarded: { synapsePoints: number; xp: number };
+  playerState: { synapsePoints: number; xp: number; progressionLevel: number; rankName: string };
+}
+export interface MissionClaimRepository { claim(input: MissionClaimInput): Promise<MissionClaimResult> }
+export class MissionClaimService {
+  constructor(private repo: MissionClaimRepository) {}
+  claim(input: MissionClaimInput) {
+    if (!input.playerId || !input.missionId || !input.idempotencyKey?.trim() || input.idempotencyKey.trim().length > 200) throw validationFailed("Player, mission, and a valid Idempotency-Key are required.");
+    return this.repo.claim({ ...input, idempotencyKey: input.idempotencyKey.trim() });
+  }
 }
 
 export interface MissionEventProcessorRepository { processBatch(batchSize: number): Promise<number> }
@@ -129,6 +150,55 @@ export class DrizzleMissionRepository implements PlayerMissionRepository, Missio
     }
     return result;
   }
+}
+
+export class DrizzleMissionClaimRepository implements MissionClaimRepository {
+  constructor(private db: Database) {}
+  claim(input: MissionClaimInput) {
+    return this.db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${input.playerId}:${input.idempotencyKey}`}, 0))`);
+      const [replay] = await tx.select().from(missionClaims).where(and(eq(missionClaims.playerId, input.playerId), eq(missionClaims.idempotencyKey, input.idempotencyKey))).limit(1);
+      if (replay) {
+        if (replay.missionId !== input.missionId) throw new AppError("IDEMPOTENCY_CONFLICT", "Idempotency key was already used for a different mission claim.", 409);
+        return claimResult(tx, replay, true);
+      }
+
+      const now = input.now ?? new Date();
+      const [mission] = await tx.select().from(missions).where(eq(missions.missionId, input.missionId)).limit(1).for("update");
+      if (!mission || !isMissionVisibleAt(mission, now)) throw new AppError("MISSION_NOT_AVAILABLE", "Mission is not currently available.", 404);
+      validateMissionDefinition(mission);
+      const periodKey = periodKeyFor(mission.periodType as MissionPeriodType, now, mission.missionId);
+      const [progress] = await tx.select().from(playerMissionProgress).where(and(eq(playerMissionProgress.playerId, input.playerId), eq(playerMissionProgress.missionId, mission.missionId), eq(playerMissionProgress.periodKey, periodKey))).limit(1).for("update");
+      if (!progress || progress.status === "IN_PROGRESS") throw new AppError("MISSION_NOT_CLAIMABLE", "Mission is not claimable.", 409);
+      if (progress.status === "CLAIMED") throw new AppError("MISSION_ALREADY_CLAIMED", "Mission reward was already claimed.", 409);
+
+      const rewards = await tx.select().from(missionRewards).where(and(eq(missionRewards.missionId, mission.missionId), eq(missionRewards.active, true))).orderBy(asc(missionRewards.displayOrder));
+      let synapseReward = 0; let xpReward = 0;
+      for (const reward of rewards) {
+        if (!missionRewardTypes.includes(reward.rewardType as typeof missionRewardTypes[number]) || !Number.isInteger(reward.amount) || reward.amount <= 0) throw new AppError("MISSION_REWARD_CONFIG_INVALID", "Mission reward configuration is invalid.", 500);
+        if (reward.rewardType === "SYNAPSE_POINTS") synapseReward += reward.amount; else xpReward += reward.amount;
+      }
+      if (synapseReward === 0 && xpReward === 0) throw new AppError("MISSION_REWARD_CONFIG_INVALID", "Mission has no active rewards.", 500);
+      if (!Number.isSafeInteger(synapseReward) || !Number.isSafeInteger(xpReward) || synapseReward > 2_147_483_647 || xpReward > 2_147_483_647) throw new AppError("MISSION_REWARD_CONFIG_INVALID", "Mission reward total exceeds supported limits.", 500);
+
+      const [claim] = await tx.insert(missionClaims).values({ playerId: input.playerId, missionId: mission.missionId, playerMissionProgressId: progress.playerMissionProgressId, periodKey, synapseRewardSnapshot: synapseReward, xpRewardSnapshot: xpReward, idempotencyKey: input.idempotencyKey }).returning();
+      if (!claim) throw new AppError("MISSION_CLAIM_FAILED", "Mission claim could not be recorded.", 500);
+      const metadata = { missionId: mission.missionId, periodKey, missionClaimId: claim.missionClaimId };
+      const points = synapseReward > 0 ? await creditPointsInTransaction(tx, { playerId: input.playerId, amount: synapseReward, reason: "Mission reward", sourceType: "MISSION_REWARD", sourceId: claim.missionClaimId, idempotencyKey: `mission.reward.sp:${input.playerId}:${mission.missionId}:${periodKey}`, metadata }) : undefined;
+      const xp = xpReward > 0 ? await grantXpInTransaction(tx, { playerId: input.playerId, amount: xpReward, reason: "Mission reward", sourceType: "MISSION_REWARD", sourceId: claim.missionClaimId, idempotencyKey: `mission.reward.xp:${input.playerId}:${mission.missionId}:${periodKey}`, metadata }) : undefined;
+      await tx.update(missionClaims).set({ pointTransactionId: points?.transactionId, xpTransactionId: xp?.transactionId }).where(eq(missionClaims.missionClaimId, claim.missionClaimId));
+      const [claimedProgress] = await tx.update(playerMissionProgress).set({ status: "CLAIMED", claimedAt: sql`now()`, updatedAt: sql`now()` }).where(eq(playerMissionProgress.playerMissionProgressId, progress.playerMissionProgressId)).returning();
+      if (!claimedProgress) throw new AppError("MISSION_CLAIM_FAILED", "Mission progress could not be marked claimed.", 500);
+      const claimedAt = claimedProgress.claimedAt ?? new Date();
+      await insertGameEventInTransaction(tx, { playerId: input.playerId, eventType: "mission.claimed", sourceType: "MISSION", sourceId: claim.missionClaimId, idempotencyKey: `mission.claimed:${input.playerId}:${mission.missionId}:${periodKey}`, payload: { missionId: mission.missionId, periodKey, synapseReward, xpReward, claimedAt: claimedAt.toISOString() } });
+      return claimResult(tx, { ...claim, pointTransactionId: points?.transactionId ?? null, xpTransactionId: xp?.transactionId ?? null, createdAt: claimedAt }, false);
+    });
+  }
+}
+
+async function claimResult(tx: Parameters<Parameters<Database["transaction"]>[0]>[0], claim: typeof missionClaims.$inferSelect, idempotent: boolean): Promise<MissionClaimResult> {
+  const state = await getPlayerGameStateInTransaction(tx, claim.playerId);
+  return { missionClaimId: claim.missionClaimId, missionId: claim.missionId, periodKey: claim.periodKey, status: "CLAIMED", claimedAt: claim.createdAt.toISOString(), idempotent, awarded: { synapsePoints: claim.synapseRewardSnapshot, xp: claim.xpRewardSnapshot }, playerState: { synapsePoints: state.synapsePoints, xp: state.totalXp, progressionLevel: state.progressionLevel, rankName: state.rankName } };
 }
 
 export function periodKeyFor(periodType: MissionPeriodType, at: Date, missionId: string) {

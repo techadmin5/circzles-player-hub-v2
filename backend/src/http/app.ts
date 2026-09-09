@@ -15,7 +15,7 @@ import type { AdminSubmissionService } from "../domain/adminSubmissions.js";
 import type { LeaderboardService } from "../domain/leaderboards.js";
 import type { SubmissionReviewService } from "../domain/submissionReviews.js";
 import type { PublicProfileService } from "../domain/publicProfiles.js";
-import type { PlayerMissionService } from "../domain/missions.js";
+import type { MissionClaimService, PlayerMissionService } from "../domain/missions.js";
 
 export interface AppDeps {
   env: Env;
@@ -29,6 +29,7 @@ export interface AppDeps {
   submissionReviews: SubmissionReviewService;
   publicProfiles: PublicProfileService;
   missions: PlayerMissionService;
+  missionClaims: MissionClaimService;
   checkDb: () => Promise<void>;
 }
 
@@ -71,7 +72,7 @@ const reviewSubmissionBodySchema = z.object({
   reviewNote: z.string().max(2000).optional(),
 }).strict();
 
-export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, checkDb }: AppDeps) {
+export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, checkDb }: AppDeps) {
   const app = Fastify({
     logger: env.NODE_ENV === "test" ? false : {
       level: "info",
@@ -172,6 +173,17 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
   app.get("/api/missions", async (request, reply) => {
     const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
     return reply.send({ missions: await missions.list(player.internalId) });
+  });
+
+  app.post("/api/missions/:missionId/claim", async (request, reply) => {
+    const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+    const params = z.object({ missionId: z.string().uuid() }).safeParse(request.params);
+    if (!params.success) throw validationFailed("Invalid mission id.", params.error.flatten());
+    if (request.body && (typeof request.body !== "object" || Array.isArray(request.body) || Object.keys(request.body).length > 0)) throw validationFailed("Mission claim does not accept request data.");
+    const header = request.headers["idempotency-key"];
+    const idempotencyKey = typeof header === "string" ? header.trim() : "";
+    if (!idempotencyKey || idempotencyKey.length > 200) throw validationFailed("A valid Idempotency-Key header is required.");
+    return reply.send(await missionClaims.claim({ playerId: player.internalId, missionId: params.data.missionId, idempotencyKey }));
   });
 
   app.get("/api/leaderboards", async (request, reply) => {

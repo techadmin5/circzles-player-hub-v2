@@ -321,6 +321,16 @@ Columns: `player_mission_progress_id` PK, `player_id` FK, `mission_id` FK, `peri
 
 Constraints: unique `(player_id, mission_id, period_key)`.
 
+### mission_claims
+
+Purpose: immutable mission reward-claim snapshot and database idempotency guard.
+
+Columns: `mission_claim_id` PK, `player_id` FK, `mission_id` FK, `player_mission_progress_id` FK, `period_key`, `synapse_reward_snapshot`, `xp_reward_snapshot`, nullable `point_transaction_id` FK, nullable `xp_transaction_id` FK, `idempotency_key`, `created_at`.
+
+Constraints: unique progress row, unique `(player_id, mission_id, period_key)`, unique `(player_id, idempotency_key)`, non-negative reward snapshots, and restrictive deletion for every FK. Nullable ledger references support claims containing only one reward type.
+
+Indexes: `(player_id, created_at)` for player claim history.
+
 ### wheel_configurations
 
 Purpose: active wheel setup.
@@ -467,3 +477,9 @@ The table enforces `UNIQUE(player_id, idempotency_key)` and indexes `(player_id,
 - `player_mission_progress` stores player/mission/period progress, immutable target snapshot, status, completion/claim timestamps, and last event reference.
 
 Progress is unique on `(player_id, mission_id, period_key)`. Historical foreign keys are restrictive, counts are bounded by the target snapshot, and Phase 3F-B produces only `IN_PROGRESS` or `CLAIMABLE`.
+
+## Phase 3F-C Mission Claims
+
+`mission_claims` records one immutable reward snapshot per progress row and player/mission/period. Claim processing locks current progress, validates active persisted rewards, writes deterministic XP/SP ledgers, changes progress to `CLAIMED`, and appends `mission.claimed` in one transaction. The player-scoped idempotency key supports exact replay without duplicate grants; uniqueness also prevents concurrent different-key claims from rewarding the same period twice.
+
+Migration `0010_medical_gideon.sql` contains schema only, with no drops or seed data. It was generated and audited but was not applied.

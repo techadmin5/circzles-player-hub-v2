@@ -174,6 +174,8 @@ Phase 3F-A applies this rule to the internal append-only `game_events` stream. E
 
 Phase 3F-B adds a data-driven mission evaluator and per-period player progress. A lightweight server-owned runner processes locked event batches without overlapping local ticks. Evaluation, capped progress, completion-event emission, and source-event acknowledgement share one transaction. Mission reads are authenticated; claims and reward grants remain separate Phase 3F-C authority.
 
+Phase 3F-C adds authenticated mission claiming without adding browser reward authority. The claim transaction derives the current period, locks the player's progress, validates active persisted XP/SP rewards, reserves an immutable claim snapshot, writes deterministic reward ledgers, marks progress claimed, and emits `mission.claimed`. Player-scoped request idempotency and database uniqueness make retries replayable and concurrent claims single-grant. Frontend claim controls remain deferred.
+
 ## Frontend Contract Recommendations
 
 No immediate frontend changes are required before backend implementation.

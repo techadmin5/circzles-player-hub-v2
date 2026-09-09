@@ -10,7 +10,7 @@ import type { LeaderboardCatalogDto, LeaderboardDto, LeaderboardRepository } fro
 import type { SubmissionReviewInput, SubmissionReviewRepository, SubmissionReviewResult } from "../src/domain/submissionReviews.js";
 import type { PublicPlayerProfileDto, PublicProfileRepository } from "../src/domain/publicProfiles.js";
 import type { GameEventInput } from "../src/domain/gameEvents.js";
-import type { MissionDto, PlayerMissionRepository } from "../src/domain/missions.js";
+import type { MissionClaimInput, MissionClaimRepository, MissionClaimResult, MissionDto, PlayerMissionRepository } from "../src/domain/missions.js";
 
 interface StoredAccount {
   userId: string;
@@ -212,6 +212,16 @@ export class FakePublicProfileRepository implements PublicProfileRepository {
 export class FakePlayerMissionRepository implements PlayerMissionRepository {
   missions = new Map<string, MissionDto[]>();
   async listForPlayer(playerId: string) { return this.missions.get(playerId) ?? []; }
+}
+
+export class FakeMissionClaimRepository implements MissionClaimRepository {
+  calls: MissionClaimInput[] = [];
+  result?: MissionClaimResult;
+  async claim(input: MissionClaimInput) {
+    this.calls.push(input);
+    if (!this.result) throw new AppError("MISSION_NOT_CLAIMABLE", "Mission is not claimable.", 409);
+    return this.result;
+  }
 }
 
 export class FakeSubmissionReviewRepository implements SubmissionReviewRepository {

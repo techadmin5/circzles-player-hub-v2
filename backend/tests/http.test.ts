@@ -9,8 +9,8 @@ import { AdminSubmissionService, type AdminSubmissionDto } from "../src/domain/a
 import { LeaderboardService } from "../src/domain/leaderboards.js";
 import { SubmissionReviewService } from "../src/domain/submissionReviews.js";
 import { PublicProfileService } from "../src/domain/publicProfiles.js";
-import { PlayerMissionService } from "../src/domain/missions.js";
-import { FakeAdminAuthorizationRepository, FakeAdminSubmissionRepository, FakeGameStateRepository, FakeIdentityRepository, FakeLeaderboardRepository, FakePlayerMissionRepository, FakePublicProfileRepository, FakePuzzleRepository, FakeSubmissionRepository, FakeSubmissionReviewRepository, FakeVideoStorage } from "./fakes.js";
+import { MissionClaimService, PlayerMissionService } from "../src/domain/missions.js";
+import { FakeAdminAuthorizationRepository, FakeAdminSubmissionRepository, FakeGameStateRepository, FakeIdentityRepository, FakeLeaderboardRepository, FakeMissionClaimRepository, FakePlayerMissionRepository, FakePublicProfileRepository, FakePuzzleRepository, FakeSubmissionRepository, FakeSubmissionReviewRepository, FakeVideoStorage } from "./fakes.js";
 import type { Env } from "../src/config/env.js";
 
 function env(overrides: Partial<Env> = {}): Env {
@@ -52,8 +52,10 @@ async function appWithFakes(overrides: Partial<Env> = {}) {
   const publicProfiles = new PublicProfileService(publicProfileRepo);
   const missionRepo = new FakePlayerMissionRepository();
   const missions = new PlayerMissionService(missionRepo);
-  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, checkDb: async () => {} });
-  return { app, gameRepo, puzzleRepo, submissionRepo, videoStorage, adminAuthRepo, adminSubmissionRepo, leaderboardRepo, reviewRepo, publicProfileRepo, missionRepo, testEnv };
+  const missionClaimRepo = new FakeMissionClaimRepository();
+  const missionClaims = new MissionClaimService(missionClaimRepo);
+  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, checkDb: async () => {} });
+  return { app, gameRepo, puzzleRepo, submissionRepo, videoStorage, adminAuthRepo, adminSubmissionRepo, leaderboardRepo, reviewRepo, publicProfileRepo, missionRepo, missionClaimRepo, testEnv };
 }
 
 async function login(app: Awaited<ReturnType<typeof appWithFakes>>["app"]) {
@@ -153,6 +155,7 @@ describe("http auth poc", () => {
       submissionReviews: new SubmissionReviewService(new FakeSubmissionReviewRepository()),
       publicProfiles: new PublicProfileService(new FakePublicProfileRepository()),
       missions: new PlayerMissionService(new FakePlayerMissionRepository()),
+      missionClaims: new MissionClaimService(new FakeMissionClaimRepository()),
       checkDb: async () => { checked = true; },
     });
     const res = await app.inject({ method: "GET", url: "/health" });
@@ -565,6 +568,24 @@ describe("missions HTTP API", () => {
     expect(response.statusCode).toBe(200); expect(response.json().missions[0]).toMatchObject({ status: "CLAIMABLE", progress: { current: 3, target: 3 }, claimable: true });
     const serialized = JSON.stringify(response.json()).toLowerCase();
     for (const field of ["playerid", "userid", "email", "wix", "session", "admin"]) expect(serialized).not.toContain(field);
+  });
+
+  it("secures mission claims and rejects browser authority", async () => {
+    const { app, missionClaimRepo } = await appWithFakes(); const missionId = "70000000-0000-4000-8000-000000000001";
+    expect((await app.inject({ method: "POST", url: `/api/missions/${missionId}/claim`, headers: { "idempotency-key": "claim-1" } })).statusCode).toBe(401);
+    const cookie = await login(app);
+    expect((await app.inject({ method: "POST", url: "/api/missions/not-a-uuid/claim", headers: { cookie, "idempotency-key": "claim-1" } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "POST", url: `/api/missions/${missionId}/claim`, headers: { cookie } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "POST", url: `/api/missions/${missionId}/claim`, headers: { cookie, "idempotency-key": "claim-1" }, payload: { playerId: "other", xp: 999, periodKey: "fake" } })).statusCode).toBe(400);
+    missionClaimRepo.result = { missionClaimId: "claim-1", missionId, periodKey: "2026-09-09", status: "CLAIMED", claimedAt: "2026-09-09T12:00:00.000Z", idempotent: false, awarded: { synapsePoints: 250, xp: 500 }, playerState: { synapsePoints: 250, xp: 500, progressionLevel: 1, rankName: "Peasant" } };
+    const response = await app.inject({ method: "POST", url: `/api/missions/${missionId}/claim`, headers: { cookie, "idempotency-key": "claim-1" }, payload: {} });
+    expect(response.statusCode).toBe(200); expect(response.json()).toMatchObject({ missionId, status: "CLAIMED", awarded: { synapsePoints: 250, xp: 500 } }); expect(missionClaimRepo.calls[0].playerId).toBe("player-1");
+  });
+
+  it("returns CLAIMED and non-claimable after claim", async () => {
+    const { app, missionRepo } = await appWithFakes(); const cookie = await login(app);
+    missionRepo.missions.set("player-1", [{ missionId: "mission-1", title: "Done", description: "Done.", category: "DAILY", periodType: "DAILY", periodKey: "2026-09-09", status: "CLAIMED", progress: { current: 1, target: 1 }, claimable: false, startsAt: null, endsAt: null, rewards: [{ type: "XP", amount: 500, label: "500 XP" }] }]);
+    const body = (await app.inject({ method: "GET", url: "/api/missions", headers: { cookie } })).json(); expect(body.missions[0]).toMatchObject({ status: "CLAIMED", claimable: false });
   });
 
   it("returns no-progress and configured reward previews", async () => {

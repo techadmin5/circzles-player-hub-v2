@@ -440,3 +440,24 @@ export const playerMissionProgress = pgTable("player_mission_progress", {
   targetCountCheck: check("player_mission_progress_target_count_snapshot_check", sql`${table.targetCountSnapshot} > 0`),
   statusCheck: check("player_mission_progress_status_check", sql`${table.status} in ('IN_PROGRESS', 'CLAIMABLE', 'CLAIMED')`),
 }));
+
+export const missionClaims = pgTable("mission_claims", {
+  missionClaimId: uuid("mission_claim_id").primaryKey().defaultRandom(),
+  playerId: uuid("player_id").notNull().references(() => players.playerId, { onDelete: "restrict" }),
+  missionId: uuid("mission_id").notNull().references(() => missions.missionId, { onDelete: "restrict" }),
+  playerMissionProgressId: uuid("player_mission_progress_id").notNull().references(() => playerMissionProgress.playerMissionProgressId, { onDelete: "restrict" }),
+  periodKey: text("period_key").notNull(),
+  synapseRewardSnapshot: integer("synapse_reward_snapshot").notNull().default(0),
+  xpRewardSnapshot: integer("xp_reward_snapshot").notNull().default(0),
+  pointTransactionId: uuid("point_transaction_id").references(() => pointTransactions.transactionId, { onDelete: "restrict" }),
+  xpTransactionId: uuid("xp_transaction_id").references(() => xpTransactions.xpTransactionId, { onDelete: "restrict" }),
+  idempotencyKey: text("idempotency_key").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  progressUnique: uniqueIndex("mission_claims_player_mission_progress_id_unique").on(table.playerMissionProgressId),
+  playerMissionPeriodUnique: uniqueIndex("mission_claims_player_mission_period_unique").on(table.playerId, table.missionId, table.periodKey),
+  playerIdempotencyUnique: uniqueIndex("mission_claims_player_id_idempotency_key_unique").on(table.playerId, table.idempotencyKey),
+  playerCreatedIndex: index("mission_claims_player_id_created_at_idx").on(table.playerId, table.createdAt),
+  synapseRewardCheck: check("mission_claims_synapse_reward_snapshot_check", sql`${table.synapseRewardSnapshot} >= 0`),
+  xpRewardCheck: check("mission_claims_xp_reward_snapshot_check", sql`${table.xpRewardSnapshot} >= 0`),
+}));

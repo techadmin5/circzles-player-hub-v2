@@ -233,6 +233,11 @@ async function changePointsInTransaction(tx: GameStateTransaction, input: PointC
   return { transactionId: transaction.transactionId, idempotent: false, balanceAfter };
 }
 
+export async function getPlayerGameStateInTransaction(tx: GameStateTransaction, playerId: string) {
+  await ensurePlayerGameStateInTransaction(tx, playerId);
+  return readGameState(tx, playerId);
+}
+
 async function ensurePlayerGameStateInTransaction(tx: GameStateTransaction, playerId: string) {
   const initial = await firstActiveLevel(tx);
   await tx.insert(wallets).values({ playerId }).onConflictDoNothing({ target: wallets.playerId });
