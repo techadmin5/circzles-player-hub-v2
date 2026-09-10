@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, RefreshCw } from "lucide-react";
 import { LoadingState } from "@/components/ui/kit";
-import type { DataMode } from "@/config/dataMode";
+import { logPublicFrontendConfig, type DataMode } from "@/config/dataMode";
 import { playSound } from "@/hooks/useSound";
 import { ApiClientError } from "@/lib/apiClient";
 import { missionService } from "@/services";
@@ -22,6 +22,7 @@ export function MissionExplorer({ mode }: { mode: DataMode }) {
   const claimKeys = useRef(new Map<string, string>());
 
   useEffect(() => {
+    logPublicFrontendConfig();
     const controller = new AbortController();
     setLoading(true);
     setLoadError(null);
@@ -71,10 +72,15 @@ export function MissionExplorer({ mode }: { mode: DataMode }) {
     }
   }, [mode]);
 
-  if (loading) return <LoadingState rows={4} />;
-  if (loadError) return <RequestError message={loadError} onRetry={() => setAttempt((value) => value + 1)} />;
-
-  return <div data-data-mode={mode}><MissionBoard missions={missions} busyMissionIds={busyMissionIds} claimErrors={claimErrors} claimResults={claimResults} onClaim={claimMission} /></div>;
+  return (
+    <div data-data-mode={mode}>
+      {loading
+        ? <LoadingState rows={4} />
+        : loadError
+          ? <RequestError message={loadError} onRetry={() => setAttempt((value) => value + 1)} />
+          : <MissionBoard missions={missions} busyMissionIds={busyMissionIds} claimErrors={claimErrors} claimResults={claimResults} onClaim={claimMission} />}
+    </div>
+  );
 }
 
 function RequestError({ message, onRetry }: { message: string; onRetry: () => void }) {
