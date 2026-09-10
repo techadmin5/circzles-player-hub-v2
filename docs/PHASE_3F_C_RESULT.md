@@ -14,6 +14,8 @@ Claim keys are player-scoped. An exact same-key retry returns the existing resul
 
 ## Migration And Verification
 
-Migration `backend/drizzle/0010_medical_gideon.sql` creates `mission_claims`, restrictive foreign keys, non-negative reward checks, uniqueness guards, and the player claim-history index. It contains no drops and no seed data. It was generated and audited but not applied.
+Migration `backend/drizzle/0010_medical_gideon.sql` creates `mission_claims`, restrictive foreign keys, non-negative reward checks, uniqueness guards, and the player claim-history index. It contains no drops and no seed data. It was successfully applied to Neon DEVELOPMENT.
 
-The preceding `0009_premium_ozymandias.sql` migration was successfully applied to Neon DEVELOPMENT and verified read-only before this phase. No production database action occurred. Phase 3F-C automated tests use in-memory/fake repositories and make no external calls. Frontend claim UI remains deferred.
+The preceding `0009_premium_ozymandias.sql` migration was successfully applied to Neon DEVELOPMENT and verified read-only before this phase. No production database action occurred. Phase 3F-C automated tests use in-memory/fake repositories and make no external calls.
+
+Development runtime verification used player `CZ-8F42KD` and a temporary claimable mission. The player moved from 722 XP / 361 SP to 723 XP / 362 SP. The first claim returned `idempotent=false`; exact replay returned `idempotent=true` with the same `missionClaimId` and canonical `claimedAt`. The temporary mission, rule, and rewards were disabled afterward. Immutable claim, ledger, and audit history intentionally remains. Production and Wix were untouched.

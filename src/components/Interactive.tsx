@@ -40,7 +40,7 @@ export function AddPuzzleForm() {
 
 export function ClaimMissionButton({ missionId }: { missionId: string }) {
   const [label, setLabel] = useState("Claim");
-  return <button className="btn btn-primary" onClick={async () => { setLabel("Claiming"); await missionService.claimMission(missionId); setLabel("Claimed"); }}>{label}</button>;
+  return <button className="btn btn-primary" onClick={async () => { setLabel("Claiming"); await missionService.claimMission(missionId, crypto.randomUUID()); setLabel("Claimed"); }}>{label}</button>;
 }
 
 export function PurchaseButton({ itemId }: { itemId: string }) {

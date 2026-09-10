@@ -1,5 +1,5 @@
 import { activity, coupons, currentPlayer, friendRequests, inventory, leaderboard, missions, notifications, playerPuzzles, players, puzzles, season, storeItems, submissions } from "@/mocks/data";
-import type { LeaderboardCatalog, LeaderboardResponse, PublicPlayerProfile, RewardWheelResult } from "@/types";
+import type { LeaderboardCatalog, LeaderboardResponse, MissionClaimResult, PublicPlayerProfile, RewardWheelResult } from "@/types";
 import { dataMode } from "@/config/dataMode";
 import { apiClient, ApiClientError } from "@/lib/apiClient";
 import { mockDelay } from "./mockRuntime";
@@ -91,7 +91,30 @@ export const leaderboardService = {
   async getLeaderboard(puzzleId: string, signal?: AbortSignal) { if (canUseBrowserApi()) return apiClient.getLeaderboard(puzzleId, signal); await mockDelay(); return mockLeaderboardResponse(puzzleId); },
   async getMockLeaderboard() { await mockDelay(); return { entries: leaderboard, yourRank: 18 }; },
 };
-export const missionService = { async getMissions() { await mockDelay(); return missions; }, async claimMission(missionId: string) { await mockDelay(); return { missionId, status: "CLAIMED" as const, awarded: missions[0].rewards }; } };
+export const missionService = {
+  async getMissions(signal?: AbortSignal) {
+    if (canUseBrowserApi()) return apiClient.getMissions(signal);
+    await mockDelay();
+    return missions;
+  },
+  async claimMission(missionId: string, idempotencyKey: string): Promise<MissionClaimResult> {
+    if (canUseBrowserApi()) return apiClient.claimMission(missionId, idempotencyKey);
+    await mockDelay();
+    const mission = missions.find((item) => item.missionId === missionId);
+    const synapsePoints = mission?.rewards.filter((reward) => reward.type === "Synapse Points").reduce((total, reward) => total + (reward.value ?? 0), 0) ?? 0;
+    const xp = mission?.rewards.filter((reward) => reward.type === "XP").reduce((total, reward) => total + (reward.value ?? 0), 0) ?? 0;
+    return {
+      missionClaimId: `mock-${missionId}`,
+      missionId,
+      periodKey: mission?.periodKey ?? "mock",
+      status: "CLAIMED",
+      claimedAt: new Date().toISOString(),
+      idempotent: false,
+      awarded: { synapsePoints, xp },
+      playerState: { synapsePoints: currentPlayer.synapsePoints + synapsePoints, xp: currentPlayer.xp + xp, progressionLevel: currentPlayer.progressionLevel, rankName: currentPlayer.rank },
+    };
+  },
+};
 export const storeService = { async getItems() { await mockDelay(); return storeItems; }, async purchaseItem(itemId: string) { await mockDelay(); return { itemId, resultingBalance: currentPlayer.synapsePoints - 3000, state: "OWNED" as const }; } };
 export const inventoryService = { async getInventory() { await mockDelay(); return inventory; }, async equipItem(itemId: string) { await mockDelay(); return { itemId, state: "Equipped" as const }; } };
 export const couponService = { async getCoupons() { await mockDelay(); return coupons; } };

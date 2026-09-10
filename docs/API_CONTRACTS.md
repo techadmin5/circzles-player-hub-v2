@@ -228,9 +228,13 @@ Transaction: reserve one immutable claim, aggregate and snapshot configured rewa
 
 Response: claim id, mission id, period key, claimed timestamp, awarded XP/SP totals, current game-state DTO, and an `idempotent` replay indicator. Internal player and ledger identifiers are not exposed.
 
+Phase 3F-D frontend integration calls this endpoint only from the browser. It generates one UUID idempotency key for a logical claim and retains that key for retries while the claim remains unresolved. The browser sends an empty object and never supplies player identity, period, progress, or reward values. Successful results retain authoritative awarded totals and player state for the deferred Phase 3F-E feedback system.
+
 ### GET /api/missions
 
 Phase 3F-B status: implemented and authenticated. The backend derives the player from the session and returns `{ missions: [...] }` containing current active mission identity, category, explicit period type/key, authoritative or zero-default progress, `claimable`, optional dates, and XP/Synapse Point reward previews. It never accepts or exposes an internal player ID. Reward previews are configuration only; no claim or grant occurs.
+
+Phase 3F-D frontend status: API mode loads this endpoint in a client explorer with loading, retryable error, and valid empty states; it never falls back to mock missions after an API failure. Mock mode continues using local demo missions. Remaining-time labels are derived from `endsAt` for display only and do not determine eligibility.
 
 ### POST /api/store/items/:itemId/purchase
 

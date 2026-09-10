@@ -2,7 +2,10 @@ export type RankName = "Peasant" | "Farmer" | "Squire" | "Knight" | "Apprentice"
 export type PuzzleStatus = "OWNED" | "READY_TO_SOLVE" | "SUBMISSION_PENDING" | "APPROVED" | "REJECTED" | "COMPLETED";
 export type SubmissionStatus = "DRAFT" | "UPLOADING" | "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "RESUBMISSION_REQUIRED";
 export type MissionCategory = "DAILY" | "WEEKLY" | "SPRINT" | "SEASON" | "EVENT" | "ACHIEVEMENT";
-export type MissionStatus = "LOCKED" | "ACTIVE" | "COMPLETED" | "CLAIMABLE" | "CLAIMED" | "EXPIRED";
+export type ApiMissionStatus = "IN_PROGRESS" | "CLAIMABLE" | "CLAIMED";
+export type MissionStatus = "LOCKED" | "ACTIVE" | "COMPLETED" | "EXPIRED" | ApiMissionStatus;
+export type MissionPeriodType = "DAILY" | "WEEKLY" | "LIFETIME" | "FIXED";
+export type ApiMissionRewardType = "SYNAPSE_POINTS" | "XP";
 export type RewardType = "Synapse Points" | "XP" | "Badge" | "Frame" | "Coupon" | "Item";
 export type StoreState = "BUY" | "OWNED" | "EQUIPPED" | "SOLD_OUT" | "COMING_SOON";
 export type Rarity = "common" | "rare" | "epic" | "legendary";
@@ -155,10 +158,36 @@ export interface Mission {
   status: MissionStatus;
   progress: MissionProgress;
   rewards: MissionReward[];
-  startAt: string;
-  endAt: string;
+  periodType?: MissionPeriodType;
+  periodKey?: string;
+  startAt: string | null;
+  endAt: string | null;
   timeRemaining: string;
   claimable: boolean;
+}
+export interface ApiMissionDto {
+  missionId: string;
+  title: string;
+  description: string;
+  category: MissionCategory;
+  periodType: MissionPeriodType;
+  periodKey: string;
+  status: ApiMissionStatus;
+  progress: MissionProgress;
+  claimable: boolean;
+  startsAt: string | null;
+  endsAt: string | null;
+  rewards: Array<{ type: ApiMissionRewardType; amount: number; label: string }>;
+}
+export interface MissionClaimResult {
+  missionClaimId: string;
+  missionId: string;
+  periodKey: string;
+  status: "CLAIMED";
+  claimedAt: string;
+  idempotent: boolean;
+  awarded: { synapsePoints: number; xp: number };
+  playerState: { synapsePoints: number; xp: number; progressionLevel: number; rankName: string };
 }
 export interface Friend { player: Player; since: string }
 export interface FriendRequest { id: string; player: Player; direction: "INCOMING" | "OUTGOING"; createdAt: string }

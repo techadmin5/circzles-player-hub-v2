@@ -1,4 +1,4 @@
-import type { LeaderboardCatalog, LeaderboardResponse, PlayerProfile, PlayerPuzzle, PublicPlayerProfile, Puzzle, SignedVideoUpload, Submission } from "@/types";
+import type { ApiMissionDto, LeaderboardCatalog, LeaderboardResponse, Mission, MissionClaimResult, PlayerProfile, PlayerPuzzle, PublicPlayerProfile, Puzzle, SignedVideoUpload, Submission } from "@/types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 const phase3aDefaultStats: PlayerProfile["stats"] = {
@@ -61,6 +61,40 @@ function adaptCatalogPuzzle(puzzle: Puzzle): PlayerPuzzle {
   };
 }
 
+export function adaptApiMission(mission: ApiMissionDto, now = new Date()): Mission {
+  return {
+    missionId: mission.missionId,
+    title: mission.title,
+    description: mission.description,
+    category: mission.category,
+    periodType: mission.periodType,
+    periodKey: mission.periodKey,
+    status: mission.status,
+    progress: mission.progress,
+    claimable: mission.claimable,
+    startAt: mission.startsAt,
+    endAt: mission.endsAt,
+    timeRemaining: missionTimeRemaining(mission.endsAt, now),
+    rewards: mission.rewards.map((reward) => ({
+      type: reward.type === "SYNAPSE_POINTS" ? "Synapse Points" : "XP",
+      label: reward.label,
+      value: reward.amount,
+    })),
+  };
+}
+
+function missionTimeRemaining(endsAt: string | null, now: Date) {
+  if (!endsAt) return "No expiry";
+  const remainingMs = new Date(endsAt).getTime() - now.getTime();
+  if (!Number.isFinite(remainingMs) || remainingMs <= 0) return "Ended";
+  const minutes = Math.ceil(remainingMs / 60_000);
+  if (minutes < 60) return `${minutes}m remaining`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ${minutes % 60}m remaining`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ${hours % 24}h remaining`;
+}
+
 export const apiClient = {
   getMe: async () => adaptPhase3aPlayer(await request<Partial<PlayerProfile> & Pick<PlayerProfile, "internalId" | "publicPlayerId" | "displayName">>("/api/me")),
   devLogin: async () => adaptPhase3aPlayer(await request<Partial<PlayerProfile> & Pick<PlayerProfile, "internalId" | "publicPlayerId" | "displayName">>("/api/dev/login", {
@@ -81,6 +115,12 @@ export const apiClient = {
   getLeaderboardCatalog: async (signal?: AbortSignal) => request<LeaderboardCatalog>("/api/leaderboards/catalog", { signal }),
   getLeaderboard: async (puzzleId: string, signal?: AbortSignal) => request<LeaderboardResponse>(`/api/leaderboards?puzzleId=${encodeURIComponent(puzzleId)}`, { signal }),
   getPublicPlayerProfile: async (publicPlayerId: string, signal?: AbortSignal) => request<PublicPlayerProfile>(`/api/players/${encodeURIComponent(publicPlayerId)}/public-profile`, { signal }),
+  getMissions: async (signal?: AbortSignal) => (await request<{ missions: ApiMissionDto[] }>("/api/missions", { signal })).missions.map((mission) => adaptApiMission(mission)),
+  claimMission: async (missionId: string, idempotencyKey: string) => request<MissionClaimResult>(`/api/missions/${encodeURIComponent(missionId)}/claim`, {
+    method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey },
+    body: JSON.stringify({}),
+  }),
 };
 
 export function uploadVideoDirectly(signed: SignedVideoUpload, file: File, onProgress: (percent: number) => void) {
