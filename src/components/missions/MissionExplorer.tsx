@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, RefreshCw } from "lucide-react";
 import { LoadingState } from "@/components/ui/kit";
-import { logPublicFrontendConfig, type DataMode } from "@/config/dataMode";
+import type { DataMode } from "@/config/dataMode";
 import { playSound } from "@/hooks/useSound";
 import { ApiClientError } from "@/lib/apiClient";
 import { missionService } from "@/services";
@@ -22,7 +22,6 @@ export function MissionExplorer({ mode }: { mode: DataMode }) {
   const claimKeys = useRef(new Map<string, string>());
 
   useEffect(() => {
-    logPublicFrontendConfig();
     const controller = new AbortController();
     setLoading(true);
     setLoadError(null);

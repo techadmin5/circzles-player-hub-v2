@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, Manrope, Rajdhani } from "next/font/google";
+import { DevAuthBootstrap } from "@/components/auth/DevAuthBootstrap";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap", fallback: ["system-ui", "sans-serif"] });
@@ -12,5 +13,5 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en"><body className={`${inter.variable} ${manrope.variable} ${rajdhani.variable}`}>{children}</body></html>;
+  return <html lang="en"><body className={`${inter.variable} ${manrope.variable} ${rajdhani.variable}`}><DevAuthBootstrap>{children}</DevAuthBootstrap></body></html>;
 }
