@@ -44,7 +44,7 @@ export function MissionExplorer({ mode }: { mode: DataMode }) {
     setClaimErrors((current) => omitKey(current, missionId));
     const idempotencyKey = claimKeys.current.get(missionId) ?? crypto.randomUUID();
     claimKeys.current.set(missionId, idempotencyKey);
-    playSound("missionClaim");
+    playSound("button");
 
     try {
       const result = await missionService.claimMission(missionId, idempotencyKey);
