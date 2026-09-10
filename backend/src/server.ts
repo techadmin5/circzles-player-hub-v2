@@ -14,7 +14,9 @@ import { DrizzlePublicProfileRepository, PublicProfileService } from "./domain/p
 import { DrizzleMissionClaimRepository, DrizzleMissionRepository, MissionClaimService, MissionEventProcessor, MissionProcessorRunner, PlayerMissionService } from "./domain/missions.js";
 
 const env = loadEnv();
-const { pool, db } = createDb(env.DATABASE_URL);
+const { pool, db } = createDb(env.DATABASE_URL, (error) => {
+  console.error("Unexpected PostgreSQL idle client error; broken client removed from pool", error);
+});
 const identity = new IdentityService(new DrizzleIdentityRepository(db), env.SESSION_SECRET);
 const gameState = new GameStateService(new DrizzleGameStateRepository(db));
 const puzzles = new PuzzleOwnershipService(new DrizzlePuzzleRepository(db));
