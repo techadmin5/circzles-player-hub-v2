@@ -20,10 +20,17 @@ function Toggle({ label, description, checked, onChange, testid }: { label: stri
   );
 }
 
+function VolumeSlider({ label, value, onChange, disabled }: { label: string; value: number; onChange: (value: number) => void; disabled: boolean }) {
+  return <label className="grid gap-2 rounded-xl border border-[var(--cz-hairline)] bg-white/[0.02] px-4 py-3">
+    <span className="flex justify-between text-sm"><span className="font-semibold">{label}</span><span className="cz-num text-[var(--cz-text-tertiary)]">{Math.round(value * 100)}%</span></span>
+    <input type="range" min="0" max="1" step="0.05" value={value} disabled={disabled} onChange={(event) => onChange(Number(event.target.value))} aria-label={label} className="accent-[var(--cz-aqua)]" />
+  </label>;
+}
+
 const PROFILE_FIELDS = ["First Name", "Last Name", "Email", "Display Name", "Country", "State"];
 
 export function SettingsPanel() {
-  const { master, effects, reducedMotion, notifications, setSound } = useSound();
+  const { master, effects, music, reducedMotion, notifications, effectsVolume, musicVolume, setSound } = useSound();
   return (
     <div className="grid gap-5 lg:grid-cols-2">
       <section className="cz-surface grid gap-3 p-5">
@@ -41,9 +48,12 @@ export function SettingsPanel() {
       <section className="cz-surface grid content-start gap-3 p-5">
         <h2 className="cz-display flex items-center gap-2 text-base font-bold"><Volume2 size={17} className="text-[var(--cz-aqua)]" />Game & Sound</h2>
         <Toggle label="Master Sound" description="Enable all game audio." checked={master} onChange={(v) => setSound({ master: v })} testid="toggle-master" />
+        <Toggle label="Music" description="Loop approved hub music after interaction." checked={music} onChange={(v) => setSound({ music: v })} testid="toggle-music" />
         <Toggle label="Sound Effects" description="UI, reward and progression cues." checked={effects} onChange={(v) => setSound({ effects: v })} testid="toggle-effects" />
         <Toggle label="Reduced Motion" description="Minimize animations and wheel motion." checked={reducedMotion} onChange={(v) => setSound({ reducedMotion: v })} testid="toggle-motion" />
-        <Toggle label="Notifications" description="In-app notification alerts." checked={notifications} onChange={(v) => setSound({ notifications: v })} testid="toggle-notifications" />
+        <Toggle label="Notification Sounds" description="In-app notification alerts." checked={notifications} onChange={(v) => setSound({ notifications: v })} testid="toggle-notifications" />
+        <VolumeSlider label="Effects Volume" value={effectsVolume} disabled={!master || !effects} onChange={(value) => setSound({ effectsVolume: value })} />
+        <VolumeSlider label="Music Volume" value={musicVolume} disabled={!master || !music} onChange={(value) => setSound({ musicVolume: value })} />
         <button className="cz-btn cz-btn-ghost mt-1 w-fit" onClick={() => playSound("rewardReveal")} data-testid="test-sound">Test Sound</button>
       </section>
     </div>

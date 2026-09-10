@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Bell, ChevronRight, Gem, LayoutGrid, Menu, Shield, X } from "lucide-react";
 import type { ReactNode } from "react";
@@ -13,6 +13,8 @@ import { playSound } from "@/hooks/useSound";
 import { DEFAULT_AVATAR } from "@/config/assets";
 import { formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { dataMode } from "@/config/dataMode";
+import { usePlayerUiState } from "@/stores/playerUiState";
 
 function isActive(pathname: string, href: string) {
   return pathname === href || (href !== "/hub" && pathname.startsWith(`${href}/`));
@@ -60,6 +62,9 @@ function Sidebar({ pathname }: { pathname: string }) {
 }
 
 function TopBar({ player, onOpenMenu }: { player?: PlayerProfile; onOpenMenu: () => void }) {
+  const displayedSynapsePoints = usePlayerUiState((state) => state.displayedSynapsePoints);
+  const balancePulse = usePlayerUiState((state) => state.balancePulse);
+  const balance = displayedSynapsePoints ?? player?.synapsePoints;
   return (
     <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-[var(--cz-hairline)] bg-[rgba(9,13,23,0.82)] px-4 py-3 backdrop-blur-xl lg:px-8">
       <Link href="/hub" className="flex items-center gap-2 lg:hidden">
@@ -67,15 +72,15 @@ function TopBar({ player, onOpenMenu }: { player?: PlayerProfile; onOpenMenu: ()
         <span className="cz-display text-sm font-bold">CircZles</span>
       </Link>
       <div className="ml-auto flex items-center gap-2">
-        {player && (
-          <Link href="/rewards" onClick={() => playSound("navigation")} data-testid="topbar-synapse" className="flex items-center gap-1.5 rounded-full border border-[rgba(232,180,80,0.3)] bg-[var(--cz-gold-dim)] px-3 py-1.5 text-sm font-semibold text-[var(--cz-gold)]">
-            <Gem size={15} /><span className="cz-num">{formatNumber(player.synapsePoints)}</span>
+        {balance !== undefined && (
+          <Link href="/rewards" onClick={() => playSound("navigation")} data-testid="topbar-synapse" data-synapse-anchor className={cn("flex items-center gap-1.5 rounded-full border border-[rgba(232,180,80,0.3)] bg-[var(--cz-gold-dim)] px-3 py-1.5 text-sm font-semibold text-[var(--cz-gold)] transition-[transform,box-shadow]", balancePulse && "scale-110 shadow-[0_0_24px_rgba(232,180,80,0.45)]")}>
+            <Gem size={15} /><span className="cz-num">{formatNumber(balance)}</span>
           </Link>
         )}
         <Link href="/notifications" onClick={() => playSound("navigation")} data-testid="topbar-notifications" aria-label="Notifications" className="grid h-9 w-9 place-items-center rounded-full border border-[var(--cz-hairline)] bg-white/[0.03] text-[var(--cz-text-secondary)] transition-colors hover:text-[var(--cz-text-primary)]">
           <Bell size={17} />
         </Link>
-        <Link href="/profile" onClick={() => playSound("navigation")} data-testid="topbar-profile" aria-label="Profile" className="relative h-9 w-9 overflow-hidden rounded-full border border-[var(--cz-hairline-strong)] bg-[var(--cz-surface-raised)]">
+        <Link href="/profile" onClick={() => playSound("navigation")} data-testid="topbar-profile" aria-label="Profile" className="relative hidden h-9 w-9 overflow-hidden rounded-full border border-[var(--cz-hairline-strong)] bg-[var(--cz-surface-raised)] min-[430px]:block">
           <Image src={player?.avatar || DEFAULT_AVATAR} alt="" fill sizes="36px" className="object-cover" />
         </Link>
         <button onClick={() => { playSound("button"); onOpenMenu(); }} data-testid="topbar-menu" aria-label="Open menu" className="grid h-9 w-9 place-items-center rounded-full border border-[var(--cz-hairline)] bg-white/[0.03] text-[var(--cz-text-secondary)] lg:hidden">
@@ -148,6 +153,10 @@ function MobileNav({ pathname, onOpenMore }: { pathname: string; onOpenMore: () 
 export function GameShell({ player, children }: { player?: PlayerProfile; children: ReactNode }) {
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
+
+  useEffect(() => {
+    if (player && dataMode === "mock") usePlayerUiState.getState().hydrate(player);
+  }, [player]);
 
   return (
     <div className="min-h-dvh lg:flex">

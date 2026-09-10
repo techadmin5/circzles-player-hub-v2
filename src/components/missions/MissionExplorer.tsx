@@ -9,8 +9,12 @@ import { ApiClientError } from "@/lib/apiClient";
 import { missionService } from "@/services";
 import type { Mission, MissionClaimResult } from "@/types";
 import { MissionBoard } from "./missions";
+import { useGameFeedback } from "@/components/feedback/GameFeedbackProvider";
+import { snapshotFromProfile, usePlayerUiState, type PlayerUiSnapshot } from "@/stores/playerUiState";
+import { currentPlayer } from "@/mocks/data";
 
 export function MissionExplorer({ mode }: { mode: DataMode }) {
+  const { celebrateReward, showErrorFeedback } = useGameFeedback();
   const [missions, setMissions] = useState<Mission[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -44,12 +48,20 @@ export function MissionExplorer({ mode }: { mode: DataMode }) {
 
     try {
       const result = await missionService.claimMission(missionId, idempotencyKey);
+      const previousPlayerState = usePlayerUiState.getState().player
+        ?? (mode === "mock" ? snapshotFromProfile(currentPlayer) : snapshotFromClaim(result));
+      const newPlayerState = usePlayerUiState.getState().applyClaim(result, previousPlayerState);
       setClaimResults((current) => ({ ...current, [missionId]: result }));
       setMissions((current) => current.map((mission) => mission.missionId === missionId ? { ...mission, status: "CLAIMED", claimable: false } : mission));
       claimKeys.current.delete(missionId);
-      playSound("success");
-      if (result.awarded.synapsePoints > 0) playSound("coin");
-      if (result.awarded.xp > 0) playSound("xp");
+      celebrateReward({
+        source: "MISSION",
+        synapsePoints: result.awarded.synapsePoints,
+        xp: result.awarded.xp,
+        previousPlayerState,
+        newPlayerState,
+        label: "Mission Complete",
+      });
 
       if (mode === "api") {
         try {
@@ -60,7 +72,7 @@ export function MissionExplorer({ mode }: { mode: DataMode }) {
       }
     } catch (error) {
       setClaimErrors((current) => ({ ...current, [missionId]: claimErrorMessage(error) }));
-      playSound("error");
+      showErrorFeedback("Mission reward could not be claimed.");
     } finally {
       pendingClaims.current.delete(missionId);
       setBusyMissionIds((current) => {
@@ -69,7 +81,7 @@ export function MissionExplorer({ mode }: { mode: DataMode }) {
         return next;
       });
     }
-  }, [mode]);
+  }, [celebrateReward, mode, showErrorFeedback]);
 
   return (
     <div data-data-mode={mode}>
@@ -80,6 +92,16 @@ export function MissionExplorer({ mode }: { mode: DataMode }) {
           : <MissionBoard missions={missions} busyMissionIds={busyMissionIds} claimErrors={claimErrors} claimResults={claimResults} onClaim={claimMission} />}
     </div>
   );
+}
+
+function snapshotFromClaim(result: MissionClaimResult): PlayerUiSnapshot {
+  return {
+    synapsePoints: result.playerState.synapsePoints,
+    xp: result.playerState.xp,
+    xpNeeded: undefined,
+    progressionLevel: result.playerState.progressionLevel,
+    rankName: result.playerState.rankName,
+  };
 }
 
 function RequestError({ message, onRetry }: { message: string; onRetry: () => void }) {

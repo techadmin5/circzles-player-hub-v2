@@ -1,17 +1,18 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { devAutoLoginEnabled, logPublicFrontendConfig } from "@/config/dataMode";
+import { dataMode, devAutoLoginEnabled, logPublicFrontendConfig } from "@/config/dataMode";
 import { apiClient, ApiClientError } from "@/lib/apiClient";
+import { usePlayerUiState } from "@/stores/playerUiState";
 
 let bootstrapPromise: Promise<void> | undefined;
 
 export function DevAuthBootstrap({ children }: { children: ReactNode }) {
-  const [ready, setReady] = useState(!devAutoLoginEnabled);
+  const [ready, setReady] = useState(dataMode !== "api");
 
   useEffect(() => {
     logPublicFrontendConfig();
-    if (!devAutoLoginEnabled) return;
+    if (dataMode !== "api") return;
 
     let cancelled = false;
     runBootstrap().catch(() => undefined).finally(() => {
@@ -26,7 +27,7 @@ export function DevAuthBootstrap({ children }: { children: ReactNode }) {
 
 function runBootstrap() {
   bootstrapPromise ??= ensureDevelopmentSession().catch((error: unknown) => {
-    console.error("[CircZles dev auth] Automatic development login failed.");
+    if (devAutoLoginEnabled) console.error("[CircZles dev auth] Automatic development login failed.");
     throw error;
   });
   return bootstrapPromise;
@@ -34,9 +35,10 @@ function runBootstrap() {
 
 async function ensureDevelopmentSession() {
   try {
-    await apiClient.getMe();
+    usePlayerUiState.getState().hydrate(await apiClient.getMe());
   } catch (error) {
     if (!(error instanceof ApiClientError) || error.status !== 401) throw error;
-    await apiClient.devLogin();
+    if (!devAutoLoginEnabled) return;
+    usePlayerUiState.getState().hydrate(await apiClient.devLogin());
   }
 }
