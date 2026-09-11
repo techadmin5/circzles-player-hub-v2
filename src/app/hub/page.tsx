@@ -10,6 +10,7 @@ import { ActivityTimeline } from "@/components/activity/ActivityTimeline";
 import { dataMode } from "@/config/dataMode";
 import { activityService, leaderboardService, missionService, playerService, puzzleService, seasonService } from "@/services";
 import { formatNumber } from "@/lib/format";
+import { HubMetricStrip } from "@/components/hub/HubMetricStrip";
 
 function ActionTile({ href, icon, label }: { href: string; icon: ReactNode; label: string }) {
   return (
@@ -44,12 +45,13 @@ export default async function Page() {
   ]);
   const activeMission = missions.find((m) => m.status === "ACTIVE") ?? missions[0];
   const pendingSub = puzzles.find((p) => p.status === "SUBMISSION_PENDING");
-  const pct = Math.min(100, Math.round((activeMission.progress.current / Math.max(1, activeMission.progress.target)) * 100));
+  const pct = activeMission ? Math.min(100, Math.round((activeMission.progress.current / Math.max(1, activeMission.progress.target)) * 100)) : 0;
 
   return (
     <GameShell player={player}>
       <div className="grid grid-cols-1 gap-6">
         <PlayerIdentityPanel fallbackPlayer={player} mode={dataMode} placement={null} />
+        <HubMetricStrip player={player} mode={dataMode} />
 
         <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
           <div className="cz-surface grid gap-5 p-5">
@@ -59,7 +61,7 @@ export default async function Page() {
               <ActionTile href="/leaderboard" icon={<Trophy size={17} />} label="Leaderboard" />
               <ActionTile href="/missions" icon={<Gift size={17} />} label="Claim Missions" />
             </div>
-            <div className="cz-inset grid gap-4 p-4 md:grid-cols-[1fr_200px]">
+            {activeMission ? <div className="cz-inset grid gap-4 p-4 md:grid-cols-[1fr_200px]">
               <div>
                 <p className="flex items-center gap-1.5 text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-[var(--cz-aqua)]"><Sparkles size={12} />Active Challenge</p>
                 <h2 className="cz-display mt-1 text-xl font-bold">{activeMission.title}</h2>
@@ -71,12 +73,12 @@ export default async function Page() {
                 <p className="cz-display text-lg font-bold text-[var(--cz-gold)]">{activeMission.rewards.map((r) => r.label).join(" · ")}</p>
                 <p className="text-[0.62rem] text-[var(--cz-text-tertiary)]">On verified completion</p>
               </div>
-            </div>
+            </div> : <div className="cz-inset p-5"><p className="cz-display text-lg font-bold">No active challenge right now.</p><p className="mt-1 text-sm text-[var(--cz-text-secondary)]">New verified challenges will appear here when available.</p><Link href="/missions" className="cz-btn cz-btn-ghost cz-btn-sm mt-3">View Missions</Link></div>}
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
             <StatusPanel icon={<Target size={13} />} label="Submission Status" title={pendingSub?.name ?? "No pending solves"} body={pendingSub ? "Pending Review" : "Submit an attempt to appear here."} href="/submissions" />
             <StatusPanel icon={<Trophy size={13} />} label="Competitive Result" tone="gold" title="New Personal Best" body="You moved onto a recent leaderboard placement." href="/leaderboard" />
-            <StatusPanel icon={<TicketCheck size={13} />} label="Reward Wheel" tone="violet" title="Daily spin available" body="Spin the premium reward wheel for Synapse Points and more." href="/rewards" />
+            <StatusPanel icon={<TicketCheck size={13} />} label="Reward Wheel" tone="violet" title={dataMode === "mock" ? "Daily spin available" : "Not available yet"} body={dataMode === "mock" ? "Spin the premium reward wheel for Synapse Points and more." : "Wheel status will appear when its backend authority is available."} href="/rewards" />
           </div>
         </section>
 

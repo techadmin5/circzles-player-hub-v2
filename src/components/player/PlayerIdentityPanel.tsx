@@ -6,7 +6,7 @@ import { Camera, Flame, Gem, Trophy } from "lucide-react";
 import type { PlayerProfile } from "@/types";
 import { progressionRanks } from "@/config/progression";
 import { AvatarFrame, type Placement } from "@/components/player/AvatarFrame";
-import { RankEmblem } from "@/components/progression/RankEmblem";
+import { ProgressionBadge } from "@/components/progression/ProgressionBadge";
 import { ProgressionCodex } from "@/components/progression/ProgressionCodex";
 import { AvatarPicker } from "@/components/avatar/AvatarPicker";
 import { apiClient, ApiClientError } from "@/lib/apiClient";
@@ -53,7 +53,7 @@ export function PlayerHero({ player, placement = null, profileMode = false, onOp
           <p className="truncate text-sm text-[var(--cz-text-tertiary)]">{player.publicPlayerId}{player.country ? ` · ${player.state ? `${player.state}, ` : ""}${player.country}` : ""}</p>
 
           <button onClick={() => { playSound("button"); onOpenCodex(); }} data-testid="rank-chip-btn" className="mt-3 inline-flex items-center gap-2 rounded-xl border border-[var(--cz-hairline)] bg-white/[0.03] px-3 py-2 text-left transition-colors hover:border-[rgba(61,234,212,0.5)]">
-            <RankEmblem rank={rank.rank} state="current" size={34} />
+            <ProgressionBadge rankName={rank.rank} size="xs" animated decorative />
             <span>
               <span className="cz-display block text-sm font-semibold text-[var(--cz-aqua)]">{rank.rank}</span>
               <span className="block text-xs text-[var(--cz-text-tertiary)]">Progression Level {player.progressionLevel}</span>

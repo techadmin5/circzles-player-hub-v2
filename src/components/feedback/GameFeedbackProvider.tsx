@@ -2,9 +2,10 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { Gem, Sparkles, X, Zap } from "lucide-react";
+import { Gem, Sparkles, Zap } from "lucide-react";
 import { playSound, useSound } from "@/hooks/useSound";
 import { usePlayerUiState, type PlayerUiSnapshot } from "@/stores/playerUiState";
+import { LevelUpOverlay, type ProgressionRewardPreview } from "@/components/progression/LevelUpOverlay";
 
 export interface RewardFeedback {
   source: "MISSION" | "PREVIEW" | "REWARD";
@@ -14,6 +15,8 @@ export interface RewardFeedback {
   newPlayerState: PlayerUiSnapshot;
   label?: string;
   sourceElement?: HTMLElement | null;
+  progressionRewards?: ProgressionRewardPreview[];
+  onCollectProgressionRewards?: () => void;
 }
 
 interface QueuedFeedback extends RewardFeedback { id: number }
@@ -77,8 +80,7 @@ export function GameFeedbackProvider({ children }: { children: ReactNode }) {
       if (cancelled) return;
       if (active.newPlayerState.progressionLevel > active.previousPlayerState.progressionLevel) {
         dispatch({ type: "stage", stage: "rank" });
-        playSound("rankUp");
-        await wait(2800);
+        return;
       }
       if (!cancelled) finishActive(active.newPlayerState.synapsePoints);
     };
@@ -123,7 +125,7 @@ function GameFeedbackOverlay({ active, stage, reducedMotion, onDismiss }: { acti
           {stage === "reveal" && <RewardRevealStage reward={active} reducedMotion={reducedMotion} />}
           {stage === "sp" && <SynapseRewardEffect reward={active} reducedMotion={reducedMotion} />}
           {stage === "xp" && <XpGainEffect reward={active} reducedMotion={reducedMotion} />}
-          {stage === "rank" && <RankUpOverlay feedbackId={active.id} reward={active} reducedMotion={reducedMotion} onDismiss={onDismiss} />}
+          {stage === "rank" && <LevelUpOverlay previousRankName={active.previousPlayerState.rankName} newRankName={active.newPlayerState.rankName} progressionLevel={active.newPlayerState.progressionLevel} rewards={active.progressionRewards} onCollectRewards={active.onCollectProgressionRewards} reducedMotion={reducedMotion} onDismiss={onDismiss} />}
         </motion.div>}
       </AnimatePresence>
     </>
@@ -163,21 +165,6 @@ function XpGainEffect({ reward, reducedMotion }: { reward: RewardFeedback; reduc
     <div className="mt-5 h-3 overflow-hidden rounded-full bg-black/45"><motion.div className="h-full rounded-full bg-gradient-to-r from-[var(--cz-aqua)] to-[#7ef7e6] shadow-[0_0_18px_rgba(61,234,212,0.55)]" initial={{ width: `${previous}%` }} animate={{ width: `${next}%` }} transition={{ duration: reducedMotion ? 0.1 : 0.85, ease: "easeOut" }} /></div>
     <p className="mt-2 text-right text-xs text-[var(--cz-text-secondary)]">{reward.newPlayerState.xp.toLocaleString()} XP</p>
   </motion.div>;
-}
-
-function RankUpOverlay({ feedbackId, reward, reducedMotion, onDismiss }: { feedbackId: number; reward: RewardFeedback; reducedMotion: boolean; onDismiss: () => void }) {
-  const titleId = `rank-up-title-${feedbackId}`;
-  const eyebrowId = `rank-up-eyebrow-${feedbackId}`;
-  const descriptionId = `rank-up-description-${feedbackId}`;
-  return <div className="pointer-events-auto absolute inset-0 grid place-items-center bg-black/75 px-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby={`${eyebrowId} ${titleId}`} aria-describedby={descriptionId}>
-    <motion.div className="relative w-full max-w-md text-center" initial={reducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.72 }} animate={{ opacity: 1, scale: 1 }}>
-      <button type="button" onClick={onDismiss} aria-label="Dismiss rank up" className="absolute right-0 top-0 z-10 grid h-10 w-10 place-items-center rounded-full border border-white/20 bg-black/35 text-white"><X size={19} /></button>
-      <motion.div aria-hidden="true" className="mx-auto grid h-36 w-36 place-items-center rounded-full border border-[var(--cz-gold)]/50 bg-[radial-gradient(circle,rgba(232,180,80,0.28),rgba(61,234,212,0.06)_55%,transparent_70%)] shadow-[0_0_75px_rgba(232,180,80,0.3)]" animate={reducedMotion ? undefined : { rotate: [0, 3, 0, -3, 0], scale: [1, 1.04, 1] }} transition={{ duration: 2, repeat: Infinity }}><span className="cz-display text-5xl font-extrabold text-[var(--cz-gold)]">{reward.newPlayerState.progressionLevel}</span></motion.div>
-      <p id={eyebrowId} className="cz-display mt-6 text-sm font-bold uppercase text-[var(--cz-aqua)]">Level Up</p>
-      <h2 id={titleId} className="cz-display mt-1 text-4xl font-extrabold text-white">{reward.newPlayerState.rankName}</h2>
-      <p id={descriptionId} className="mt-2 text-sm text-[var(--cz-text-secondary)]">Progression level {reward.newPlayerState.progressionLevel}</p>
-    </motion.div>
-  </div>;
 }
 
 function animateBalance(from: number, to: number, reducedMotion: boolean) {
