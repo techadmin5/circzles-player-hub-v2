@@ -121,13 +121,13 @@ function GameFeedbackOverlay({ active, stage, reducedMotion, onDismiss }: { acti
     <>
       <p className="sr-only" aria-live="polite" aria-atomic="true">{active ? rewardAnnouncement(active) : ""}</p>
       <AnimatePresence mode="wait">
-        {active && <motion.div key={`${active.id}-${stage}`} className="pointer-events-none fixed inset-0 z-[100] grid place-items-center overflow-hidden px-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+        {active && stage !== "rank" && <motion.div key={`${active.id}-${stage}`} className="pointer-events-none fixed inset-0 z-[100] grid place-items-center overflow-hidden px-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
           {stage === "reveal" && <RewardRevealStage reward={active} reducedMotion={reducedMotion} />}
           {stage === "sp" && <SynapseRewardEffect reward={active} reducedMotion={reducedMotion} />}
           {stage === "xp" && <XpGainEffect reward={active} reducedMotion={reducedMotion} />}
-          {stage === "rank" && <LevelUpOverlay previousRankName={active.previousPlayerState.rankName} newRankName={active.newPlayerState.rankName} progressionLevel={active.newPlayerState.progressionLevel} rewards={active.progressionRewards} onCollectRewards={active.onCollectProgressionRewards} reducedMotion={reducedMotion} onDismiss={onDismiss} />}
         </motion.div>}
       </AnimatePresence>
+      {active && stage === "rank" && <LevelUpOverlay previousRankName={active.previousPlayerState.rankName} newRankName={active.newPlayerState.rankName} progressionLevel={active.newPlayerState.progressionLevel} rewards={active.progressionRewards} onCollectRewards={active.onCollectProgressionRewards} reducedMotion={reducedMotion} onDismiss={onDismiss} />}
     </>
   );
 }

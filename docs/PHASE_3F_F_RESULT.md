@@ -10,6 +10,8 @@ Phase 3F-F integrates the supplied nine CircZles progression badges and Hub Lott
 
 The promotion now occupies a fixed, full-viewport cinematic backdrop built from near-opaque navy-black, a restrained rank-colored radial glow, and a vignette. Explicit badge, result text, rewards, and action zones keep wide and tall artwork clear of all labels and controls, including on narrow or short viewports.
 
+The scroll-relative positioning defect came from nesting the fixed Rank Up experience beneath the transformed generic reward-stage wrapper. Rank Up is now rendered as that wrapper's sibling and portaled directly to `document.body`. Its viewport backdrop centers an opaque black popup whose strict flow is: Level Up label, isolated badge stage, rank name, progression level, rewards, and actions. The close control alone is positioned inside the popup. The popup uses a dynamic-viewport max height and internal scrolling on short screens while the underlying document remains locked.
+
 The presentation-only reward model supports Synapse Points, badges, frames, avatars, Rename Cards, coupons, and items. Normal gameplay does not invent progression rewards and therefore shows only Okay unless an authoritative reward handler is supplied. Okay dismisses presentation and never means rewards are forfeited. The development Game Feel Lab supplies local sample rewards for both the generic Rank Up control and selectable transitions. Rewards are marked collected only after an explicit Collect Rewards click; opening or dismissing the preview does not collect them and makes no API or database request.
 
 ## Future Reward Contract
