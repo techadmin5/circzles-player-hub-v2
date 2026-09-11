@@ -3,6 +3,7 @@ import { Inter, Manrope, Rajdhani } from "next/font/google";
 import { DevAuthBootstrap } from "@/components/auth/DevAuthBootstrap";
 import { ClientRuntimeProvider } from "@/components/providers/ClientRuntimeProvider";
 import { GameFeedbackProvider } from "@/components/feedback/GameFeedbackProvider";
+import { InteractionSoundProvider } from "@/components/providers/InteractionSoundProvider";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap", fallback: ["system-ui", "sans-serif"] });
@@ -15,5 +16,5 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en"><body className={`${inter.variable} ${manrope.variable} ${rajdhani.variable}`}><ClientRuntimeProvider><DevAuthBootstrap><GameFeedbackProvider>{children}</GameFeedbackProvider></DevAuthBootstrap></ClientRuntimeProvider></body></html>;
+  return <html lang="en"><body className={`${inter.variable} ${manrope.variable} ${rajdhani.variable}`}><ClientRuntimeProvider><InteractionSoundProvider><DevAuthBootstrap><GameFeedbackProvider>{children}</GameFeedbackProvider></DevAuthBootstrap></InteractionSoundProvider></ClientRuntimeProvider></body></html>;
 }

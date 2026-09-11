@@ -3,7 +3,7 @@
 import { AlertTriangle, Coins, Layers3, Sparkles, Trophy, Zap } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useGameFeedback, type RewardFeedback } from "@/components/feedback/GameFeedbackProvider";
-import { pauseBackgroundMusic, playSound, resumeBackgroundMusic, useSound } from "@/hooks/useSound";
+import { pauseBackgroundMusic, playSound, previewBackgroundMusic, useSound } from "@/hooks/useSound";
 import { snapshotFromProfile } from "@/stores/playerUiState";
 import type { PlayerProfile } from "@/types";
 import { ProgressionBadge } from "@/components/progression/ProgressionBadge";
@@ -22,6 +22,11 @@ export function GameFeelLab({ player }: { player: PlayerProfile }) {
   const setSound = useSound((state) => state.setSound);
   const effectsVolume = useSound((state) => state.effectsVolume);
   const musicVolume = useSound((state) => state.musicVolume);
+  const master = useSound((state) => state.master);
+  const musicEnabled = useSound((state) => state.music);
+  const audioUnlocked = useSound((state) => state.audioUnlocked);
+  const musicPlaying = useSound((state) => state.musicPlaying);
+  const musicError = useSound((state) => state.musicError);
   const base = snapshotFromProfile(player);
   const [scenario, setScenario] = useState(2);
   const [collectionMessage, setCollectionMessage] = useState("");
@@ -83,15 +88,16 @@ export function GameFeelLab({ player }: { player: PlayerProfile }) {
         <LabButton icon={<Coins />} label="SP +250 Sequence" onClick={() => preview(250, 0)} /><LabButton icon={<Zap />} label="XP +500" onClick={() => preview(0, 500)} /><AudioButton label="Reward Reveal" sound="rewardReveal" /><AudioButton label="Mission Complete" sound="missionComplete" />
         <AudioButton label="Rank Build" sound="rankBuild" /><AudioButton label="Rank Impact" sound="rankImpact" /><AudioButton label="Rank Reveal" sound="rankReveal" /><LabButton icon={<Trophy />} label="Full Rank Sequence" onClick={previewGenericRankUp} />
         <AudioButton label="Wheel Spin" sound="wheelStart" /><AudioButton label="Wheel Reward" sound="wheelReward" /><AudioButton label="Purchase / Unlock" sound="purchase" />
-        <LabButton icon={<Sparkles />} label="Music Start / Resume" onClick={resumeBackgroundMusic} /><LabButton icon={<Sparkles />} label="Music Pause" onClick={pauseBackgroundMusic} />
+        <LabButton icon={<Sparkles />} label="Music Start / Resume" onClick={() => void previewBackgroundMusic()} /><LabButton icon={<Sparkles />} label="Music Pause" onClick={pauseBackgroundMusic} />
       </div>
+      <div className="flex flex-wrap gap-x-5 gap-y-1 rounded-lg border border-[var(--cz-hairline)] bg-black/15 px-3 py-2 text-xs text-[var(--cz-text-secondary)]"><span>Music preference: {musicEnabled ? "ON" : "OFF"}</span><span>Master sound: {master ? "ON" : "OFF"}</span><span>Audio unlocked: {audioUnlocked ? "YES" : "NO"}</span><span>Playback: {musicPlaying ? "PLAYING" : "PAUSED"}</span>{musicError && <span className="text-[var(--cz-danger)]">Playback error: {musicError}</span>}</div>
       <div className="grid gap-3 sm:grid-cols-2"><AudioSlider label="Effects Volume Preview" value={effectsVolume} onChange={(value) => setSound({ effectsVolume: value })} /><AudioSlider label="Music Volume Preview" value={musicVolume} onChange={(value) => setSound({ musicVolume: value })} /></div>
     </section>
   </div>;
 }
 
 function LabButton({ icon, label, onClick }: { icon: ReactNode; label: string; onClick: () => void }) {
-  return <button type="button" className="cz-btn cz-btn-ghost justify-start" onClick={onClick}>{icon}{label}</button>;
+  return <button type="button" data-sound="silent" className="cz-btn cz-btn-ghost justify-start" onClick={onClick}>{icon}{label}</button>;
 }
 
 function AudioButton({ label, sound }: { label: string; sound: Parameters<typeof playSound>[0] }) { return <LabButton icon={<Sparkles />} label={label} onClick={() => playSound(sound)} />; }

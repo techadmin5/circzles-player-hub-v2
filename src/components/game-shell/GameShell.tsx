@@ -27,7 +27,8 @@ function NavLink({ item, pathname, onClick }: { item: NavItem; pathname: string;
     <Link
       href={item.href}
       aria-current={active ? "page" : undefined}
-      onClick={() => { playSound("navigation"); onClick?.(); }}
+      onClick={onClick}
+      data-sound="navigation"
       data-testid={`nav-${item.href.replace(/\//g, "") || "root"}`}
       className={cn(
         "relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors duration-150",
@@ -44,7 +45,7 @@ function NavLink({ item, pathname, onClick }: { item: NavItem; pathname: string;
 function Sidebar({ pathname }: { pathname: string }) {
   return (
     <aside className="sticky top-0 hidden h-dvh w-[236px] shrink-0 flex-col border-r border-[var(--cz-hairline)] bg-[var(--cz-surface)] px-3 py-5 lg:flex">
-      <Link href="/hub" onClick={() => playSound("navigation")} className="mb-6 flex items-center gap-2.5 px-2">
+      <Link href="/hub" data-sound="navigation" className="mb-6 flex items-center gap-2.5 px-2">
         <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-[var(--cz-aqua)] to-[#1a8a7c] text-[var(--cz-void)]"><LayoutGrid size={17} /></span>
         <span className="cz-display text-[1.05rem] font-bold tracking-tight">CircZles</span>
       </Link>
@@ -53,7 +54,7 @@ function Sidebar({ pathname }: { pathname: string }) {
       </nav>
       <div className="mt-2 grid gap-0.5 border-t border-[var(--cz-hairline)] pt-2">
         <NavLink item={SETTINGS_ITEM} pathname={pathname} />
-        <Link href="/admin" onClick={() => playSound("navigation")} data-testid="nav-admin" className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-[var(--cz-text-tertiary)] transition-colors hover:bg-[var(--cz-gold-dim)] hover:text-[var(--cz-gold)]">
+        <Link href="/admin" data-sound="navigation" data-testid="nav-admin" className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-[var(--cz-text-tertiary)] transition-colors hover:bg-[var(--cz-gold-dim)] hover:text-[var(--cz-gold)]">
           <Shield size={18} />Admin Area
         </Link>
       </div>
@@ -111,14 +112,14 @@ function MoreSheet({ open, onClose, pathname }: { open: boolean; onClose: () => 
                 const active = isActive(pathname, item.href);
                 const Icon = item.icon;
                 return (
-                  <Link key={item.href} href={item.href} onClick={() => { playSound("navigation"); onClose(); }} data-testid={`more-${item.href.replace(/\//g, "")}`}
+                  <Link key={item.href} href={item.href} onClick={onClose} data-sound="navigation" data-testid={`more-${item.href.replace(/\//g, "")}`}
                     className={cn("flex items-center justify-between gap-2 rounded-xl border px-3 py-3 text-sm font-medium", active ? "border-[rgba(61,234,212,0.4)] bg-[var(--cz-aqua-dim)] text-[var(--cz-text-primary)]" : "border-[var(--cz-hairline)] bg-white/[0.02] text-[var(--cz-text-secondary)]")}>
                     <span className="flex items-center gap-2.5"><Icon size={17} className={active ? "text-[var(--cz-aqua)]" : ""} />{item.label}</span>
                     <ChevronRight size={15} className="text-[var(--cz-text-tertiary)]" />
                   </Link>
                 );
               })}
-              <Link href="/admin" onClick={() => { playSound("navigation"); onClose(); }} data-testid="more-admin" className="col-span-2 flex items-center justify-between gap-2 rounded-xl border border-[rgba(232,180,80,0.3)] bg-[var(--cz-gold-dim)] px-3 py-3 text-sm font-medium text-[var(--cz-gold)]">
+              <Link href="/admin" onClick={onClose} data-sound="navigation" data-testid="more-admin" className="col-span-2 flex items-center justify-between gap-2 rounded-xl border border-[rgba(232,180,80,0.3)] bg-[var(--cz-gold-dim)] px-3 py-3 text-sm font-medium text-[var(--cz-gold)]">
                 <span className="flex items-center gap-2.5"><Shield size={17} />Admin Area</span>
                 <ChevronRight size={15} />
               </Link>
@@ -137,7 +138,7 @@ function MobileNav({ pathname, onOpenMore }: { pathname: string; onOpenMore: () 
         const active = isActive(pathname, item.href);
         const Icon = item.icon;
         return (
-          <Link key={item.href} href={item.href} onClick={() => playSound("navigation")} data-testid={`mobilenav-${item.href.replace(/\//g, "")}`}
+          <Link key={item.href} href={item.href} data-sound="navigation" data-testid={`mobilenav-${item.href.replace(/\//g, "")}`}
             className={cn("grid min-w-0 justify-items-center gap-1 rounded-lg px-0.5 py-1.5 text-[10px] font-semibold", active ? "text-[var(--cz-aqua)]" : "text-[var(--cz-text-tertiary)]")}>
             <Icon size={20} /><span className="w-full truncate text-center leading-none">{item.label.replace("Player ", "").replace("My ", "")}</span>
           </Link>

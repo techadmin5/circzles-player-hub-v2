@@ -10,6 +10,10 @@ Rank Up uses Build at assembly start, Impact at badge lock, and Reveal shortly a
 
 Hub music is one persistent looping element, defaults to enabled at 10% for new preferences, begins only after valid user interaction, and respects master/music settings and saved preferences. Major mission and rank moments temporarily duck music without restarting it. Effects and notification sounds respect their existing category controls.
 
+The initial Music Start / Resume lab control incorrectly reused the settings-controlled runtime path, so an older persisted `music: false` preference made the explicit preview appear broken. The lab now uses a dedicated preview API that starts or resumes the single persistent element directly from the user gesture without changing saved Master or Music preferences. Pause preserves `currentTime`; subsequent preview resumes it. The panel reports preference, Master, unlock, playback, and a safe development-only error name. Normal application playback still requires Master, Music, and browser unlock, and toggle/volume changes update the same element without restarting it.
+
+Real UI interactions use a delegated root click router with the priority `silent/manual > semantic navigation/tab/modal > ordinary button`. Main desktop and mobile navigation use semantic navigation routing and suppress same-route cues; role tabs receive the tab cue; enabled ordinary buttons receive the button cue. Audio Lab controls are explicitly silent to the router and play only their requested preview. Trusted click events cover pointer, touch, Enter, and Space activation once, while focus and disabled controls remain silent.
+
 The development Game Feel Lab includes individual Audio Pack V1 controls, bounded SP/XP and full visual Rank Up scenarios, wheel/purchase previews, music start/pause, and volume previews. It performs no API, reward, or database write.
 
 ## Verification Status

@@ -43,7 +43,7 @@ export function PlayerHero({ player, placement = null, profileMode = false, onOp
       <div className="relative flex min-w-0 flex-col gap-5 sm:flex-row sm:items-center sm:gap-7">
         <div className="shrink-0">
           <AvatarFrame avatar={player.avatar} displayName={player.displayName} frame={player.equippedFrame} size={profileMode ? 148 : 128} placement={placement} />
-          <button onClick={() => { playSound("button"); onEditAvatar(); }} data-testid="edit-avatar-btn" className="mt-3 inline-flex items-center gap-2 rounded-lg border border-[var(--cz-hairline)] bg-white/[0.03] px-3 py-2 text-xs text-[var(--cz-text-secondary)] hover:text-[var(--cz-text-primary)]">
+          <button onClick={onEditAvatar} data-sound="silent" data-testid="edit-avatar-btn" className="mt-3 inline-flex items-center gap-2 rounded-lg border border-[var(--cz-hairline)] bg-white/[0.03] px-3 py-2 text-xs text-[var(--cz-text-secondary)] hover:text-[var(--cz-text-primary)]">
             <Camera size={14} />Change Avatar
           </button>
         </div>
@@ -52,7 +52,7 @@ export function PlayerHero({ player, placement = null, profileMode = false, onOp
           <h2 className="cz-display truncate text-2xl font-bold sm:text-3xl">{player.displayName}</h2>
           <p className="truncate text-sm text-[var(--cz-text-tertiary)]">{player.publicPlayerId}{player.country ? ` · ${player.state ? `${player.state}, ` : ""}${player.country}` : ""}</p>
 
-          <button onClick={() => { playSound("button"); onOpenCodex(); }} data-testid="rank-chip-btn" className="mt-3 inline-flex items-center gap-2 rounded-xl border border-[var(--cz-hairline)] bg-white/[0.03] px-3 py-2 text-left transition-colors hover:border-[rgba(61,234,212,0.5)]">
+          <button onClick={onOpenCodex} data-sound="silent" data-testid="rank-chip-btn" className="mt-3 inline-flex items-center gap-2 rounded-xl border border-[var(--cz-hairline)] bg-white/[0.03] px-3 py-2 text-left transition-colors hover:border-[rgba(61,234,212,0.5)]">
             <ProgressionBadge rankName={rank.rank} size="xs" animated decorative />
             <span>
               <span className="cz-display block text-sm font-semibold text-[var(--cz-aqua)]">{rank.rank}</span>
