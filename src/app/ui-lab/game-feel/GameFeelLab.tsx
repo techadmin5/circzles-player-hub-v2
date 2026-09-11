@@ -48,6 +48,11 @@ export function GameFeelLab({ player }: { player: PlayerProfile }) {
     celebrateReward({ source: "PREVIEW", synapsePoints: 0, xp: 1, previousPlayerState: { ...base, rankName: selected.previous, progressionLevel: scenario + 1 }, newPlayerState: { ...base, rankName: selected.next, progressionLevel: scenario + 2 }, label: "Progression Preview", progressionRewards: previewRewards, onCollectProgressionRewards: () => setCollectionMessage("Rewards Collected - local preview only") });
   };
 
+  const previewGenericRankUp = () => {
+    setCollectionMessage("");
+    celebrateReward({ source: "PREVIEW", synapsePoints: 0, xp: 500, previousPlayerState: { ...base, rankName: "Squire" }, newPlayerState: { ...base, xp: base.xp + 500, rankName: "Knight", progressionLevel: base.progressionLevel + 1 }, label: "Major Progress", progressionRewards: previewRewards, onCollectProgressionRewards: () => setCollectionMessage("Rewards Collected - local preview only") });
+  };
+
   return <div className="grid gap-6">
     <header><span className="cz-chip border-cyan-300/30 text-[var(--cz-aqua)]">Development Preview</span><h1 className="cz-display mt-3 text-2xl font-bold sm:text-3xl">Game Feel Lab</h1><p className="mt-2 max-w-2xl text-sm text-[var(--cz-text-secondary)]">Local presentation scenarios. No claims, rewards, or backend writes occur here.</p></header>
     <section className="cz-surface min-w-0 grid gap-4 p-5">
@@ -57,7 +62,7 @@ export function GameFeelLab({ player }: { player: PlayerProfile }) {
         <LabButton icon={<Zap />} label="+500 XP" onClick={() => preview(0, 500)} />
         <LabButton icon={<Sparkles />} label="+250 SP +500 XP" onClick={() => preview(250, 500)} />
         <LabButton icon={<Trophy />} label="Mission Complete" onClick={() => preview(250, 500, false, "Mission Complete")} />
-        <LabButton icon={<Trophy />} label="Rank Up" onClick={() => preview(0, 500, true, "Major Progress")} />
+        <LabButton icon={<Trophy />} label="Rank Up" onClick={previewGenericRankUp} />
         <LabButton icon={<Sparkles />} label="Reward Reveal" onClick={() => preview(250, 0, false, "Reward Unlocked")} />
         <LabButton icon={<AlertTriangle />} label="Error Feedback" onClick={() => showErrorFeedback("Preview action could not be completed.")} />
         <LabButton icon={<Layers3 />} label="Queue 3 Rewards" onClick={() => { preview(250, 0); preview(0, 500); preview(100, 100, true); }} />
