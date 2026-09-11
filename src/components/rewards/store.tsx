@@ -26,11 +26,11 @@ function PurchaseButton({ item }: { item: StoreItem }) {
   async function buy() {
     if (disabled) return;
     setBusy(true);
-    playSound("purchase");
+    playSound("button");
     await storeService.purchaseItem(item.id);
     setState("OWNED");
     setBusy(false);
-    playSound("coin");
+    playSound("purchase");
   }
   return (
     <button onClick={buy} disabled={disabled || busy} data-testid={`buy-${item.id}`}

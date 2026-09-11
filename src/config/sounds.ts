@@ -1,28 +1,12 @@
-export type SoundEvent =
-  | "navigation" | "button" | "tab" | "modalOpen" | "modalClose"
-  | "success" | "error" | "coin" | "xp" | "missionComplete"
-  | "missionClaim" | "wheelStart" | "wheelTick" | "rewardReveal"
-  | "purchase" | "badgeUnlock" | "itemUnlock" | "rankUp" | "rankBuild" | "rankImpact" | "rankReveal" | "rewardCollect"
-  | "friendRequest" | "notification";
-
+export type SoundEvent = "navigation" | "button" | "tab" | "modalOpen" | "modalClose" | "success" | "error" | "coin" | "coinArrival" | "xp" | "missionComplete" | "missionClaim" | "wheelStart" | "wheelTick" | "wheelReward" | "rewardReveal" | "purchase" | "badgeUnlock" | "itemUnlock" | "rankUp" | "rankBuild" | "rankImpact" | "rankReveal" | "rewardCollect" | "rankEliteAccent" | "rankBuildLight" | "friendRequest" | "notification";
 export type SoundCategory = "effect" | "notification";
-
-export interface SoundAsset {
-  path?: string;
-  category: SoundCategory;
-}
-
-/** Add a path only after its file exists in public; undefined entries make no request. */
+export interface SoundAsset { path?: string; category: SoundCategory; volume?: number; playbackRate?: number; startAtMs?: number; stopAfterMs?: number; cooldownMs?: number; maxPolyphony?: number }
 export const soundAssets: Record<SoundEvent, SoundAsset> = {
-  navigation: { category: "effect" }, button: { category: "effect" }, tab: { category: "effect" },
-  modalOpen: { category: "effect" }, modalClose: { category: "effect" }, success: { category: "effect" },
-  error: { category: "effect" }, coin: { category: "effect" }, xp: { category: "effect" },
-  missionComplete: { category: "effect" }, missionClaim: { category: "effect" },
-  wheelStart: { category: "effect" }, wheelTick: { category: "effect" }, rewardReveal: { category: "effect" },
-  purchase: { category: "effect" }, badgeUnlock: { category: "effect" }, itemUnlock: { category: "effect" },
-  rankUp: { category: "effect" }, rankBuild: { category: "effect" }, rankImpact: { category: "effect" }, rankReveal: { category: "effect" }, rewardCollect: { category: "effect" },
-  friendRequest: { category: "notification" }, notification: { category: "notification" },
+  navigation: a("/sounds/ui/navigation-main.mp3",.32,{cooldownMs:180,maxPolyphony:2}), button:a("/sounds/ui/button-click.mp3",.28,{cooldownMs:45,maxPolyphony:3}), tab:a("/sounds/ui/tab-switch.mp3",.34,{cooldownMs:80,maxPolyphony:2}),
+  modalOpen:a("/sounds/ui/modal-open-close.mp3",.32), modalClose:a("/sounds/ui/modal-open-close.mp3",.25,{playbackRate:1.08}), error:a("/sounds/ui/error-pop.mp3",.45,{cooldownMs:500}), notification:n("/sounds/ui/notification.mp3",.36), friendRequest:n("/sounds/ui/notification.mp3",.36),
+  coin:a("/sounds/rewards/sp-coin-tick.mp3",.34,{maxPolyphony:6}), coinArrival:a("/sounds/rewards/sp-coin-arrival.wav",.46,{cooldownMs:250}), xp:a("/sounds/rewards/xp-gain.mp3",.48,{stopAfterMs:1500}), rewardReveal:a("/sounds/rewards/reward-reveal.mp3",.46,{stopAfterMs:1100}), rewardCollect:a("/sounds/rewards/reward-reveal.mp3",.32,{playbackRate:1.06,stopAfterMs:900}), missionComplete:a("/sounds/rewards/mission-complete.mp3",.48,{stopAfterMs:1400}), purchase:a("/sounds/rewards/purchase-unlock.mp3",.5), badgeUnlock:a("/sounds/rewards/purchase-unlock.mp3",.48), itemUnlock:a("/sounds/rewards/purchase-unlock.mp3",.48), success:a("/sounds/rewards/purchase-unlock.mp3",.42,{stopAfterMs:1100}),
+  rankBuild:a("/sounds/progression/rank-build.mp3",.48,{stopAfterMs:1800,maxPolyphony:1}), rankImpact:a("/sounds/progression/rank-impact.mp3",.65,{startAtMs:250,stopAfterMs:900,maxPolyphony:1}), rankReveal:a("/sounds/progression/rank-reveal.mp3",.52,{stopAfterMs:1400,maxPolyphony:1}), rankEliteAccent:a("/sounds/progression/rank-elite-accent.mp3",.3), rankBuildLight:a("/sounds/progression/rank-build-light.mp3",.38), rankUp:{category:"effect"},
+  wheelStart:a("/sounds/wheel/wheel-spin.mp3",.45,{maxPolyphony:1}), wheelReward:a("/sounds/wheel/wheel-reward.mp3",.48,{stopAfterMs:2100}), wheelTick:{category:"effect"}, missionClaim:{category:"effect"},
 };
-
-/** Final licensed/owned hub music belongs at public/sounds/music/hub-theme.mp3. */
-export const backgroundMusicAsset: string | undefined = undefined;
+function a(path:string,volume:number,meta:Partial<SoundAsset>={}):SoundAsset{return{path,volume,category:"effect",...meta}} function n(path:string,volume:number):SoundAsset{return{path,volume,category:"notification",cooldownMs:500}}
+export const backgroundMusicAsset="/sounds/music/hub-theme.mp3";

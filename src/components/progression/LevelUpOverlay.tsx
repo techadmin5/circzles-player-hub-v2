@@ -3,7 +3,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, Gift, X } from "lucide-react";
 import { motion } from "framer-motion";
-import { playSound } from "@/hooks/useSound";
+import { duckMusic, playSound } from "@/hooks/useSound";
 import { ProgressionBadge } from "./ProgressionBadge";
 import { getProgressionVisual } from "@/config/progressionVisuals";
 import styles from "./LevelUpOverlay.module.css";
@@ -17,10 +17,11 @@ export function LevelUpOverlay({ previousRankName, newRankName, progressionLevel
   const hasCollect = Boolean(rewards?.length && onCollectRewards);
   const visual = getProgressionVisual(newRankName);
   useEffect(() => {
+    duckMusic(3200);
     playSound("rankBuild");
     if (reducedMotion) { playSound("rankReveal"); return; }
     const impact = window.setTimeout(() => playSound("rankImpact"), 1500);
-    const reveal = window.setTimeout(() => { playSound("rankReveal"); playSound("rankUp"); }, 1900);
+    const reveal = window.setTimeout(() => playSound("rankReveal"), 1720);
     return () => { window.clearTimeout(impact); window.clearTimeout(reveal); };
   }, [reducedMotion]);
   useEffect(() => {

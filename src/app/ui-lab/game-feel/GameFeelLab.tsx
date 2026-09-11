@@ -3,7 +3,7 @@
 import { AlertTriangle, Coins, Layers3, Sparkles, Trophy, Zap } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useGameFeedback, type RewardFeedback } from "@/components/feedback/GameFeedbackProvider";
-import { useSound } from "@/hooks/useSound";
+import { pauseBackgroundMusic, playSound, resumeBackgroundMusic, useSound } from "@/hooks/useSound";
 import { snapshotFromProfile } from "@/stores/playerUiState";
 import type { PlayerProfile } from "@/types";
 import { ProgressionBadge } from "@/components/progression/ProgressionBadge";
@@ -20,6 +20,8 @@ export function GameFeelLab({ player }: { player: PlayerProfile }) {
   const { celebrateReward, showErrorFeedback } = useGameFeedback();
   const reducedMotion = useSound((state) => state.reducedMotion);
   const setSound = useSound((state) => state.setSound);
+  const effectsVolume = useSound((state) => state.effectsVolume);
+  const musicVolume = useSound((state) => state.musicVolume);
   const base = snapshotFromProfile(player);
   const [scenario, setScenario] = useState(2);
   const [collectionMessage, setCollectionMessage] = useState("");
@@ -74,9 +76,23 @@ export function GameFeelLab({ player }: { player: PlayerProfile }) {
       {collectionMessage && <p role="status" className="text-sm text-[var(--cz-aqua)]">{collectionMessage}</p>}
       <div className="grid grid-cols-3 gap-3 sm:grid-cols-5 lg:grid-cols-9">{progressionRankNames.map((rank) => <div key={rank} className="grid min-w-0 place-items-center gap-1 rounded-lg border border-[var(--cz-hairline)] bg-black/15 p-2"><ProgressionBadge rankName={rank} size="sm" animated decorative /><span className="w-full truncate text-center text-[0.65rem] text-[var(--cz-text-secondary)]">{rank}</span></div>)}</div>
     </section>
+    <section className="cz-surface min-w-0 grid gap-5 p-5">
+      <div><p className="text-[0.62rem] font-bold uppercase tracking-[0.14em] text-[var(--cz-aqua)]">Development Only</p><h2 className="cz-display mt-1 font-bold">Audio Pack V1</h2><p className="mt-1 text-sm text-[var(--cz-text-secondary)]">Local audio preview. No backend or reward writes.</p></div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <AudioButton label="Button Click" sound="button" /><AudioButton label="Main Navigation" sound="navigation" /><AudioButton label="Internal Tab" sound="tab" /><AudioButton label="Modal Open" sound="modalOpen" /><AudioButton label="Modal Close" sound="modalClose" /><AudioButton label="Error" sound="error" /><AudioButton label="Notification" sound="notification" />
+        <LabButton icon={<Coins />} label="SP +250 Sequence" onClick={() => preview(250, 0)} /><LabButton icon={<Zap />} label="XP +500" onClick={() => preview(0, 500)} /><AudioButton label="Reward Reveal" sound="rewardReveal" /><AudioButton label="Mission Complete" sound="missionComplete" />
+        <AudioButton label="Rank Build" sound="rankBuild" /><AudioButton label="Rank Impact" sound="rankImpact" /><AudioButton label="Rank Reveal" sound="rankReveal" /><LabButton icon={<Trophy />} label="Full Rank Sequence" onClick={previewGenericRankUp} />
+        <AudioButton label="Wheel Spin" sound="wheelStart" /><AudioButton label="Wheel Reward" sound="wheelReward" /><AudioButton label="Purchase / Unlock" sound="purchase" />
+        <LabButton icon={<Sparkles />} label="Music Start / Resume" onClick={resumeBackgroundMusic} /><LabButton icon={<Sparkles />} label="Music Pause" onClick={pauseBackgroundMusic} />
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2"><AudioSlider label="Effects Volume Preview" value={effectsVolume} onChange={(value) => setSound({ effectsVolume: value })} /><AudioSlider label="Music Volume Preview" value={musicVolume} onChange={(value) => setSound({ musicVolume: value })} /></div>
+    </section>
   </div>;
 }
 
 function LabButton({ icon, label, onClick }: { icon: ReactNode; label: string; onClick: () => void }) {
   return <button type="button" className="cz-btn cz-btn-ghost justify-start" onClick={onClick}>{icon}{label}</button>;
 }
+
+function AudioButton({ label, sound }: { label: string; sound: Parameters<typeof playSound>[0] }) { return <LabButton icon={<Sparkles />} label={label} onClick={() => playSound(sound)} />; }
+function AudioSlider({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) { return <label className="grid gap-2 text-sm text-[var(--cz-text-secondary)]"><span>{label}: {Math.round(value * 100)}%</span><input type="range" min="0" max="1" step="0.05" value={value} onChange={(event) => onChange(Number(event.target.value))} className="accent-[var(--cz-aqua)]" /></label>; }

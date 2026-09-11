@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Gem, Sparkles, Zap } from "lucide-react";
-import { playSound, useSound } from "@/hooks/useSound";
+import { duckMusic, playSound, useSound } from "@/hooks/useSound";
 import { usePlayerUiState, type PlayerUiSnapshot } from "@/stores/playerUiState";
 import { LevelUpOverlay, type ProgressionRewardPreview } from "@/components/progression/LevelUpOverlay";
 
@@ -62,12 +62,13 @@ export function GameFeedbackProvider({ children }: { children: ReactNode }) {
       timerRef.current = window.setTimeout(resolve, reducedMotion ? Math.min(milliseconds, 450) : milliseconds);
     });
     const run = async () => {
-      playSound("rewardReveal");
+      if (active.source === "MISSION") { playSound("missionComplete"); duckMusic(1900); }
+      else playSound("rewardReveal");
       await wait(950);
       if (cancelled) return;
       if (active.synapsePoints > 0) {
         dispatch({ type: "stage", stage: "sp" });
-        playSound("coin");
+        playCoinSequence(active.synapsePoints);
         animateBalance(active.previousPlayerState.synapsePoints, active.newPlayerState.synapsePoints, Boolean(reducedMotion));
         await wait(1050);
       }
@@ -185,7 +186,16 @@ function animateBalance(from: number, to: number, reducedMotion: boolean) {
 
 function pulseBalance() {
   usePlayerUiState.getState().setBalancePulse(true);
+  playSound("coinArrival");
   window.setTimeout(() => usePlayerUiState.getState().setBalancePulse(false), 650);
+}
+
+function playCoinSequence(amount: number) {
+  const ticks = amount <= 25 ? 3 : amount <= 500 ? 5 : 6;
+  const rates = [.96, 1, 1.04, 1.08];
+  for (let index = 0; index < ticks; index += 1) {
+    window.setTimeout(() => playSound("coin", { playbackRate: rates[index % rates.length] }), 90 + index * (620 / Math.max(1, ticks - 1)));
+  }
 }
 
 function getBalanceDestination() {

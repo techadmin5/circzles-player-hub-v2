@@ -5,7 +5,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Gem, Sparkles, X } from "lucide-react";
 import type { RewardWheelResult } from "@/types";
 import { rewardService } from "@/services";
-import { playSound } from "@/hooks/useSound";
+import { duckMusic, playSound } from "@/hooks/useSound";
 import { formatNumber } from "@/lib/format";
 
 type Tone = "aqua" | "gold" | "silver" | "blue" | "violet" | "graphite";
@@ -88,7 +88,8 @@ export function RewardWheel() {
       setResult(res);
       setReveal(true);
       setSpinning(false);
-      playSound("rewardReveal");
+      duckMusic(2200);
+      playSound("wheelReward");
     }, durationSec * 1000 + 60));
   }
 
