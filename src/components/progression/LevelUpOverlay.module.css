@@ -34,7 +34,7 @@
   display: grid;
   place-items: center;
   width: 100%;
-  height: 190px;
+  height: 200px;
 }
 
 .result {
@@ -47,7 +47,7 @@
 .details {
   display: grid;
   gap: 14px;
-  margin-top: 40px;
+  margin: 80px;
 }
 
 @media (max-width: 639px) {
@@ -66,6 +66,7 @@
     max-height: calc(100dvh - 16px);
     padding: 14px;
   }
-  .badgeStage { height: 145px; }
+  .badgeStage { height: 180px; }
   .details { gap: 10px; }
+  .details {margin: 50px; }
 }
