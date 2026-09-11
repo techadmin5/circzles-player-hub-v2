@@ -9,8 +9,8 @@
   justify-content: center;
   padding: 16px;
   overflow: hidden;
-  background-color: rgba(0, 0, 0, 0.96);
-  backdrop-filter: blur(3px);
+  background-color: rgba(2, 5, 10, 0.7);
+  backdrop-filter: blur(2px);
 }
 
 .popup {
@@ -34,8 +34,7 @@
   display: grid;
   place-items: center;
   width: 100%;
-  height: 250px;
-  margin-top: 4px;
+  height: 220px;
 }
 
 .result {
@@ -57,7 +56,7 @@
     max-height: calc(100dvh - 20px);
     padding: 18px 16px 20px;
   }
-  .badgeStage { height: 190px; }
+  .badgeStage { height: 175px; }
 }
 
 @media (max-height: 700px) {
@@ -67,6 +66,6 @@
     padding-top: 14px;
     padding-bottom: 14px;
   }
-  .badgeStage { height: 155px; }
+  .badgeStage { height: 150px; }
   .details { gap: 10px; }
 }

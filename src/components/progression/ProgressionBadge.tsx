@@ -6,7 +6,7 @@ import { useSound } from "@/hooks/useSound";
 import { getProgressionVisual } from "@/config/progressionVisuals";
 import { cn } from "@/lib/utils";
 
-const sizes = { xs: 38, sm: 56, md: 88, lg: 150, hero: 220 } as const;
+const sizes = { xs: 38, sm: 56, md: 88, lg: 150, xl: 190, hero: 220 } as const;
 
 export function ProgressionBadge({ rankName, size = "md", animated = false, className, decorative = false }: { rankName: string; size?: keyof typeof sizes; animated?: boolean; className?: string; decorative?: boolean }) {
   const visual = getProgressionVisual(rankName);
