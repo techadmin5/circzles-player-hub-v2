@@ -1,0 +1,144 @@
+import { describe, expect, it } from "vitest";
+import { AppError, insufficientPoints } from "../src/domain/errors.js";
+import { StorePurchaseService, type StorePurchaseInput, type StorePurchaseRepository, type StorePurchaseResult } from "../src/domain/storePurchases.js";
+import type { RewardDefinitionType } from "../src/domain/rewardCatalog.js";
+
+type Listing = { id: string; rewardDefinitionId: string; rewardType: RewardDefinitionType; code: string; name: string; imageUrl: string | null; rarity: string | null; price: number; active: boolean; rewardActive: boolean; availableFrom: Date | null; availableUntil: Date | null; purchaseLimit: number | null };
+type Purchase = StorePurchaseResult & { playerId: string; idempotencyKey: string; pointTransactionId: string | null };
+
+class PurchaseHarness implements StorePurchaseRepository {
+  listings = new Map<string, Listing>();
+  wallets = new Map<string, number>();
+  purchases: Purchase[] = [];
+  debits: Array<{ id: string; playerId: string; amount: number; sourceId: string; sourceType: string }> = [];
+  events: Array<{ type: string; key: string; purchaseId: string }> = [];
+  failAfterDebit = false;
+  private sequence = Promise.resolve();
+
+  purchase(input: StorePurchaseInput): Promise<StorePurchaseResult> {
+    const operation = this.sequence.then(() => this.purchaseAtomically(input));
+    this.sequence = operation.then(() => undefined, () => undefined);
+    return operation;
+  }
+
+  private async purchaseAtomically(input: StorePurchaseInput): Promise<StorePurchaseResult> {
+    const snapshot = { wallets: new Map(this.wallets), purchases: [...this.purchases], debits: [...this.debits], events: [...this.events] };
+    try {
+      const replay = this.purchases.find((purchase) => purchase.playerId === input.playerId && purchase.idempotencyKey === input.idempotencyKey);
+      if (replay) {
+        if (replay.listingId !== input.listingId) throw new AppError("IDEMPOTENCY_CONFLICT", "Different listing.", 409);
+        return { ...replay, idempotent: true };
+      }
+      const listing = this.listings.get(input.listingId);
+      const now = input.now ?? new Date("2026-09-12T12:00:00Z");
+      if (!listing || !listing.active || !listing.rewardActive || (listing.availableFrom && now < listing.availableFrom) || (listing.availableUntil && now >= listing.availableUntil)) throw new AppError("STORE_LISTING_UNAVAILABLE", "Unavailable.", 409);
+      const count = this.purchases.filter((purchase) => purchase.playerId === input.playerId && purchase.listingId === listing.id).length;
+      if (listing.purchaseLimit !== null && count >= listing.purchaseLimit) throw new AppError("PURCHASE_LIMIT_REACHED", "Limit reached.", 409);
+      const balance = this.wallets.get(input.playerId) ?? 0;
+      if (balance < listing.price) throw insufficientPoints();
+      const purchaseId = `purchase-${this.purchases.length + 1}`;
+      const balanceAfter = balance - listing.price;
+      let pointTransactionId: string | null = null;
+      if (listing.price > 0) {
+        pointTransactionId = `debit-${this.debits.length + 1}`;
+        this.wallets.set(input.playerId, balanceAfter);
+        this.debits.push({ id: pointTransactionId, playerId: input.playerId, amount: listing.price, sourceId: purchaseId, sourceType: "STORE_PURCHASE" });
+      }
+      if (this.failAfterDebit) throw new Error("simulated post-debit failure");
+      const result: Purchase = { purchaseId, playerId: input.playerId, listingId: listing.id, reward: { rewardDefinitionId: listing.rewardDefinitionId, code: listing.code, rewardType: listing.rewardType, name: listing.name, imageUrl: listing.imageUrl, rarity: listing.rarity }, priceSynapsePoints: listing.price, balanceAfter, purchasedAt: now.toISOString(), idempotent: false, idempotencyKey: input.idempotencyKey, pointTransactionId };
+      this.purchases.push(result);
+      this.events.push({ type: "store.purchase.completed", key: `store.purchase.completed:${purchaseId}`, purchaseId });
+      return result;
+    } catch (error) {
+      this.wallets = snapshot.wallets; this.purchases = snapshot.purchases; this.debits = snapshot.debits; this.events = snapshot.events;
+      throw error;
+    }
+  }
+}
+
+const now = new Date("2026-09-12T12:00:00Z");
+function listing(overrides: Partial<Listing> = {}): Listing { return { id: "listing-1", rewardDefinitionId: "reward-1", rewardType: "FRAME", code: "FRAME_NEON", name: "Neon Frame", imageUrl: "/frame.png", rarity: "EPIC", price: 250, active: true, rewardActive: true, availableFrom: null, availableUntil: null, purchaseLimit: null, ...overrides }; }
+function input(overrides: Partial<StorePurchaseInput> = {}): StorePurchaseInput { return { playerId: "player-1", listingId: "listing-1", idempotencyKey: "purchase-key-1", now, ...overrides }; }
+function setup(overrides: Partial<Listing> = {}) { const repo = new PurchaseHarness(); repo.listings.set("listing-1", listing(overrides)); repo.wallets.set("player-1", 1000); return { repo, service: new StorePurchaseService(repo) }; }
+
+describe("secure Store purchases", () => {
+  it("debits the authoritative price and stores immutable reward and balance snapshots", async () => {
+    const { repo, service } = setup();
+    const result = await service.purchase(input());
+    expect(result).toMatchObject({ priceSynapsePoints: 250, balanceAfter: 750, reward: { rewardDefinitionId: "reward-1", code: "FRAME_NEON", rewardType: "FRAME", name: "Neon Frame" } });
+    expect(repo.wallets.get("player-1")).toBe(750);
+    expect(repo.debits[0]).toMatchObject({ amount: 250, sourceId: result.purchaseId, sourceType: "STORE_PURCHASE" });
+    expect(repo.purchases[0].pointTransactionId).toBe(repo.debits[0].id);
+    expect(repo.events).toEqual([{ type: "store.purchase.completed", key: `store.purchase.completed:${result.purchaseId}`, purchaseId: result.purchaseId }]);
+  });
+
+  it("handles free purchases without a zero-SP debit", async () => {
+    const { repo, service } = setup({ price: 0 });
+    const result = await service.purchase(input());
+    expect(result.balanceAfter).toBe(1000);
+    expect(repo.wallets.get("player-1")).toBe(1000);
+    expect(repo.debits).toHaveLength(0);
+    expect(repo.purchases[0].pointTransactionId).toBeNull();
+  });
+
+  it("replays exactly without another purchase, debit, event, or balance change", async () => {
+    const { repo, service } = setup();
+    const first = await service.purchase(input());
+    const replay = await service.purchase(input());
+    expect(replay).toMatchObject({ purchaseId: first.purchaseId, purchasedAt: first.purchasedAt, idempotent: true });
+    expect(repo.purchases).toHaveLength(1); expect(repo.debits).toHaveLength(1); expect(repo.events).toHaveLength(1); expect(repo.wallets.get("player-1")).toBe(750);
+  });
+
+  it("rejects conflicting listing reuse of a player idempotency key", async () => {
+    const { repo, service } = setup(); repo.listings.set("listing-2", listing({ id: "listing-2" }));
+    await service.purchase(input());
+    await expect(service.purchase(input({ listingId: "listing-2" }))).rejects.toMatchObject({ code: "IDEMPOTENCY_CONFLICT", statusCode: 409 });
+  });
+
+  it("rejects insufficient funds without side effects", async () => {
+    const { repo, service } = setup({ price: 1001 });
+    await expect(service.purchase(input())).rejects.toMatchObject({ code: "INSUFFICIENT_POINTS" });
+    expect(repo.purchases).toHaveLength(0); expect(repo.debits).toHaveLength(0); expect(repo.events).toHaveLength(0); expect(repo.wallets.get("player-1")).toBe(1000);
+  });
+
+  it.each([
+    ["inactive listing", { active: false }], ["inactive reward", { rewardActive: false }],
+    ["future listing", { availableFrom: new Date("2026-09-13T00:00:00Z") }], ["expired listing", { availableUntil: now }],
+  ] as const)("rejects an %s", async (_name, overrides) => {
+    const { repo, service } = setup(overrides);
+    await expect(service.purchase(input())).rejects.toMatchObject({ code: "STORE_LISTING_UNAVAILABLE" });
+    expect(repo.purchases).toHaveLength(0);
+  });
+
+  it("enforces purchase limit one", async () => {
+    const { repo, service } = setup({ purchaseLimit: 1 });
+    await service.purchase(input());
+    await expect(service.purchase(input({ idempotencyKey: "purchase-key-2" }))).rejects.toMatchObject({ code: "PURCHASE_LIMIT_REACHED" });
+    expect(repo.purchases).toHaveLength(1);
+  });
+
+  it("allows exactly N purchases", async () => {
+    const { repo, service } = setup({ purchaseLimit: 2 });
+    await service.purchase(input()); await service.purchase(input({ idempotencyKey: "purchase-key-2" }));
+    await expect(service.purchase(input({ idempotencyKey: "purchase-key-3" }))).rejects.toMatchObject({ code: "PURCHASE_LIMIT_REACHED" });
+    expect(repo.purchases).toHaveLength(2);
+  });
+
+  it("serializes simultaneous exact retries to one debit", async () => {
+    const { repo, service } = setup();
+    const [first, replay] = await Promise.all([service.purchase(input()), service.purchase(input())]);
+    expect(first.purchaseId).toBe(replay.purchaseId); expect([first.idempotent, replay.idempotent]).toEqual([false, true]); expect(repo.debits).toHaveLength(1);
+  });
+
+  it("does not let simultaneous distinct attempts bypass a limit", async () => {
+    const { repo, service } = setup({ purchaseLimit: 1 });
+    const results = await Promise.allSettled([service.purchase(input()), service.purchase(input({ idempotencyKey: "purchase-key-2" }))]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1); expect(repo.purchases).toHaveLength(1); expect(repo.debits).toHaveLength(1);
+  });
+
+  it("rolls back wallet, debit, purchase, and event after a post-debit failure", async () => {
+    const { repo, service } = setup(); repo.failAfterDebit = true;
+    await expect(service.purchase(input())).rejects.toThrow("simulated post-debit failure");
+    expect(repo.wallets.get("player-1")).toBe(1000); expect(repo.debits).toHaveLength(0); expect(repo.purchases).toHaveLength(0); expect(repo.events).toHaveLength(0);
+  });
+});

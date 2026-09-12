@@ -161,6 +161,12 @@ The intended submission media flow remains:
 
 Reward definition and store availability are separate concerns. Later purchase processing must lock and validate the authoritative listing, debit the wallet, and create inventory or consumable grant history in one transaction; Phase 3G-A deliberately implements none of those mutations.
 
+## Phase 3G-B Store Purchase Boundary
+
+`StorePurchaseService` validates operation identity and delegates the atomic operation to `StorePurchaseRepository`. The Drizzle repository serializes exact keys with a transaction advisory lock, takes shared row locks on canonical listing/reward configuration, then locks the player's wallet before checking limits. Paid operations reuse the shared point-ledger debit helper; free operations lock/read the wallet without creating a zero-value ledger record.
+
+Purchase history and `store.purchase.completed` are written in the same transaction as the debit. The point ledger remains financial authority; `store_purchases` supplies business/audit snapshots and purchase-limit evidence. Inventory entitlements remain a separate Phase 3G-C boundary, so the API-mode frontend does not yet expose an enabled purchase action.
+
 ## Operations Requiring Database Transactions
 
 - Store purchase

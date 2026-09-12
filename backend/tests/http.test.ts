@@ -11,6 +11,7 @@ import { SubmissionReviewService } from "../src/domain/submissionReviews.js";
 import { PublicProfileService } from "../src/domain/publicProfiles.js";
 import { MissionClaimService, PlayerMissionService } from "../src/domain/missions.js";
 import { RewardCatalogService, type RewardCatalogRepository, type StoreCatalogItemDto } from "../src/domain/rewardCatalog.js";
+import { StorePurchaseService, type StorePurchaseRepository, type StorePurchaseResult } from "../src/domain/storePurchases.js";
 import { FakeAdminAuthorizationRepository, FakeAdminSubmissionRepository, FakeGameStateRepository, FakeIdentityRepository, FakeLeaderboardRepository, FakeMissionClaimRepository, FakePlayerMissionRepository, FakePublicProfileRepository, FakePuzzleRepository, FakeSubmissionRepository, FakeSubmissionReviewRepository, FakeVideoStorage } from "./fakes.js";
 import type { Env } from "../src/config/env.js";
 
@@ -57,8 +58,13 @@ async function appWithFakes(overrides: Partial<Env> = {}) {
   const missionClaims = new MissionClaimService(missionClaimRepo);
   const catalogItems: StoreCatalogItemDto[] = [{ listingId: "10000000-0000-4000-8000-000000000001", rewardDefinitionId: "20000000-0000-4000-8000-000000000001", code: "FRAME_TEST", rewardType: "FRAME", name: "Test Frame", description: "Test catalog item.", imageUrl: null, rarity: "RARE", priceSynapsePoints: 250, featured: true, displayOrder: 1, purchaseLimit: null }];
   const rewardCatalog = new RewardCatalogService({ listAvailable: async () => catalogItems } satisfies RewardCatalogRepository);
-  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, checkDb: async () => {} });
-  return { app, gameRepo, puzzleRepo, submissionRepo, videoStorage, adminAuthRepo, adminSubmissionRepo, leaderboardRepo, reviewRepo, publicProfileRepo, missionRepo, missionClaimRepo, testEnv };
+  const purchaseCalls: Array<{ playerId: string; listingId: string; idempotencyKey: string }> = [];
+  const storePurchases = new StorePurchaseService({ purchase: async (input) => {
+    purchaseCalls.push(input);
+    return { purchaseId: "30000000-0000-4000-8000-000000000001", listingId: input.listingId, reward: { rewardDefinitionId: catalogItems[0].rewardDefinitionId, code: "FRAME_TEST", rewardType: "FRAME", name: "Test Frame", imageUrl: null, rarity: "RARE" }, priceSynapsePoints: 250, balanceAfter: 750, purchasedAt: "2026-09-12T12:00:00.000Z", idempotent: false } satisfies StorePurchaseResult;
+  } } satisfies StorePurchaseRepository);
+  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, checkDb: async () => {} });
+  return { app, gameRepo, puzzleRepo, submissionRepo, videoStorage, adminAuthRepo, adminSubmissionRepo, leaderboardRepo, reviewRepo, publicProfileRepo, missionRepo, missionClaimRepo, purchaseCalls, testEnv };
 }
 
 async function login(app: Awaited<ReturnType<typeof appWithFakes>>["app"]) {
@@ -160,6 +166,7 @@ describe("http auth poc", () => {
       missions: new PlayerMissionService(new FakePlayerMissionRepository()),
       missionClaims: new MissionClaimService(new FakeMissionClaimRepository()),
       rewardCatalog: new RewardCatalogService({ listAvailable: async () => [] }),
+      storePurchases: new StorePurchaseService({ purchase: async () => { throw new Error("not used"); } }),
       checkDb: async () => { checked = true; },
     });
     const res = await app.inject({ method: "GET", url: "/health" });
@@ -177,6 +184,32 @@ describe("http auth poc", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json().items[0]).toMatchObject({ code: "FRAME_TEST", priceSynapsePoints: 250 });
     expect(response.json().items[0]).not.toHaveProperty("metadata");
+  });
+
+  it("POST /api/rewards/store/:listingId/purchase requires auth and derives player from session", async () => {
+    const { app, purchaseCalls } = await appWithFakes({ NODE_ENV: "development" });
+    const listingId = "10000000-0000-4000-8000-000000000001";
+    expect((await app.inject({ method: "POST", url: `/api/rewards/store/${listingId}/purchase`, headers: { "idempotency-key": "buy-1" }, payload: {} })).statusCode).toBe(401);
+    const cookie = await login(app);
+    const response = await app.inject({ method: "POST", url: `/api/rewards/store/${listingId}/purchase`, headers: { cookie, "idempotency-key": "  buy-1  " }, payload: {} });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ listingId, priceSynapsePoints: 250, balanceAfter: 750 });
+    expect(purchaseCalls[0]).toMatchObject({ listingId, idempotencyKey: "buy-1" });
+    expect(purchaseCalls[0].playerId).toBeTruthy();
+  });
+
+  it.each([
+    ["invalid listing UUID", "/api/rewards/store/not-a-uuid/purchase", { "idempotency-key": "buy-1" }, {}],
+    ["missing idempotency key", "/api/rewards/store/10000000-0000-4000-8000-000000000001/purchase", {}, {}],
+    ["oversized idempotency key", "/api/rewards/store/10000000-0000-4000-8000-000000000001/purchase", { "idempotency-key": "x".repeat(201) }, {}],
+    ["client price", "/api/rewards/store/10000000-0000-4000-8000-000000000001/purchase", { "idempotency-key": "buy-1" }, { priceSynapsePoints: 1 }],
+    ["unexpected body data", "/api/rewards/store/10000000-0000-4000-8000-000000000001/purchase", { "idempotency-key": "buy-1" }, { rewardType: "XP" }],
+  ])("rejects Store purchase %s", async (_name, url, headers, payload) => {
+    const { app } = await appWithFakes({ NODE_ENV: "development" });
+    const cookie = await login(app);
+    const response = await app.inject({ method: "POST", url, headers: { cookie, ...headers }, payload });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().code).toBe("VALIDATION_FAILED");
   });
 
   it("development grant endpoints are unavailable in production", async () => {

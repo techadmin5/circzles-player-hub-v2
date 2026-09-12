@@ -327,3 +327,13 @@ Authentication: required player session cookie.
 Returns `{ "items": StoreCatalogItem[] }`. Each item contains `listingId`, `rewardDefinitionId`, `code`, `rewardType`, `name`, `description`, nullable `imageUrl`, nullable `rarity`, `priceSynapsePoints`, `featured`, `displayOrder`, and nullable `purchaseLimit`.
 
 Only active reward definitions and active listings are returned. `availableFrom` is inclusive and `availableUntil` is exclusive, evaluated against backend time. Internal reward/listing metadata and inactive scheduling details are not exposed. This is a read-only catalog endpoint; it does not purchase or grant a reward.
+
+## Phase 3G-B Store Purchase
+
+### `POST /api/rewards/store/:listingId/purchase`
+
+Authentication: required player session cookie. `listingId` must be a UUID. Request body must be `{}` and `Idempotency-Key` is required, trimmed, non-empty, and at most 200 characters. Price, reward identity, player identity, balance, limits, and ownership outcomes are never accepted from the browser.
+
+Returns `{ purchaseId, listingId, reward: { rewardDefinitionId, code, rewardType, name, imageUrl, rarity }, priceSynapsePoints, balanceAfter, purchasedAt, idempotent }`. Exact same-player/key/listing retries return the same immutable purchase with `idempotent: true`; another listing with the same key returns `409 IDEMPOTENCY_CONFLICT`.
+
+Unavailable listings return `STORE_LISTING_UNAVAILABLE`, exhausted limits return `PURCHASE_LIMIT_REACHED`, and insufficient wallet balance uses the existing insufficient-points error. Failed purchases commit no debit, purchase, or event.

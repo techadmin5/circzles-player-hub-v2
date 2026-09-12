@@ -501,3 +501,28 @@ export const storeListings = pgTable("store_listings", {
   purchaseLimitCheck: check("store_listings_purchase_limit_check", sql`${table.purchaseLimit} is null or ${table.purchaseLimit} > 0`),
   availabilityCheck: check("store_listings_availability_check", sql`${table.availableUntil} is null or ${table.availableFrom} is null or ${table.availableUntil} > ${table.availableFrom}`),
 }));
+
+export const storePurchases = pgTable("store_purchases", {
+  purchaseId: uuid("purchase_id").primaryKey().defaultRandom(),
+  playerId: uuid("player_id").notNull().references(() => players.playerId, { onDelete: "restrict" }),
+  storeListingId: uuid("store_listing_id").notNull().references(() => storeListings.storeListingId, { onDelete: "restrict" }),
+  rewardDefinitionId: uuid("reward_definition_id").notNull().references(() => rewardDefinitions.rewardDefinitionId, { onDelete: "restrict" }),
+  priceSynapsePointsSnapshot: integer("price_synapse_points_snapshot").notNull(),
+  rewardTypeSnapshot: rewardDefinitionType("reward_type_snapshot").notNull(),
+  rewardCodeSnapshot: text("reward_code_snapshot").notNull(),
+  rewardNameSnapshot: text("reward_name_snapshot").notNull(),
+  raritySnapshot: text("rarity_snapshot"),
+  imageUrlSnapshot: text("image_url_snapshot"),
+  pointTransactionId: uuid("point_transaction_id").references(() => pointTransactions.transactionId, { onDelete: "restrict" }),
+  balanceAfter: integer("balance_after").notNull(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  purchasedAt: timestamp("purchased_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  playerIdempotencyUnique: uniqueIndex("store_purchases_player_id_idempotency_key_unique").on(table.playerId, table.idempotencyKey),
+  pointTransactionUnique: uniqueIndex("store_purchases_point_transaction_id_unique").on(table.pointTransactionId),
+  playerListingIndex: index("store_purchases_player_id_store_listing_id_idx").on(table.playerId, table.storeListingId),
+  playerPurchasedAtIndex: index("store_purchases_player_id_purchased_at_idx").on(table.playerId, table.purchasedAt),
+  priceCheck: check("store_purchases_price_synapse_points_snapshot_check", sql`${table.priceSynapsePointsSnapshot} >= 0`),
+  balanceCheck: check("store_purchases_balance_after_check", sql`${table.balanceAfter} >= 0`),
+  ledgerLinkCheck: check("store_purchases_point_transaction_link_check", sql`(${table.priceSynapsePointsSnapshot} = 0 and ${table.pointTransactionId} is null) or (${table.priceSynapsePointsSnapshot} > 0 and ${table.pointTransactionId} is not null)`),
+}));

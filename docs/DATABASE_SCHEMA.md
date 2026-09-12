@@ -460,6 +460,14 @@ Migration `0011_vengeful_junta.sql` adds `reward_definition_type`, `reward_defin
 
 The migration is additive and schema-only, with no drops or seed data. Purchase, inventory, equip/use, Rename Card consumption, wheel grant authority, and coupon commerce records remain deferred.
 
+## Phase 3G-B Store Purchases
+
+Migration `0012_early_the_hood.sql` adds immutable `store_purchases`: purchase/player/listing/reward identities; price, reward type/code/name, optional rarity/image, and balance snapshots; nullable point-transaction linkage; player-scoped idempotency key; and purchase time.
+
+Player, listing, reward-definition, and point-transaction foreign keys are restrictive. `(player_id, idempotency_key)` is unique, and a point transaction can belong to at most one purchase. Price and balance snapshots are non-negative. A consistency check requires paid purchases to reference their debit and free purchases to have no point transaction. Player/listing and player/time indexes support purchase-limit and history reads.
+
+The migration is additive and schema-only and was not applied during Phase 3G-B.
+
 ## Phase 3D Implemented Tables
 
 Migration `0003_phase_3d_submissions.sql` adds schema only.

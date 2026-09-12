@@ -85,6 +85,13 @@
       "when": 1789192431015,
       "tag": "0011_vengeful_junta",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1789195960194,
+      "tag": "0012_early_the_hood",
+      "breakpoints": true
     }
   ]
 }

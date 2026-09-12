@@ -161,3 +161,7 @@ When progress first reaches its target, the processor emits `mission.completed` 
 An authenticated claim is a separate server-authoritative action. The backend derives player and current period, locks claimable progress, reads active reward configuration, snapshots aggregated XP/SP, grants both ledgers, marks progress claimed, and emits `mission.claimed` in one transaction. Browser-supplied reward, progress, identity, and period values are never authoritative.
 
 The claim event uses deterministic key `mission.claimed:{playerId}:{missionId}:{periodKey}`. Reward ledgers use `mission.reward.sp:{playerId}:{missionId}:{periodKey}` and `mission.reward.xp:{playerId}:{missionId}:{periodKey}`, with source type `MISSION_REWARD`. Player-scoped claim idempotency and one claim per progress row/player/mission/period prevent duplicate grants under retries and concurrent requests.
+
+## Phase 3G-B Store Purchase Event
+
+`store.purchase.completed` is emitted once in the successful purchase transaction. Its source is the immutable purchase and its deterministic idempotency key is `store.purchase.completed:<purchaseId>`. The payload contains `purchaseId`, `listingId`, `rewardDefinitionId`, `rewardType`, `priceSynapsePoints`, and `balanceAfter`; it excludes metadata and secrets. Exact purchase replay does not append another event.

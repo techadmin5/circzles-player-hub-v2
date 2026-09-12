@@ -207,6 +207,16 @@ export async function creditPointsInTransaction(tx: GameStateTransaction, input:
   return changePointsInTransaction(tx, input, "CREDIT");
 }
 
+export async function debitPointsInTransaction(tx: GameStateTransaction, input: PointChangeInput): Promise<PointChangeResult> {
+  return changePointsInTransaction(tx, input, "DEBIT");
+}
+
+export async function lockWalletAndGetBalanceInTransaction(tx: GameStateTransaction, playerId: string) {
+  await ensurePlayerGameStateInTransaction(tx, playerId);
+  await lockWallet(tx, playerId);
+  return (await readWallet(tx, playerId)).balance;
+}
+
 async function changePointsInTransaction(tx: GameStateTransaction, input: PointChangeInput, direction: "CREDIT" | "DEBIT"): Promise<PointChangeResult> {
   await ensurePlayerGameStateInTransaction(tx, input.playerId);
   await lockWallet(tx, input.playerId);

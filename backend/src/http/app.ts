@@ -17,6 +17,7 @@ import type { SubmissionReviewService } from "../domain/submissionReviews.js";
 import type { PublicProfileService } from "../domain/publicProfiles.js";
 import type { MissionClaimService, PlayerMissionService } from "../domain/missions.js";
 import type { RewardCatalogService } from "../domain/rewardCatalog.js";
+import type { StorePurchaseService } from "../domain/storePurchases.js";
 
 export interface AppDeps {
   env: Env;
@@ -32,6 +33,7 @@ export interface AppDeps {
   missions: PlayerMissionService;
   missionClaims: MissionClaimService;
   rewardCatalog: RewardCatalogService;
+  storePurchases: StorePurchaseService;
   checkDb: () => Promise<void>;
 }
 
@@ -73,8 +75,9 @@ const reviewSubmissionBodySchema = z.object({
   decision: z.enum(["APPROVED", "REJECTED", "RESUBMISSION_REQUIRED"]),
   reviewNote: z.string().max(2000).optional(),
 }).strict();
+const storePurchaseParamsSchema = z.object({ listingId: z.string().uuid() }).strict();
 
-export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, checkDb }: AppDeps) {
+export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, checkDb }: AppDeps) {
   const app = Fastify({
     logger: env.NODE_ENV === "test" ? false : {
       level: "info",
@@ -180,6 +183,17 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
   app.get("/api/rewards/store", async (request, reply) => {
     await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
     return reply.send({ items: await rewardCatalog.listAvailable() });
+  });
+
+  app.post("/api/rewards/store/:listingId/purchase", async (request, reply) => {
+    const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+    const params = storePurchaseParamsSchema.safeParse(request.params);
+    if (!params.success) throw validationFailed("Invalid Store listing id.", params.error.flatten());
+    if (request.body && (typeof request.body !== "object" || Array.isArray(request.body) || Object.keys(request.body).length > 0)) throw validationFailed("Store purchase does not accept request data.");
+    const header = request.headers["idempotency-key"];
+    const idempotencyKey = typeof header === "string" ? header.trim() : "";
+    if (!idempotencyKey || idempotencyKey.length > 200) throw validationFailed("A valid Idempotency-Key header is required.");
+    return reply.send(await storePurchases.purchase({ playerId: player.internalId, listingId: params.data.listingId, idempotencyKey }));
   });
 
   app.post("/api/missions/:missionId/claim", async (request, reply) => {
