@@ -40,7 +40,7 @@ export function CouponGrid({ coupons }: { coupons: Coupon[] }) {
     <div className="grid gap-4">
       <div className="flex gap-1.5">
         {TABS.map((t) => (
-          <button key={t} onClick={() => { playSound("tab"); setTab(t); }} data-testid={`coupon-tab-${t}`}
+          <button key={t} type="button" role="tab" aria-selected={tab === t} data-sound="tab" onClick={() => setTab(t)} data-testid={`coupon-tab-${t}`}
             className={cn("cz-btn cz-btn-sm capitalize", tab === t ? "cz-btn-primary" : "cz-btn-ghost")}>{t.toLowerCase()}</button>
         ))}
       </div>

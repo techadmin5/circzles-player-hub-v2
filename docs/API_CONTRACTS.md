@@ -318,3 +318,12 @@ All endpoints below require the authenticated session cookie. The server derives
 - `POST /api/submissions` accepts strict JSON `{ "playerPuzzleId", "completionTimeMs", "videoUploadId" }` and optional `Idempotency-Key`. `completionTimeMs` must be from 1 through PostgreSQL integer maximum `2147483647`. The server derives canonical `puzzleId` and `levelId` from active ownership and creates `PENDING_REVIEW` only after video verification. Clients reuse one idempotency key while retrying the same logical attempt; changing puzzle, time, or video requires a new key.
 
 Browser-supplied `playerId`, `puzzleId`, `levelId`, status, XP, points, and rewards are rejected. Upload failures use controlled codes including `VIDEO_STORAGE_NOT_CONFIGURED`, `VIDEO_UPLOAD_NOT_FOUND`, `VIDEO_UPLOAD_VERIFICATION_FAILED`, and `VIDEO_UPLOAD_ALREADY_USED`.
+## Phase 3G-A Reward Catalog
+
+### `GET /api/rewards/store`
+
+Authentication: required player session cookie.
+
+Returns `{ "items": StoreCatalogItem[] }`. Each item contains `listingId`, `rewardDefinitionId`, `code`, `rewardType`, `name`, `description`, nullable `imageUrl`, nullable `rarity`, `priceSynapsePoints`, `featured`, `displayOrder`, and nullable `purchaseLimit`.
+
+Only active reward definitions and active listings are returned. `availableFrom` is inclusive and `availableUntil` is exclusive, evaluated against backend time. Internal reward/listing metadata and inactive scheduling details are not exposed. This is a read-only catalog endpoint; it does not purchase or grant a reward.

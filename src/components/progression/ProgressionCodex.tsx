@@ -72,7 +72,7 @@ export function ProgressionCodex({ open, onClose, player }: { open: boolean; onC
                 {progressionRanks.map((rank) => {
                   const s = stateFor(rank.order, current.order);
                   return (
-                    <button key={rank.key} onClick={() => { playSound("tab"); setSelectedKey(rank.key); }} data-testid={`codex-rank-${rank.key}`}
+                    <button key={rank.key} data-sound="tab" onClick={() => setSelectedKey(rank.key)} data-testid={`codex-rank-${rank.key}`}
                       className={cn("mb-2 grid w-full grid-cols-[auto_1fr_auto] items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors", selectedKey === rank.key ? "border-[rgba(61,234,212,0.4)] bg-[var(--cz-aqua-dim)]" : "border-[var(--cz-hairline)] bg-white/[0.02] hover:border-[var(--cz-hairline-strong)]")}>
                       <RankEmblem rank={rank.rank} state={s} size={42} />
                       <div>

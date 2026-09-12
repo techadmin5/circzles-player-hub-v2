@@ -5,7 +5,6 @@ import { motion } from "framer-motion";
 import { CalendarClock, CheckCircle2, Flame, Gift, Lock, Sparkles, Star, Swords, Trophy } from "lucide-react";
 import type { Mission, MissionCategory, MissionClaimResult } from "@/types";
 import { Chip } from "@/components/ui/kit";
-import { playSound } from "@/hooks/useSound";
 import { cn } from "@/lib/utils";
 
 const CATEGORY_ICON: Record<MissionCategory, React.ReactNode> = {
@@ -67,7 +66,7 @@ export function MissionBoard({ missions, busyMissionIds, claimErrors, claimResul
       {claimableCount > 0 && <p className="text-sm text-[var(--cz-gold)]">{claimableCount} reward{claimableCount > 1 ? "s" : ""} ready to claim</p>}
       <div className="cz-scroll -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1" role="tablist" aria-label="Mission categories">
         {FILTERS.map((filterOption) => (
-          <button key={filterOption} type="button" role="tab" aria-selected={filter === filterOption} onClick={() => { playSound("tab"); setFilter(filterOption); }} data-testid={`mission-filter-${filterOption}`}
+          <button key={filterOption} type="button" role="tab" aria-selected={filter === filterOption} data-sound="tab" onClick={() => setFilter(filterOption)} data-testid={`mission-filter-${filterOption}`}
             className={cn("cz-btn cz-btn-sm shrink-0 capitalize", filter === filterOption ? "cz-btn-primary" : "cz-btn-ghost")}>{filterOption === "All" ? "All" : filterOption.toLowerCase()}</button>
         ))}
       </div>

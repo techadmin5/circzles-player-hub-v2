@@ -11,9 +11,9 @@ function Toggle({ label, description, checked, onChange, testid }: { label: stri
         <span className="cz-display block text-sm font-semibold">{label}</span>
         <span className="block text-xs text-[var(--cz-text-tertiary)]">{description}</span>
       </span>
-      <button role="switch" aria-checked={checked} aria-label={label} data-testid={testid} onClick={() => onChange(!checked)}
-        className={cn("relative h-6 w-11 shrink-0 rounded-full transition-colors", checked ? "bg-[var(--cz-aqua)]" : "bg-[var(--cz-inset)] border border-[var(--cz-hairline-strong)]")}>
-        <span className={cn("absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform", checked ? "translate-x-[22px]" : "translate-x-0.5")} />
+      <button type="button" role="switch" aria-checked={checked} aria-label={label} data-testid={testid} onClick={() => onChange(!checked)}
+        className={cn("relative h-6 w-11 shrink-0 overflow-hidden rounded-full border p-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cz-aqua)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--cz-surface)]", checked ? "border-transparent bg-[var(--cz-aqua)]" : "border-[var(--cz-hairline-strong)] bg-[var(--cz-inset)]")}>
+        <span className={cn("pointer-events-none absolute left-0.5 top-0.5 h-[18px] w-[18px] rounded-full bg-white shadow-sm transition-transform", checked ? "translate-x-5" : "translate-x-0")} />
       </button>
     </label>
   );

@@ -1,4 +1,4 @@
-import type { ApiMissionDto, LeaderboardCatalog, LeaderboardResponse, Mission, MissionClaimResult, PlayerProfile, PlayerPuzzle, PublicPlayerProfile, Puzzle, SignedVideoUpload, Submission } from "@/types";
+import type { ApiMissionDto, ApiStoreCatalogItem, LeaderboardCatalog, LeaderboardResponse, Mission, MissionClaimResult, PlayerProfile, PlayerPuzzle, PublicPlayerProfile, Puzzle, SignedVideoUpload, Submission } from "@/types";
 import { apiBaseUrl } from "@/config/dataMode";
 
 const phase3aDefaultStats: PlayerProfile["stats"] = {
@@ -121,6 +121,7 @@ export const apiClient = {
     headers: { "Idempotency-Key": idempotencyKey },
     body: JSON.stringify({}),
   }),
+  getStoreCatalog: async (signal?: AbortSignal) => (await request<{ items: ApiStoreCatalogItem[] }>("/api/rewards/store", { signal })).items,
 };
 
 export function uploadVideoDirectly(signed: SignedVideoUpload, file: File, onProgress: (percent: number) => void) {

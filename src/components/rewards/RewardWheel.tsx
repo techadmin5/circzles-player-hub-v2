@@ -148,7 +148,7 @@ export function RewardWheel() {
         </div>
       </div>
 
-      <button onClick={spin} disabled={spinning} className="cz-btn cz-btn-gold min-w-40" data-testid="wheel-spin">{spinning ? "Spinning…" : "Spin Wheel"}</button>
+      <button onClick={spin} disabled={spinning} data-sound="silent" className="cz-btn cz-btn-gold min-w-40" data-testid="wheel-spin">{spinning ? "Spinning…" : "Spin Wheel"}</button>
       <p className="max-w-xs text-center text-xs text-[var(--cz-text-tertiary)]">Result is decided server-side. The wheel only animates to the returned segment.</p>
 
       <AnimatePresence>

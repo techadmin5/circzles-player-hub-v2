@@ -10,6 +10,7 @@ import { LeaderboardService } from "../src/domain/leaderboards.js";
 import { SubmissionReviewService } from "../src/domain/submissionReviews.js";
 import { PublicProfileService } from "../src/domain/publicProfiles.js";
 import { MissionClaimService, PlayerMissionService } from "../src/domain/missions.js";
+import { RewardCatalogService, type RewardCatalogRepository, type StoreCatalogItemDto } from "../src/domain/rewardCatalog.js";
 import { FakeAdminAuthorizationRepository, FakeAdminSubmissionRepository, FakeGameStateRepository, FakeIdentityRepository, FakeLeaderboardRepository, FakeMissionClaimRepository, FakePlayerMissionRepository, FakePublicProfileRepository, FakePuzzleRepository, FakeSubmissionRepository, FakeSubmissionReviewRepository, FakeVideoStorage } from "./fakes.js";
 import type { Env } from "../src/config/env.js";
 
@@ -54,7 +55,9 @@ async function appWithFakes(overrides: Partial<Env> = {}) {
   const missions = new PlayerMissionService(missionRepo);
   const missionClaimRepo = new FakeMissionClaimRepository();
   const missionClaims = new MissionClaimService(missionClaimRepo);
-  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, checkDb: async () => {} });
+  const catalogItems: StoreCatalogItemDto[] = [{ listingId: "10000000-0000-4000-8000-000000000001", rewardDefinitionId: "20000000-0000-4000-8000-000000000001", code: "FRAME_TEST", rewardType: "FRAME", name: "Test Frame", description: "Test catalog item.", imageUrl: null, rarity: "RARE", priceSynapsePoints: 250, featured: true, displayOrder: 1, purchaseLimit: null }];
+  const rewardCatalog = new RewardCatalogService({ listAvailable: async () => catalogItems } satisfies RewardCatalogRepository);
+  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, checkDb: async () => {} });
   return { app, gameRepo, puzzleRepo, submissionRepo, videoStorage, adminAuthRepo, adminSubmissionRepo, leaderboardRepo, reviewRepo, publicProfileRepo, missionRepo, missionClaimRepo, testEnv };
 }
 
@@ -156,11 +159,24 @@ describe("http auth poc", () => {
       publicProfiles: new PublicProfileService(new FakePublicProfileRepository()),
       missions: new PlayerMissionService(new FakePlayerMissionRepository()),
       missionClaims: new MissionClaimService(new FakeMissionClaimRepository()),
+      rewardCatalog: new RewardCatalogService({ listAvailable: async () => [] }),
       checkDb: async () => { checked = true; },
     });
     const res = await app.inject({ method: "GET", url: "/health" });
     expect(res.statusCode).toBe(200);
     expect(checked).toBe(true);
+  });
+
+  it("GET /api/rewards/store requires authentication and returns a safe catalog DTO", async () => {
+    const { app } = await appWithFakes({ NODE_ENV: "development" });
+    const unauthorized = await app.inject({ method: "GET", url: "/api/rewards/store" });
+    expect(unauthorized.statusCode).toBe(401);
+
+    const cookie = await login(app);
+    const response = await app.inject({ method: "GET", url: "/api/rewards/store", headers: { cookie } });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().items[0]).toMatchObject({ code: "FRAME_TEST", priceSynapsePoints: 250 });
+    expect(response.json().items[0]).not.toHaveProperty("metadata");
   });
 
   it("development grant endpoints are unavailable in production", async () => {

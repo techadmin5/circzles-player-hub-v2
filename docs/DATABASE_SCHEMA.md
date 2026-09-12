@@ -452,6 +452,14 @@ Do not implement until social/realtime phase.
 - `missions 1 -> many mission_rules`, `mission_rewards`, `player_mission_progress`.
 - `reward_definitions` powers store, inventory, mission rewards, wheel rewards.
 
+## Phase 3G-A Reward Catalog
+
+Migration `0011_vengeful_junta.sql` adds `reward_definition_type`, `reward_definitions`, and `store_listings`. Reward definitions are canonical reusable identities; store listings are independent sale/configuration records. A reward therefore does not need a listing, and listing state does not redefine the reward.
+
+`reward_definitions` stores UUID identity, unique code, type, display content, optional image/rarity, active state, internal JSONB metadata, and timestamps. `store_listings` stores a restrictive reward-definition FK, non-negative SP price and display order, active/featured flags, optional UTC availability window, optional positive purchase limit, internal JSONB metadata, and timestamps. Availability windows must be ordered when both bounds exist.
+
+The migration is additive and schema-only, with no drops or seed data. Purchase, inventory, equip/use, Rename Card consumption, wheel grant authority, and coupon commerce records remain deferred.
+
 ## Phase 3D Implemented Tables
 
 Migration `0003_phase_3d_submissions.sql` adds schema only.

@@ -22,7 +22,6 @@ function InventoryCard({ item }: { item: InventoryItem }) {
   const equippable = state === "Owned" && item.category === "Frames";
 
   async function equip() {
-    playSound("button");
     await inventoryService.equipItem(item.id);
     setState("Equipped");
     playSound("success");
@@ -43,7 +42,7 @@ function InventoryCard({ item }: { item: InventoryItem }) {
       {state === "Equipped"
         ? <span className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[rgba(61,234,212,0.4)] bg-[var(--cz-aqua-dim)] py-1.5 text-xs font-semibold text-[var(--cz-aqua)]"><Check size={13} />Equipped</span>
         : equippable
-          ? <button className="cz-btn cz-btn-ghost cz-btn-sm" onClick={equip} data-testid={`equip-${item.id}`}>Equip</button>
+          ? <button className="cz-btn cz-btn-ghost cz-btn-sm" data-sound="silent" onClick={equip} data-testid={`equip-${item.id}`}>Equip</button>
           : <span className="cz-chip justify-center">{state}</span>}
     </motion.article>
   );
@@ -56,7 +55,7 @@ export function InventoryLocker({ items }: { items: InventoryItem[] }) {
     <div className="grid gap-4">
       <div className="cz-scroll -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1" role="tablist" aria-label="Inventory categories">
         {TABS.map((t) => (
-          <button key={t} onClick={() => { playSound("tab"); setTab(t); }} data-testid={`inventory-tab-${t}`}
+          <button key={t} type="button" role="tab" aria-selected={tab === t} data-sound="tab" onClick={() => setTab(t)} data-testid={`inventory-tab-${t}`}
             className={cn("cz-btn cz-btn-sm shrink-0", tab === t ? "cz-btn-primary" : "cz-btn-ghost")}>{t}</button>
         ))}
       </div>

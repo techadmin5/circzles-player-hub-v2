@@ -155,6 +155,12 @@ The intended submission media flow remains:
 - `admin`
 - `migration`
 
+## Phase 3G-A Reward Catalog Boundary
+
+`RewardCatalogService` owns the read-only store catalog contract and delegates persistence to `RewardCatalogRepository`. The Drizzle adapter joins active listings to active canonical reward definitions, applies backend-time availability rules, and returns a safe DTO without internal metadata. The authenticated HTTP route remains thin and does not accept player, price, ownership, or reward-grant authority from the browser.
+
+Reward definition and store availability are separate concerns. Later purchase processing must lock and validate the authoritative listing, debit the wallet, and create inventory or consumable grant history in one transaction; Phase 3G-A deliberately implements none of those mutations.
+
 ## Operations Requiring Database Transactions
 
 - Store purchase

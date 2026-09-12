@@ -1,5 +1,5 @@
 import { activity, coupons, currentPlayer, friendRequests, inventory, leaderboard, missions, notifications, playerPuzzles, players, puzzles, season, storeItems, submissions } from "@/mocks/data";
-import type { LeaderboardCatalog, LeaderboardResponse, MissionClaimResult, PublicPlayerProfile, RewardWheelResult } from "@/types";
+import type { ApiStoreCatalogItem, LeaderboardCatalog, LeaderboardResponse, MissionClaimResult, PublicPlayerProfile, RewardWheelResult, StoreItem } from "@/types";
 import { dataMode } from "@/config/dataMode";
 import { apiClient, ApiClientError } from "@/lib/apiClient";
 import { mockDelay } from "./mockRuntime";
@@ -115,7 +115,28 @@ export const missionService = {
     };
   },
 };
-export const storeService = { async getItems() { await mockDelay(); return storeItems; }, async purchaseItem(itemId: string) { await mockDelay(); return { itemId, resultingBalance: currentPlayer.synapsePoints - 3000, state: "OWNED" as const }; } };
+export const storeService = {
+  async getItems(signal?: AbortSignal) {
+    if (canUseBrowserApi()) return (await apiClient.getStoreCatalog(signal)).map(adaptStoreCatalogItem);
+    await mockDelay();
+    return storeItems;
+  },
+  async purchaseItem(itemId: string) { await mockDelay(); return { itemId, resultingBalance: currentPlayer.synapsePoints - 3000, state: "OWNED" as const }; },
+};
+
+function adaptStoreCatalogItem(item: ApiStoreCatalogItem): StoreItem {
+  const type: StoreItem["type"] = item.rewardType === "FRAME" ? "Frame" : item.rewardType === "BADGE" ? "Badge" : item.rewardType === "COUPON" ? "Coupon" : "Utility";
+  const rarity = item.rarity?.toLowerCase();
+  return {
+    id: item.listingId,
+    name: item.name,
+    type,
+    cost: item.priceSynapsePoints,
+    state: "COMING_SOON",
+    rarity: rarity === "rare" || rarity === "epic" || rarity === "legendary" ? rarity : "common",
+    description: item.description,
+  };
+}
 export const inventoryService = { async getInventory() { await mockDelay(); return inventory; }, async equipItem(itemId: string) { await mockDelay(); return { itemId, state: "Equipped" as const }; } };
 export const couponService = { async getCoupons() { await mockDelay(); return coupons; } };
 export const activityService = { async getActivity() { await mockDelay(); return activity; } };

@@ -9,6 +9,7 @@ export const submissionStatus = pgEnum("submission_status", ["PENDING_REVIEW", "
 export const puzzleCompetitionCategory = pgEnum("puzzle_competition_category", ["MAIN_LEVEL", "SIDE_QUEST"]);
 export const adminRole = pgEnum("admin_role", ["SUPER_ADMIN", "REVIEWER"]);
 export const submissionReviewDecision = pgEnum("submission_review_decision", ["APPROVED", "REJECTED", "RESUBMISSION_REQUIRED"]);
+export const rewardDefinitionType = pgEnum("reward_definition_type", ["FRAME", "BADGE", "AVATAR", "RENAME_CARD", "COUPON", "SYNAPSE_POINTS", "XP", "COSMETIC"]);
 
 export const users = pgTable("users", {
   userId: uuid("user_id").primaryKey().defaultRandom(),
@@ -460,4 +461,43 @@ export const missionClaims = pgTable("mission_claims", {
   playerCreatedIndex: index("mission_claims_player_id_created_at_idx").on(table.playerId, table.createdAt),
   synapseRewardCheck: check("mission_claims_synapse_reward_snapshot_check", sql`${table.synapseRewardSnapshot} >= 0`),
   xpRewardCheck: check("mission_claims_xp_reward_snapshot_check", sql`${table.xpRewardSnapshot} >= 0`),
+}));
+
+export const rewardDefinitions = pgTable("reward_definitions", {
+  rewardDefinitionId: uuid("reward_definition_id").primaryKey().defaultRandom(),
+  rewardType: rewardDefinitionType("reward_type").notNull(),
+  code: text("code").notNull(),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  imageUrl: text("image_url"),
+  rarity: text("rarity"),
+  active: boolean("active").notNull().default(true),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  codeUnique: uniqueIndex("reward_definitions_code_unique").on(table.code),
+  activeIndex: index("reward_definitions_active_idx").on(table.active),
+}));
+
+export const storeListings = pgTable("store_listings", {
+  storeListingId: uuid("store_listing_id").primaryKey().defaultRandom(),
+  rewardDefinitionId: uuid("reward_definition_id").notNull().references(() => rewardDefinitions.rewardDefinitionId, { onDelete: "restrict" }),
+  priceSynapsePoints: integer("price_synapse_points").notNull(),
+  active: boolean("active").notNull().default(true),
+  featured: boolean("featured").notNull().default(false),
+  displayOrder: integer("display_order").notNull().default(0),
+  availableFrom: timestamp("available_from", { withTimezone: true }),
+  availableUntil: timestamp("available_until", { withTimezone: true }),
+  purchaseLimit: integer("purchase_limit"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  rewardDefinitionIndex: index("store_listings_reward_definition_id_idx").on(table.rewardDefinitionId),
+  catalogOrderIndex: index("store_listings_catalog_order_idx").on(table.active, table.featured, table.displayOrder),
+  priceCheck: check("store_listings_price_synapse_points_check", sql`${table.priceSynapsePoints} >= 0`),
+  displayOrderCheck: check("store_listings_display_order_check", sql`${table.displayOrder} >= 0`),
+  purchaseLimitCheck: check("store_listings_purchase_limit_check", sql`${table.purchaseLimit} is null or ${table.purchaseLimit} > 0`),
+  availabilityCheck: check("store_listings_availability_check", sql`${table.availableUntil} is null or ${table.availableFrom} is null or ${table.availableUntil} > ${table.availableFrom}`),
 }));

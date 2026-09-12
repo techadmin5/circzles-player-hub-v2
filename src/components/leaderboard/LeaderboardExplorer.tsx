@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertCircle, Medal, RefreshCw, Trophy } from "lucide-react";
 import { EmptyState, LoadingState, Surface } from "@/components/ui/kit";
 import type { DataMode } from "@/config/dataMode";
-import { playSound } from "@/hooks/useSound";
 import { ApiClientError } from "@/lib/apiClient";
 import { cn } from "@/lib/utils";
 import { leaderboardService } from "@/services";
@@ -63,7 +62,6 @@ export function LeaderboardExplorer({ mode }: { mode: DataMode }) {
 
   const items = useMemo(() => categoryItems(catalog, category), [catalog, category]);
   const changeCategory = useCallback((nextCategory: LeaderboardCategory) => {
-    playSound("tab");
     setCategory(nextCategory);
     const nextItems = categoryItems(catalog, nextCategory);
     const next = nextItems.some((item) => item.puzzleId === selectedPuzzleId) ? selectedPuzzleId : nextItems[0]?.puzzleId ?? null;
@@ -90,6 +88,7 @@ export function LeaderboardExplorer({ mode }: { mode: DataMode }) {
       <div className="flex gap-1.5" role="tablist" aria-label="Competition category">
         {CATEGORIES.map((item) => (
           <button key={item.id} type="button" role="tab" aria-selected={category === item.id}
+            data-sound="tab"
             className={cn("cz-btn cz-btn-sm", category === item.id ? "cz-btn-primary" : "cz-btn-ghost")}
             onClick={() => changeCategory(item.id)}>
             {item.label}
@@ -103,9 +102,8 @@ export function LeaderboardExplorer({ mode }: { mode: DataMode }) {
         <>
           <div className="flex gap-2 overflow-x-auto pb-1" aria-label="Choose a competition">
             {items.map((item) => (
-              <button key={item.puzzleId} type="button" aria-pressed={selectedPuzzleId === item.puzzleId}
+              <button key={item.puzzleId} type="button" aria-pressed={selectedPuzzleId === item.puzzleId} data-sound="tab"
                 onClick={() => {
-                  playSound("tab");
                   if (selectedPuzzleId === item.puzzleId) return;
                   setBoard(null);
                   setBoardError(null);

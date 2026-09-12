@@ -147,6 +147,7 @@ export interface PointTransaction { id: string; amount: number; reason: string; 
 export interface XpTransaction { id: string; amount: number; reason: string; createdAt: string }
 export interface InventoryItem { id: string; name: string; category: "Frames" | "Badges" | "Rename Cards" | "Coupons" | "Special"; state: "Owned" | "Equipped" | "Consumable" | "Used" | "Expired" | "Locked"; rarity: Rarity }
 export interface StoreItem { id: string; name: string; type: "Frame" | "Badge" | "Utility" | "Coupon"; cost: number; state: StoreState; rarity: Rarity; description: string }
+export interface ApiStoreCatalogItem { listingId: string; rewardDefinitionId: string; code: string; rewardType: "FRAME" | "BADGE" | "AVATAR" | "RENAME_CARD" | "COUPON" | "SYNAPSE_POINTS" | "XP" | "COSMETIC"; name: string; description: string; imageUrl: string | null; rarity: string | null; priceSynapsePoints: number; featured: boolean; displayOrder: number; purchaseLimit: number | null }
 export interface Coupon { id: string; code: string; discount: string; source: string; createdAt: string; expiry: string; status: "ACTIVE" | "USED" | "EXPIRED" }
 export interface MissionReward { type: RewardType; label: string; value?: number }
 export interface MissionProgress { current: number; target: number }

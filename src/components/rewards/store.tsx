@@ -17,30 +17,29 @@ const TYPE_ICON: Record<StoreItem["type"], React.ReactNode> = {
 
 const TABS = ["Featured", "Frames", "Badges", "Utilities", "Coupons"] as const;
 
-function PurchaseButton({ item }: { item: StoreItem }) {
+function PurchaseButton({ item, purchaseEnabled }: { item: StoreItem; purchaseEnabled: boolean }) {
   const [state, setState] = useState<StoreItem["state"]>(item.state);
   const [busy, setBusy] = useState(false);
-  const disabled = state === "OWNED" || state === "EQUIPPED" || state === "SOLD_OUT" || state === "COMING_SOON";
+  const disabled = !purchaseEnabled || state === "OWNED" || state === "EQUIPPED" || state === "SOLD_OUT" || state === "COMING_SOON";
   const label = busy ? "Buying…" : state === "EQUIPPED" ? "Equipped" : state === "OWNED" ? "Owned" : state === "SOLD_OUT" ? "Sold Out" : state === "COMING_SOON" ? "Coming Soon" : "Buy";
 
   async function buy() {
     if (disabled) return;
     setBusy(true);
-    playSound("button");
     await storeService.purchaseItem(item.id);
     setState("OWNED");
     setBusy(false);
     playSound("purchase");
   }
   return (
-    <button onClick={buy} disabled={disabled || busy} data-testid={`buy-${item.id}`}
+    <button onClick={buy} disabled={disabled || busy} data-sound="silent" data-testid={`buy-${item.id}`}
       className={cn("cz-btn cz-btn-sm w-full", state === "BUY" ? "cz-btn-primary" : "cz-btn-ghost")}>
       {(state === "OWNED" || state === "EQUIPPED") && <Check size={14} />}{label}
     </button>
   );
 }
 
-export function StoreItemCard({ item, featured = false }: { item: StoreItem; featured?: boolean }) {
+export function StoreItemCard({ item, featured = false, purchaseEnabled = true }: { item: StoreItem; featured?: boolean; purchaseEnabled?: boolean }) {
   const rarity = RARITY_META[item.rarity];
   return (
     <motion.article layout className={cn("cz-surface flex flex-col gap-3 overflow-hidden p-4", featured && "md:flex-row md:items-center md:gap-5")} data-testid={`store-item-${item.id}`}
@@ -57,14 +56,14 @@ export function StoreItemCard({ item, featured = false }: { item: StoreItem; fea
         </div>
         <div className="mt-auto flex items-center justify-between gap-3">
           <span className="cz-num inline-flex items-center gap-1.5 text-lg font-bold text-[var(--cz-gold)]"><Gem size={15} />{formatNumber(item.cost)}</span>
-          <div className="w-28"><PurchaseButton item={item} /></div>
+          <div className="w-28"><PurchaseButton item={item} purchaseEnabled={purchaseEnabled} /></div>
         </div>
       </div>
     </motion.article>
   );
 }
 
-export function StoreBoard({ items }: { items: StoreItem[] }) {
+export function StoreBoard({ items, purchaseEnabled = true }: { items: StoreItem[]; purchaseEnabled?: boolean }) {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Featured");
   const map: Record<(typeof TABS)[number], StoreItem[]> = {
     Featured: items,
@@ -81,14 +80,14 @@ export function StoreBoard({ items }: { items: StoreItem[] }) {
     <div className="grid gap-4">
       <div className="cz-scroll -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1" role="tablist" aria-label="Store categories">
         {TABS.map((t) => (
-          <button key={t} onClick={() => { playSound("tab"); setTab(t); }} data-testid={`store-tab-${t}`}
+          <button key={t} type="button" role="tab" aria-selected={tab === t} data-sound="tab" onClick={() => setTab(t)} data-testid={`store-tab-${t}`}
             className={cn("cz-btn cz-btn-sm shrink-0", tab === t ? "cz-btn-primary" : "cz-btn-ghost")}>{t}</button>
         ))}
       </div>
-      {featured && <StoreItemCard item={featured} featured />}
+      {featured && <StoreItemCard item={featured} featured purchaseEnabled={purchaseEnabled} />}
       {grid.length === 0
         ? <p className="cz-surface flex items-center justify-center gap-2 p-8 text-sm text-[var(--cz-text-tertiary)]"><Package size={16} />No items in this category yet.</p>
-        : <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{grid.map((i) => <StoreItemCard key={i.id} item={i} />)}</div>}
+        : <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{grid.map((i) => <StoreItemCard key={i.id} item={i} purchaseEnabled={purchaseEnabled} />)}</div>}
     </div>
   );
 }
