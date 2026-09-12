@@ -94,7 +94,6 @@ export function RewardWheel() {
   }
 
   function closeReveal() {
-    playSound("modalClose");
     setReveal(false);
     timers.current.forEach(clearTimeout);
     timers.current = [];
@@ -158,7 +157,7 @@ export function RewardWheel() {
             <motion.div className="cz-surface cz-grain cz-ring-gold relative w-full max-w-sm overflow-hidden p-7 text-center"
               initial={{ scale: 0.9, y: 12, opacity: 0 }} animate={{ scale: 1, y: 0, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} transition={{ type: "spring", damping: 22, stiffness: 260 }}
               onClick={(e) => e.stopPropagation()}>
-              <button onClick={closeReveal} aria-label="Close" className="absolute right-3 top-3 grid h-8 w-8 place-items-center rounded-full text-[var(--cz-text-tertiary)] hover:text-[var(--cz-text-primary)]"><X size={16} /></button>
+              <button onClick={closeReveal} data-sound="silent" aria-label="Close" className="absolute right-3 top-3 grid h-8 w-8 place-items-center rounded-full text-[var(--cz-text-tertiary)] hover:text-[var(--cz-text-primary)]"><X size={16} /></button>
               <div className="pointer-events-none absolute inset-x-0 -top-10 h-40 blur-3xl" style={{ background: "radial-gradient(circle, rgba(232,180,80,0.28), transparent 70%)" }} />
               <span className="relative mx-auto grid h-16 w-16 place-items-center rounded-full border border-[rgba(232,180,80,0.5)] bg-[var(--cz-gold-dim)] text-[var(--cz-gold)]"><Sparkles size={30} /></span>
               <p className="relative mt-4 text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-[var(--cz-aqua)]">You won</p>

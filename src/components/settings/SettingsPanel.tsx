@@ -2,7 +2,6 @@
 
 import { Volume2 } from "lucide-react";
 import { useSound } from "@/hooks/useSound";
-import { playSound } from "@/hooks/useSound";
 import { cn } from "@/lib/utils";
 
 function Toggle({ label, description, checked, onChange, testid }: { label: string; description: string; checked: boolean; onChange: (v: boolean) => void; testid: string }) {
@@ -12,7 +11,7 @@ function Toggle({ label, description, checked, onChange, testid }: { label: stri
         <span className="cz-display block text-sm font-semibold">{label}</span>
         <span className="block text-xs text-[var(--cz-text-tertiary)]">{description}</span>
       </span>
-      <button role="switch" aria-checked={checked} aria-label={label} data-testid={testid} onClick={() => { playSound("button"); onChange(!checked); }}
+      <button role="switch" aria-checked={checked} aria-label={label} data-testid={testid} onClick={() => onChange(!checked)}
         className={cn("relative h-6 w-11 shrink-0 rounded-full transition-colors", checked ? "bg-[var(--cz-aqua)]" : "bg-[var(--cz-inset)] border border-[var(--cz-hairline-strong)]")}>
         <span className={cn("absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform", checked ? "translate-x-[22px]" : "translate-x-0.5")} />
       </button>
@@ -42,7 +41,7 @@ export function SettingsPanel() {
             <input aria-label={f} placeholder={f} className="min-h-11 rounded-xl border border-[var(--cz-hairline-strong)] bg-[var(--cz-inset)] px-3.5 text-sm outline-none focus:border-[var(--cz-aqua)]" />
           </label>
         ))}
-        <button className="cz-btn cz-btn-primary mt-1 w-fit" onClick={() => playSound("success")} data-testid="save-profile">Save Changes</button>
+        <button className="cz-btn cz-btn-primary mt-1 w-fit" data-testid="save-profile">Save Changes</button>
       </section>
 
       <section className="cz-surface grid content-start gap-3 p-5">
@@ -54,7 +53,6 @@ export function SettingsPanel() {
         <Toggle label="Notification Sounds" description="In-app notification alerts." checked={notifications} onChange={(v) => setSound({ notifications: v })} testid="toggle-notifications" />
         <VolumeSlider label="Effects Volume" value={effectsVolume} disabled={!master || !effects} onChange={(value) => setSound({ effectsVolume: value })} />
         <VolumeSlider label="Music Volume" value={musicVolume} disabled={!master || !music} onChange={(value) => setSound({ musicVolume: value })} />
-        <button className="cz-btn cz-btn-ghost mt-1 w-fit" onClick={() => playSound("rewardReveal")} data-testid="test-sound">Test Sound</button>
       </section>
     </div>
   );

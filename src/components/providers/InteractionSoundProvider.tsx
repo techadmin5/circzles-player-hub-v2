@@ -14,8 +14,20 @@ export function InteractionSoundProvider({ children }: { children: ReactNode }) 
       if (!control || control.matches(":disabled, [aria-disabled='true']")) return;
       const semantic = control.dataset.sound;
       if (semantic === "silent" || semantic === "manual") return;
-      if (semantic === "navigation" && control instanceof HTMLAnchorElement && new URL(control.href, location.href).pathname === location.pathname) return;
-      const sound = semantic ? semanticSounds[semantic] : control.getAttribute("role") === "tab" ? "tab" : control instanceof HTMLButtonElement ? "button" : undefined;
+      const linkUrl = control instanceof HTMLAnchorElement ? new URL(control.href, location.href) : undefined;
+      if (linkUrl?.origin === location.origin && linkUrl.pathname === location.pathname && linkUrl.search === location.search) return;
+      const closesDialog = /^close\b/i.test(control.getAttribute("aria-label") ?? "");
+      const sound = semantic
+        ? semanticSounds[semantic]
+        : closesDialog
+          ? "modalClose"
+        : control.getAttribute("role") === "tab"
+          ? "tab"
+          : control instanceof HTMLButtonElement
+            ? "button"
+            : linkUrl?.origin === location.origin
+              ? "navigation"
+              : undefined;
       if (sound) playSound(sound);
     };
     document.addEventListener("click", route, true);
