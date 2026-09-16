@@ -15,6 +15,7 @@ import { DrizzleMissionClaimRepository, DrizzleMissionRepository, MissionClaimSe
 import { DrizzleRewardCatalogRepository, RewardCatalogService } from "./domain/rewardCatalog.js";
 import { DrizzleStorePurchaseRepository, StorePurchaseService } from "./domain/storePurchases.js";
 import { DrizzleInventoryRepository, InventoryService } from "./domain/inventory.js";
+import { DrizzlePlayerIdentityActionRepository, PlayerIdentityActionService } from "./domain/playerIdentityActions.js";
 
 const env = loadEnv();
 const { pool, db } = createDb(env.DATABASE_URL, (error) => {
@@ -37,6 +38,7 @@ const missionClaims = new MissionClaimService(new DrizzleMissionClaimRepository(
 const rewardCatalog = new RewardCatalogService(new DrizzleRewardCatalogRepository(db));
 const storePurchases = new StorePurchaseService(new DrizzleStorePurchaseRepository(db));
 const inventory = new InventoryService(new DrizzleInventoryRepository(db));
+const playerIdentityActions = new PlayerIdentityActionService(new DrizzlePlayerIdentityActionRepository(db));
 const app = buildApp({
   env,
   identity,
@@ -53,6 +55,7 @@ const app = buildApp({
   rewardCatalog,
   storePurchases,
   inventory,
+  playerIdentityActions,
   checkDb: async () => {
     await pool.query("select 1");
   },

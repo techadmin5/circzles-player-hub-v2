@@ -252,13 +252,15 @@ Server authority: validates ownership and item category. For frame equip, unequi
 
 ### POST /api/me/display-name
 
-Request:
+Authentication: required player session cookie. Required `Idempotency-Key` header. Strict request body:
 
 ```json
-{ "displayName": "NewName" }
+{ "inventoryItemId": "uuid", "displayName": "NewName" }
 ```
 
-Server authority: validates Rename Card ownership if required, consumes one card, changes `displayName` only.
+The server derives player identity, trims and validates the requested display name, locks the player and owned Inventory item, requires a positive-quantity `RENAME_CARD`, consumes exactly one, changes `players.display_name`, writes immutable consumption history and semantic events, and returns the original stable result on exact replay.
+
+Response includes `inventoryConsumptionId`, immutable `publicPlayerId`, previous and new display names, `inventoryItemId`, `remainingQuantity`, `consumedAt`, `idempotent`, and the authoritative Inventory DTO. It excludes user/Wix/session identity and private grant history. Errors include `DISPLAY_NAME_UNCHANGED`, `RENAME_CARD_NOT_AVAILABLE`, `RENAME_CARD_REQUIRED`, `IDEMPOTENCY_CONFLICT`, and `VALIDATION_FAILED`.
 
 Never changes `player_id`, `user_id`, `public_player_id`, or `wix_member_id`.
 

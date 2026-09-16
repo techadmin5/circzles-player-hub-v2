@@ -557,6 +557,25 @@ export const playerInventoryItems = pgTable("player_inventory_items", {
   quantityCheck: check("player_inventory_items_quantity_check", sql`${table.quantity} >= 0`),
 }));
 
+export const inventoryConsumptions = pgTable("inventory_consumptions", {
+  inventoryConsumptionId: uuid("inventory_consumption_id").primaryKey().defaultRandom(),
+  playerId: uuid("player_id").notNull().references(() => players.playerId, { onDelete: "restrict" }),
+  playerInventoryItemId: uuid("player_inventory_item_id").notNull().references(() => playerInventoryItems.playerInventoryItemId, { onDelete: "restrict" }),
+  rewardDefinitionId: uuid("reward_definition_id").notNull().references(() => rewardDefinitions.rewardDefinitionId, { onDelete: "restrict" }),
+  quantity: integer("quantity").notNull(),
+  quantityAfter: integer("quantity_after").notNull(),
+  reason: text("reason").notNull(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  playerIdempotencyUnique: uniqueIndex("inventory_consumptions_player_id_idempotency_key_unique").on(table.playerId, table.idempotencyKey),
+  playerCreatedAtIndex: index("inventory_consumptions_player_id_created_at_idx").on(table.playerId, table.createdAt),
+  inventoryItemIndex: index("inventory_consumptions_player_inventory_item_id_idx").on(table.playerInventoryItemId),
+  quantityCheck: check("inventory_consumptions_quantity_check", sql`${table.quantity} > 0`),
+  quantityAfterCheck: check("inventory_consumptions_quantity_after_check", sql`${table.quantityAfter} >= 0`),
+}));
+
 export const playerEquipment = pgTable("player_equipment", {
   playerEquipmentId: uuid("player_equipment_id").primaryKey().defaultRandom(),
   playerId: uuid("player_id").notNull().references(() => players.playerId, { onDelete: "restrict" }),

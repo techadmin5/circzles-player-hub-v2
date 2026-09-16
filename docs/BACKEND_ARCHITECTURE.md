@@ -175,7 +175,15 @@ Store purchase now validates unique ownership before charging and performs debit
 
 `InventoryService` exposes authenticated list, equip, and unequip operations. Equipment changes serialize per player, validate owned positive-quantity items against explicit slots, and emit their event with the mutation. Public profiles project only the equipped Avatar image, Frame name, and three Badge names in slot order; quantities, grants, purchases, and metadata remain private.
 
-API mode uses authoritative Inventory and Store responses with no mock fallback. The purchase response's `balanceAfter` replaces the displayed SP balance exactly. Rename Cards are visible and stackable but cannot be consumed until Phase 3G-D; Coupons are visible and stackable but cannot be redeemed or bridged to Wix yet.
+API mode uses authoritative Inventory and Store responses with no mock fallback. The purchase response's `balanceAfter` replaces the displayed SP balance exactly. Coupons remain visible and stackable but cannot be redeemed or bridged to Wix yet.
+
+## Phase 3G-D Rename Card Boundary
+
+`PlayerIdentityActionService` is the authenticated display-name mutation boundary. It normalizes one client-supplied name, while the session supplies player identity and the database supplies Inventory ownership, quantity, and reward type. It never accepts or mutates public player identity, user identity, session identity, or Wix identity.
+
+The repository serializes renames per player, checks player-scoped idempotency, locks the player and owned Inventory row, consumes one Rename Card, updates only `players.display_name`, appends immutable `inventory_consumptions`, and emits both events in one transaction. Replay uses stored previous/new-name, public-ID, item, quantity-after, and timestamp snapshots rather than mutable current state.
+
+The API-mode Inventory dialog performs no optimistic identity or quantity update. A confirmed response replaces Inventory and publishes its display name to the shared presentation store. Identity panels still obtain authority from `/api/me`; the store only keeps the confirmed value synchronized across mounted frontend surfaces. Wix profile rename remains explicitly outside this phase.
 
 ## Operations Requiring Database Transactions
 

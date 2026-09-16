@@ -478,7 +478,13 @@ Migration `0013_absurd_slayback.sql` adds the `equipment_slot` enum (`FRAME`, `A
 
 Frames, Badges, Avatars, and basic Cosmetics are unique entitlements with quantity one. Rename Cards and Coupons stack. XP and Synapse Points remain ledger rewards and are never Inventory items.
 
-The migration is additive, contains no drops or seed data, and was generated but not run in Phase 3G-C. Neon Development had zero `store_purchases` rows when Inventory was introduced, so no development backfill is needed. Any environment containing purchases created before Inventory exists must use an intentional reconciliation/backfill process; entitlements must never be fabricated silently.
+The migration is additive, contains no drops or seed data, and is applied and verified on Neon Development only. Any environment containing purchases created before Inventory exists must use an intentional reconciliation/backfill process; entitlements must never be fabricated silently.
+
+## Phase 3G-D Inventory Consumption
+
+Migration `0014_tired_polaris.sql` adds immutable `inventory_consumptions`. It records player, owned Inventory item, reward definition, positive consumed quantity, non-negative quantity-after snapshot, reason, player-scoped idempotency key, immutable replay metadata, and creation time.
+
+Player, Inventory-item, and reward-definition foreign keys are restrictive. `(player_id, idempotency_key)` is unique. Indexes support player history and item history. The migration is additive and schema-only, contains no drops or seed data, and was generated but not run in Phase 3G-D.
 
 ## Phase 3D Implemented Tables
 

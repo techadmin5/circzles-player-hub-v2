@@ -12,6 +12,7 @@ import { AvatarPicker } from "@/components/avatar/AvatarPicker";
 import { apiClient, ApiClientError } from "@/lib/apiClient";
 import { playSound } from "@/hooks/useSound";
 import { formatNumber } from "@/lib/format";
+import { usePlayerUiState } from "@/stores/playerUiState";
 
 function rankFor(progressionLevel: number) {
   return progressionRanks.reduce((current, rank) => (rank.progressionLevel <= progressionLevel ? rank : current), progressionRanks[0]);
@@ -93,6 +94,7 @@ export function PlayerIdentityPanel({ fallbackPlayer, mode = "mock", placement =
   const [pickerOpen, setPickerOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(mode === "api");
+  const authoritativeDisplayName = usePlayerUiState((state) => state.displayName);
 
   useEffect(() => {
     if (mode !== "api") return;
@@ -100,7 +102,7 @@ export function PlayerIdentityPanel({ fallbackPlayer, mode = "mock", placement =
     (async () => {
       try {
         const me = await apiClient.getMe();
-        if (!cancelled) { setPlayer(me); setPreviewAvatar(me.avatar); setError(null); }
+        if (!cancelled) { setPlayer(me); setPreviewAvatar(me.avatar); usePlayerUiState.getState().setDisplayName(me.displayName); setError(null); }
       } catch (err) {
         if (!cancelled) setError(err instanceof ApiClientError ? err.message : "Could not load authenticated player.");
       } finally {
@@ -122,7 +124,7 @@ export function PlayerIdentityPanel({ fallbackPlayer, mode = "mock", placement =
     }
   }
 
-  const shown = { ...player, avatar: previewAvatar };
+  const shown = { ...player, displayName: mode === "api" ? authoritativeDisplayName ?? player.displayName : player.displayName, avatar: previewAvatar };
   const devControls = mode === "api" ? (
     <div className="mb-4 flex flex-col gap-2 rounded-xl border border-[var(--cz-hairline)] bg-[var(--cz-inset)] p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
       <div>

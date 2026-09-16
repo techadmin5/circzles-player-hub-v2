@@ -142,6 +142,7 @@ export const inventoryService = {
   async getInventory(signal?: AbortSignal): Promise<InventoryItem[]> { if (canUseBrowserApi()) return (await apiClient.getInventory(signal)).items.map(adaptInventoryItem); await mockDelay(); return inventory; },
   async equipItem(itemId: string, slot: EquipmentSlot = "FRAME") { if (canUseBrowserApi()) return (await apiClient.equipInventoryItem(itemId, slot)).items.map(adaptInventoryItem); await mockDelay(); return inventory.map((item) => item.id === itemId ? { ...item, state: "Equipped" as const } : item); },
   async unequip(slot: EquipmentSlot) { if (canUseBrowserApi()) return (await apiClient.unequipSlot(slot)).items.map(adaptInventoryItem); await mockDelay(); return inventory; },
+  async renameDisplayName(itemId: string, displayName: string, idempotencyKey: string) { if (!canUseBrowserApi()) throw new ApiClientError("API_MODE_REQUIRED", "Rename Cards require API mode.", 400); const result = await apiClient.renameDisplayName(itemId, displayName, idempotencyKey); return { ...result, items: result.inventory.items.map(adaptInventoryItem) }; },
 };
 function adaptInventoryItem(item: Awaited<ReturnType<typeof apiClient.getInventory>>["items"][number]): InventoryItem {
   const categories: Record<string, InventoryItem["category"]> = { FRAME: "Frames", BADGE: "Badges", AVATAR: "Avatars", RENAME_CARD: "Rename Cards", COUPON: "Coupons", COSMETIC: "Special" };

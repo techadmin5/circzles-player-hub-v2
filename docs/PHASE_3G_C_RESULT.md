@@ -6,7 +6,7 @@ Phase 3G-C adds authoritative Inventory grant history, current ownership, explic
 
 ## Ownership And Grants
 
-Migration `0013_absurd_slayback.sql` defines immutable `inventory_grants`, cached `player_inventory_items`, `player_equipment`, and the five-value `equipment_slot` enum. All foreign keys use restrictive deletion. The migration is additive and schema-only; it was generated but not run.
+Migration `0013_absurd_slayback.sql` defines immutable `inventory_grants`, cached `player_inventory_items`, `player_equipment`, and the five-value `equipment_slot` enum. All foreign keys use restrictive deletion. It is **APPLIED AND VERIFIED - Neon DEVELOPMENT**. This is not a production migration claim.
 
 Frames, Badges, Avatars, and Cosmetics are unique per reward definition and remain quantity one. Rename Cards and Coupons stack. XP and Synapse Points are rejected by the Inventory/Store entitlement path and continue to use their existing ledgers.
 
@@ -22,7 +22,7 @@ The authenticated catalog supplies server-derived ownership and purchase context
 
 `GET /api/me/inventory` returns only the authenticated player's safe item DTO and equipment summary. Equip and unequip APIs derive player identity from the session. Frame and Avatar have one slot each; Badges use three ordered slots; one item cannot occupy several slots. Rename Cards, Coupons, and generic Cosmetics are non-equippable.
 
-The Inventory UI keeps mock mode for design previews and uses real API data in API mode without mock fallback. It provides loading, retry, error, and empty states; displays authoritative quantities and reward images when supplied; and updates equipment after backend success. Rename Card use and Coupon redemption are visibly deferred.
+The Inventory UI keeps mock mode for design previews and uses real API data in API mode without mock fallback. It provides loading, retry, error, and empty states; displays authoritative quantities and reward images when supplied; and updates equipment after backend success. Rename Card use was deferred to Phase 3G-D; Coupon redemption remains deferred.
 
 Public profiles now derive Avatar, Frame, and displayed Badges from equipment while preserving the existing public-safe response shape. Email, internal player identity, wallet, Inventory quantity, grant history, purchases, metadata, and Wix information remain excluded.
 
@@ -30,6 +30,10 @@ Public profiles now derive Avatar, Frame, and displayed Badges from equipment wh
 
 Phase 3G-B migration `0012_early_the_hood.sql` is **APPLIED AND VERIFIED - Neon DEVELOPMENT**. Verification confirmed its table, idempotency and ledger uniqueness, ledger-link check, four restrictive foreign keys, and zero purchase rows. No production migration occurred.
 
-Because Development contains no existing purchases, no Inventory backfill is required there. Any other environment with purchases predating Inventory must be reconciled deliberately before enabling entitlements.
+Schema verification confirmed all three tables, the five equipment slots, grant idempotency uniqueness, Inventory reward uniqueness, both equipment uniqueness constraints, and restrictive foreign keys. Before the controlled smoke test, grant, Inventory, and equipment row counts were zero.
+
+The real Development smoke purchased temporary `DEV_3GC_SMOKE_FRAME` listing `96ecd321-b3b9-4187-be68-ddc0a735cb79` for 1 SP. Balance changed from 362 to 361. The first call returned purchase `b55c6cc8-6bb1-4a91-b29b-4d93d5e98b8e` with `idempotent=false`; replay with the same key returned that purchase with `idempotent=true` and left SP at 361. Inventory item `f1e9498d-6744-4cb6-9f18-da00d482b7d9` had quantity one, equipped successfully in `FRAME`, and unequipped successfully.
+
+Final reconciliation was purchases 1, grants 1, Inventory items 1, equipment rows 0, and point transactions 1. The temporary reward and listing were deactivated. No production database action occurred.
 
 Automated tests use fake repositories and serialized transaction harnesses with no external calls. They cover grants, replay/conflicts, unique and stackable ownership, atomic Store integration/rollback, equipment rules, APIs, and public-profile safety. This does not claim live PostgreSQL concurrency testing.

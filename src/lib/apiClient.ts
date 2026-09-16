@@ -1,4 +1,4 @@
-import type { ApiMissionDto, ApiStoreCatalogItem, EquipmentSlot, InventoryResponse, LeaderboardCatalog, LeaderboardResponse, Mission, MissionClaimResult, PlayerProfile, PlayerPuzzle, PublicPlayerProfile, Puzzle, SignedVideoUpload, StorePurchaseResult, Submission } from "@/types";
+import type { ApiMissionDto, ApiStoreCatalogItem, EquipmentSlot, InventoryResponse, LeaderboardCatalog, LeaderboardResponse, Mission, MissionClaimResult, PlayerProfile, PlayerPuzzle, PublicPlayerProfile, Puzzle, RenameDisplayNameResult, SignedVideoUpload, StorePurchaseResult, Submission } from "@/types";
 import { apiBaseUrl } from "@/config/dataMode";
 
 const phase3aDefaultStats: PlayerProfile["stats"] = {
@@ -126,6 +126,7 @@ export const apiClient = {
   getInventory: async (signal?: AbortSignal) => request<InventoryResponse>("/api/me/inventory", { signal }),
   equipInventoryItem: async (inventoryItemId: string, slot: EquipmentSlot) => request<InventoryResponse>(`/api/me/inventory/${encodeURIComponent(inventoryItemId)}/equip`, { method: "POST", body: JSON.stringify({ slot }) }),
   unequipSlot: async (slot: EquipmentSlot) => request<InventoryResponse>(`/api/me/equipment/${encodeURIComponent(slot)}`, { method: "DELETE" }),
+  renameDisplayName: async (inventoryItemId: string, displayName: string, idempotencyKey: string) => request<RenameDisplayNameResult>("/api/me/display-name", { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ inventoryItemId, displayName }) }),
 };
 
 export function uploadVideoDirectly(signed: SignedVideoUpload, file: File, onProgress: (percent: number) => void) {

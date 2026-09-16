@@ -88,7 +88,7 @@ export class DrizzleInventoryRepository implements InventoryRepository {
 }
 
 function slotAccepts(slot: EquipmentSlot, type: RewardDefinitionType) { return (slot === "FRAME" && type === "FRAME") || (slot === "AVATAR" && type === "AVATAR") || (slot.startsWith("BADGE_") && type === "BADGE"); }
-async function readInventory(db: Pick<Database, "select">, playerId: string): Promise<InventoryDto> {
+export async function readInventory(db: Pick<Database, "select">, playerId: string): Promise<InventoryDto> {
   const rows = await db.select({ item: playerInventoryItems, reward: rewardDefinitions }).from(playerInventoryItems).innerJoin(rewardDefinitions, eq(playerInventoryItems.rewardDefinitionId, rewardDefinitions.rewardDefinitionId)).where(eq(playerInventoryItems.playerId, playerId)).orderBy(asc(playerInventoryItems.firstAcquiredAt), asc(playerInventoryItems.playerInventoryItemId));
   const equipment = await db.select().from(playerEquipment).where(eq(playerEquipment.playerId, playerId));
   const slotsByItem = new Map<string, EquipmentSlot[]>(); const summary: Partial<Record<EquipmentSlot, string>> = {};

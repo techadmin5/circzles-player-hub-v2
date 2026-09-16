@@ -13,6 +13,7 @@ import { MissionClaimService, PlayerMissionService } from "../src/domain/mission
 import { RewardCatalogService, type RewardCatalogRepository, type StoreCatalogItemDto } from "../src/domain/rewardCatalog.js";
 import { StorePurchaseService, type StorePurchaseRepository, type StorePurchaseResult } from "../src/domain/storePurchases.js";
 import { InventoryService } from "../src/domain/inventory.js";
+import { PlayerIdentityActionService, type PlayerIdentityActionRepository, type RenameDisplayNameInput } from "../src/domain/playerIdentityActions.js";
 import { FakeAdminAuthorizationRepository, FakeAdminSubmissionRepository, FakeGameStateRepository, FakeIdentityRepository, FakeLeaderboardRepository, FakeMissionClaimRepository, FakePlayerMissionRepository, FakePublicProfileRepository, FakePuzzleRepository, FakeSubmissionRepository, FakeSubmissionReviewRepository, FakeVideoStorage } from "./fakes.js";
 import type { Env } from "../src/config/env.js";
 
@@ -67,8 +68,18 @@ async function appWithFakes(overrides: Partial<Env> = {}) {
   const emptyInventory = { items: [], equipment: {} };
   const inventoryCalls: string[] = [];
   const inventory = new InventoryService({ list: async (playerId) => { inventoryCalls.push(`list:${playerId}`); return emptyInventory; }, equip: async (playerId, itemId, slot) => { inventoryCalls.push(`equip:${playerId}:${itemId}:${slot}`); return emptyInventory; }, unequip: async (playerId, slot) => { inventoryCalls.push(`unequip:${playerId}:${slot}`); return emptyInventory; } });
-  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, checkDb: async () => {} });
-  return { app, gameRepo, puzzleRepo, submissionRepo, videoStorage, adminAuthRepo, adminSubmissionRepo, leaderboardRepo, reviewRepo, publicProfileRepo, missionRepo, missionClaimRepo, purchaseCalls, inventoryCalls, testEnv };
+  const renameCalls: RenameDisplayNameInput[] = [];
+  const playerIdentityActions = new PlayerIdentityActionService({ renameDisplayName: async (input) => {
+    renameCalls.push(input);
+    const account = identityRepo.accounts.find((item) => item.player.internalId === input.playerId);
+    if (!account) throw new Error("missing player");
+    const previousDisplayName = account.player.displayName; account.player.displayName = input.displayName;
+    const publicProfile = publicProfileRepo.profiles.get(account.player.publicPlayerId);
+    if (publicProfile) publicProfile.displayName = input.displayName;
+    return { inventoryConsumptionId: "50000000-0000-4000-8000-000000000001", publicPlayerId: account.player.publicPlayerId, previousDisplayName, displayName: input.displayName, inventoryItemId: input.inventoryItemId, remainingQuantity: 0, consumedAt: "2026-09-16T00:00:00.000Z", idempotent: false, inventory: emptyInventory };
+  } } satisfies PlayerIdentityActionRepository);
+  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, playerIdentityActions, checkDb: async () => {} });
+  return { app, gameRepo, puzzleRepo, submissionRepo, videoStorage, adminAuthRepo, adminSubmissionRepo, leaderboardRepo, reviewRepo, publicProfileRepo, missionRepo, missionClaimRepo, purchaseCalls, inventoryCalls, renameCalls, testEnv };
 }
 
 async function login(app: Awaited<ReturnType<typeof appWithFakes>>["app"]) {
@@ -172,6 +183,7 @@ describe("http auth poc", () => {
       rewardCatalog: new RewardCatalogService({ listAvailable: async () => [] }),
       storePurchases: new StorePurchaseService({ purchase: async () => { throw new Error("not used"); } }),
       inventory: new InventoryService({ list: async () => ({ items: [], equipment: {} }), equip: async () => ({ items: [], equipment: {} }), unequip: async () => ({ items: [], equipment: {} }) }),
+      playerIdentityActions: new PlayerIdentityActionService({ renameDisplayName: async () => { throw new Error("not used"); } }),
       checkDb: async () => { checked = true; },
     });
     const res = await app.inject({ method: "GET", url: "/health" });
@@ -226,6 +238,36 @@ describe("http auth poc", () => {
     expect((await app.inject({ method: "DELETE", url: "/api/me/equipment/FRAME", headers: { cookie } })).statusCode).toBe(200);
     expect((await app.inject({ method: "POST", url: `/api/me/inventory/${itemId}/equip`, headers: { cookie }, payload: { slot: "WRONG" } })).statusCode).toBe(400);
     expect(inventoryCalls.some((call) => call.startsWith("equip:"))).toBe(true); expect(inventoryCalls.some((call) => call.startsWith("unequip:"))).toBe(true);
+  });
+
+  it("display name change requires auth and derives player identity from the session", async () => {
+    const { app, renameCalls, publicProfileRepo } = await appWithFakes({ NODE_ENV: "development" });
+    const inventoryItemId = "40000000-0000-4000-8000-000000000001";
+    const payload = { inventoryItemId, displayName: "New Knight" };
+    publicProfileRepo.profiles.set("CZ-8F42KD", { publicPlayerId: "CZ-8F42KD", displayName: "Smokey_OP", progressionRank: "Peasant", approvedPuzzlesSolved: 0, avatarUrl: null, equippedFrame: null, displayedBadges: [] });
+    expect((await app.inject({ method: "POST", url: "/api/me/display-name", headers: { "idempotency-key": "rename-1" }, payload })).statusCode).toBe(401);
+    const cookie = await login(app);
+    const response = await app.inject({ method: "POST", url: "/api/me/display-name", headers: { cookie, "idempotency-key": " rename-1 " }, payload });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ publicPlayerId: "CZ-8F42KD", previousDisplayName: "Smokey_OP", displayName: "New Knight", remainingQuantity: 0 });
+    expect(response.json()).not.toHaveProperty("playerId");
+    expect(renameCalls[0]).toMatchObject({ inventoryItemId, displayName: "New Knight", idempotencyKey: "rename-1" });
+    expect(renameCalls[0].playerId).toBeTruthy();
+    const me = await app.inject({ method: "GET", url: "/api/me", headers: { cookie } });
+    expect(me.json()).toMatchObject({ publicPlayerId: "CZ-8F42KD", displayName: "New Knight" });
+    const publicProfile = await app.inject({ method: "GET", url: "/api/players/CZ-8F42KD/public-profile", headers: { cookie } });
+    expect(publicProfile.json()).toMatchObject({ publicPlayerId: "CZ-8F42KD", displayName: "New Knight" });
+  });
+
+  it.each([
+    ["missing idempotency key", {}, { inventoryItemId: "40000000-0000-4000-8000-000000000001", displayName: "New Knight" }],
+    ["invalid item UUID", { "idempotency-key": "rename-1" }, { inventoryItemId: "bad", displayName: "New Knight" }],
+    ["missing display name", { "idempotency-key": "rename-1" }, { inventoryItemId: "40000000-0000-4000-8000-000000000001" }],
+    ["client player authority", { "idempotency-key": "rename-1" }, { inventoryItemId: "40000000-0000-4000-8000-000000000001", displayName: "New Knight", playerId: "other" }],
+  ])("rejects display name change with %s", async (_name, headers, payload) => {
+    const { app } = await appWithFakes({ NODE_ENV: "development" }); const cookie = await login(app);
+    const response = await app.inject({ method: "POST", url: "/api/me/display-name", headers: { cookie, ...headers }, payload });
+    expect(response.statusCode).toBe(400); expect(response.json().code).toBe("VALIDATION_FAILED");
   });
 
   it("development grant endpoints are unavailable in production", async () => {

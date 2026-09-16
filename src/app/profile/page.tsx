@@ -6,13 +6,14 @@ import { BadgeShowcase } from "@/components/achievements/BadgeShowcase";
 import { PuzzleStateBadge } from "@/components/puzzles/cards";
 import { ActivityTimeline } from "@/components/activity/ActivityTimeline";
 import { activityService, playerService, puzzleService } from "@/services";
+import { dataMode } from "@/config/dataMode";
 
 export default async function Page() {
   const [player, puzzles, activity] = await Promise.all([playerService.getMockCurrentPlayer(), puzzleService.getOwnedPuzzles(), activityService.getActivity()]);
   return (
     <GameShell player={player}>
       <div className="grid grid-cols-1 gap-6">
-        <PlayerIdentityPanel fallbackPlayer={player} mode="mock" placement={null} profileMode />
+        <PlayerIdentityPanel fallbackPlayer={player} mode={dataMode} placement={null} profileMode />
 
         <section>
           <SectionHeader title="Competitive Performance" icon={<Trophy size={16} />} />

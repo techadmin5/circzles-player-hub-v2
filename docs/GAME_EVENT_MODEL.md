@@ -171,3 +171,9 @@ The claim event uses deterministic key `mission.claimed:{playerId}:{missionId}:{
 `inventory.item.granted` is emitted in the same transaction as immutable grant history and current ownership. Store grants use deterministic grant identity `store.purchase.inventory:<purchaseId>`; replay neither increments quantity nor emits another event. Payload contains reward definition/type, granted quantity, and source type only.
 
 `inventory.item.equipped` and `inventory.item.unequipped` are emitted transactionally with equipment changes. Equip payload identifies the reward definition, owned inventory item, and explicit slot. Unequip identifies the slot and removed item. These internal events do not expose player-private Inventory quantities or purchase history.
+
+## Phase 3G-D Rename Events
+
+`inventory.item.consumed` and `player.display_name.changed` are emitted in the same transaction as Rename Card decrement, immutable consumption history, and `players.display_name` update. Both use the consumption UUID as source and deterministic event keys, so exact operation replay emits neither event again.
+
+The consumption payload includes reward definition, owned item, `RENAME_CARD`, quantity one, quantity after, and `DISPLAY_NAME_CHANGE`. The identity event includes previous and new display names. Neither includes email, Wix identity, session data, tokens, or secrets. The immutable `publicPlayerId` is not changed or represented as client-controlled data.

@@ -19,6 +19,7 @@ import type { MissionClaimService, PlayerMissionService } from "../domain/missio
 import type { RewardCatalogService } from "../domain/rewardCatalog.js";
 import type { StorePurchaseService } from "../domain/storePurchases.js";
 import { equipmentSlots, type InventoryService } from "../domain/inventory.js";
+import type { PlayerIdentityActionService } from "../domain/playerIdentityActions.js";
 
 export interface AppDeps {
   env: Env;
@@ -36,6 +37,7 @@ export interface AppDeps {
   rewardCatalog: RewardCatalogService;
   storePurchases: StorePurchaseService;
   inventory: InventoryService;
+  playerIdentityActions: PlayerIdentityActionService;
   checkDb: () => Promise<void>;
 }
 
@@ -81,8 +83,9 @@ const storePurchaseParamsSchema = z.object({ listingId: z.string().uuid() }).str
 const inventoryItemParamsSchema = z.object({ inventoryItemId: z.string().uuid() }).strict();
 const equipmentParamsSchema = z.object({ slot: z.enum(equipmentSlots) }).strict();
 const equipBodySchema = z.object({ slot: z.enum(equipmentSlots) }).strict();
+const renameDisplayNameBodySchema = z.object({ inventoryItemId: z.string().uuid(), displayName: z.string() }).strict();
 
-export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, checkDb }: AppDeps) {
+export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, playerIdentityActions, checkDb }: AppDeps) {
   const app = Fastify({
     logger: env.NODE_ENV === "test" ? false : {
       level: "info",
@@ -218,6 +221,16 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
     const params = equipmentParamsSchema.safeParse(request.params);
     if (!params.success) throw validationFailed("Invalid equipment slot.", params.error.flatten());
     return reply.send(await inventory.unequip(player.internalId, params.data.slot));
+  });
+
+  app.post("/api/me/display-name", async (request, reply) => {
+    const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+    const body = renameDisplayNameBodySchema.safeParse(request.body);
+    if (!body.success) throw validationFailed("Invalid display name change request.", body.error.flatten());
+    const header = request.headers["idempotency-key"];
+    const idempotencyKey = typeof header === "string" ? header.trim() : "";
+    if (!idempotencyKey || idempotencyKey.length > 200) throw validationFailed("A valid Idempotency-Key header is required.");
+    return reply.send(await playerIdentityActions.renameDisplayName({ playerId: player.internalId, ...body.data, idempotencyKey }));
   });
 
   app.post("/api/missions/:missionId/claim", async (request, reply) => {
