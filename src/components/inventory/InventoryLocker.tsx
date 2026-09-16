@@ -20,21 +20,26 @@ const CATEGORY_ICON: Record<InventoryItem["category"], React.ReactNode> = {
 const TABS: (InventoryItem["category"] | "All")[] = ["All", "Frames", "Badges", "Avatars", "Rename Cards", "Coupons", "Special"];
 
 function InventoryCard({ item, mode, onItemsChange }: { item: InventoryItem; mode: DataMode; onItemsChange: (items: InventoryItem[]) => void }) {
-  const [state, setState] = useState(item.state);
   const [busy, setBusy] = useState(false);
   const { showErrorFeedback } = useGameFeedback();
   const rarity = RARITY_META[item.rarity];
-  const equippable = state === "Owned" && (item.category === "Frames" || item.category === "Avatars");
+  const equippedSlots = item.equippedSlots?.length
+    ? item.equippedSlots
+    : item.state === "Equipped"
+      ? [item.category === "Avatars" ? "AVATAR" : "FRAME" as EquipmentSlot]
+      : [];
+  const equipped = equippedSlots.length > 0;
+  const equippable = !equipped && item.state === "Owned" && (item.category === "Frames" || item.category === "Avatars");
 
   async function equip(slot: EquipmentSlot) {
     setBusy(true);
-    try { const items = await inventoryService.equipItem(item.id, slot); onItemsChange(items); setState("Equipped"); playSound("success"); }
+    try { const items = await inventoryService.equipItem(item.id, slot); onItemsChange(items); playSound("success"); }
     catch { showErrorFeedback("Item could not be equipped."); }
     finally { setBusy(false); }
   }
   async function unequip(slot: EquipmentSlot) {
     setBusy(true);
-    try { const items = await inventoryService.unequip(slot); onItemsChange(items); setState("Owned"); playSound("success"); }
+    try { const items = await inventoryService.unequip(slot); onItemsChange(items); playSound("success"); }
     catch { showErrorFeedback("Item could not be unequipped."); }
     finally { setBusy(false); }
   }
@@ -51,12 +56,12 @@ function InventoryCard({ item, mode, onItemsChange }: { item: InventoryItem; mod
         </div>
         <p className="text-xs text-[var(--cz-text-tertiary)]">{item.category}{(item.quantity ?? 1) > 1 ? ` x${item.quantity}` : ""}</p>
       </div>
-      {state === "Equipped"
-        ? <div className="grid gap-1.5">{(item.equippedSlots ?? [item.category === "Avatars" ? "AVATAR" : "FRAME" as EquipmentSlot]).map((slot) => <button key={slot} disabled={busy} data-sound="silent" className="cz-btn cz-btn-ghost cz-btn-sm" onClick={() => unequip(slot)}><Check size={13} />{slot.startsWith("BADGE_") ? `Displayed ${slot.at(-1)}` : "Equipped"}</button>)}</div>
+      {equipped
+        ? <div className="grid gap-1.5">{equippedSlots.map((slot) => <button key={slot} disabled={busy} data-sound="silent" className="cz-btn cz-btn-ghost cz-btn-sm" onClick={() => unequip(slot)}><Check size={13} />{slot.startsWith("BADGE_") ? `Displayed ${slot.at(-1)}` : "Equipped"}</button>)}</div>
         : equippable
           ? <button className="cz-btn cz-btn-ghost cz-btn-sm" disabled={busy} data-sound="silent" onClick={() => equip(item.category === "Avatars" ? "AVATAR" : "FRAME")} data-testid={`equip-${item.id}`}>Equip</button>
           : item.category === "Badges" ? <div className="grid grid-cols-3 gap-1">{(["BADGE_1", "BADGE_2", "BADGE_3"] as EquipmentSlot[]).map((slot) => <button key={slot} disabled={busy} data-sound="silent" className="cz-btn cz-btn-ghost cz-btn-sm px-1" onClick={() => equip(slot)}>Slot {slot.at(-1)}</button>)}</div>
-          : <span className="cz-chip justify-center">{mode === "api" && item.category === "Rename Cards" ? "Use coming next" : state}</span>}
+          : <span className="cz-chip justify-center">{mode === "api" && item.category === "Rename Cards" ? "Use coming next" : item.state}</span>}
     </motion.article>
   );
 }
