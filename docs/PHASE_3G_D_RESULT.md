@@ -6,7 +6,7 @@ Phase 3G-D implements authenticated, server-authoritative Rename Card consumptio
 
 ## Schema And Transaction
 
-Migration `0014_tired_polaris.sql` adds immutable `inventory_consumptions` with three restrictive foreign keys, positive quantity and non-negative quantity-after checks, player-scoped idempotency uniqueness, history indexes, and JSON replay snapshots. It is additive and schema-only and was generated but not run.
+Migration `0014_tired_polaris.sql` adds immutable `inventory_consumptions` with three restrictive foreign keys, positive quantity and non-negative quantity-after checks, player-scoped idempotency uniqueness, history indexes, and JSON replay snapshots. It is additive and schema-only and is **APPLIED AND VERIFIED - Neon DEVELOPMENT**. It has not been applied to production.
 
 One transaction takes a player rename advisory lock, checks replay, locks the player, rejects an unchanged name, locks and verifies the player's positive-quantity Rename Card, decrements exactly one, updates only `players.display_name`, inserts consumption history, emits `inventory.item.consumed` and `player.display_name.changed`, and returns authoritative Inventory. Any failure rolls back every effect.
 
@@ -30,4 +30,18 @@ The Profile identity panel now follows configured data mode. API mode uses `/api
 
 Automated tests use fake repositories and serialized transaction harnesses and make no external calls. They cover Unicode validation, identity immutability, quantities, replay/conflict, wrong/foreign/empty items, final-card concurrency, rollback injection, authentication, strict request validation, and `/api/me` refresh behavior. This does not claim live PostgreSQL concurrency testing.
 
-No migration, seed, Neon write, real rename, Wix action, production action, or main-branch change occurred during implementation.
+Development schema verification confirmed `inventory_consumptions`, player-scoped idempotency uniqueness, both quantity checks, all restrictive foreign keys, and an initial consumption count of zero.
+
+## Development Runtime Verification
+
+The controlled test used player `CZ-8F42KD`, whose original display name was `Smokey_OP`, and temporary reward `DEV_3GD_SMOKE_RENAME_CARD`. Inventory item `c9eb1448-b3e0-4775-b88d-af35af0c084c` began with quantity two.
+
+The first real rename changed `Smokey_OP` to `SmokeTest_3GD`. It returned consumption `49e0cec0-da91-4569-8a61-e7108a4718c2`, remaining quantity one, and `idempotent=false`. The immutable public player ID remained `CZ-8F42KD`, and `GET /api/me` immediately returned `SmokeTest_3GD`.
+
+An exact replay using the same Inventory item, normalized display name, and idempotency key returned the same consumption ID and remaining quantity with `idempotent=true`. It consumed no additional card and created no additional consumption or event.
+
+A second legitimate use restored `SmokeTest_3GD` to `Smokey_OP`. It returned consumption `cc46a94b-ee99-4257-99be-5a93f9f633ca`, remaining quantity zero, and `idempotent=false`.
+
+Final Development reconciliation confirmed display name `Smokey_OP`, public player ID `CZ-8F42KD`, Rename Card quantity zero, one grant, two consumptions, two `inventory.item.consumed` events, and two `player.display_name.changed` events. The replay added zero consumptions and zero events. The temporary reward was deactivated after testing.
+
+No production migration or database action occurred. Wix and production identity remained untouched.
