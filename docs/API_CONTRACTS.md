@@ -266,13 +266,15 @@ Never changes `player_id`, `user_id`, `public_player_id`, or `wix_member_id`.
 
 ### POST /api/wheel/spin
 
-Request: none.
+Authentication: required player session cookie. Body must be empty (`{}` is tolerated). `Idempotency-Key` is required, trimmed, non-empty, and at most 200 characters. The browser cannot submit player, cost, cooldown, segment, reward, quantity, probability, balance, XP, or Inventory values.
 
-Server authority: spin cost, cooldown, RNG, reward, and balance.
+The response contains `spinId`, safe reward identity/type/label/value, authoritative resulting SP balance, configured `wheelSegmentIndex`, `spunAt`, nullable `nextSpinAt`, and `idempotent`. Exact same-player/key replay returns the immutable original result even after configuration changes.
 
-Response matches frontend `RewardWheelResult`.
+One transaction serializes the player's wheel operation, resolves replay before cooldown, validates the active window and eligible configured segments, performs secure weighted selection, debits cost, grants SP/XP/Inventory through existing ledgers, persists the spin, and emits `reward_wheel.spun`. Controlled failures include `WHEEL_NOT_AVAILABLE`, `WHEEL_COOLDOWN_ACTIVE`, `WHEEL_NO_ELIGIBLE_REWARDS`, `INSUFFICIENT_POINTS`, and `VALIDATION_FAILED`.
 
-Transaction: debit cost, select segment, grant reward, persist spin.
+### GET /api/wheel
+
+Authentication: required player session cookie. Returns the active wheel's safe presentation and server-derived availability: code/name, configured SP cost, cooldown, nullable `nextSpinAt`, `canSpin`, nullable unavailable reason, and active segment position/label/reward presentation. Segment weights, probability, RNG state, internal player identity, ledger IDs, and grant IDs are never returned. No active configuration returns `{ "available": false, "wheel": null }`.
 
 ### Friends
 

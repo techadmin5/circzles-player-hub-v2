@@ -177,6 +177,16 @@ Store purchase now validates unique ownership before charging and performs debit
 
 API mode uses authoritative Inventory and Store responses with no mock fallback. The purchase response's `balanceAfter` replaces the displayed SP balance exactly. Coupons remain visible and stackable but cannot be redeemed or bridged to Wix yet.
 
+## Phase 3H Reward Wheel Boundary
+
+`RewardWheelService` is the authenticated orchestration boundary. `GET /api/wheel` projects safe presentation and server availability without weights or probability. `POST /api/wheel/spin` accepts only an empty body plus a bounded idempotency key; session identity and persisted configuration supply every authoritative input.
+
+The Drizzle repository uses a player-wide transaction advisory lock, checks immutable same-player replay before current configuration or cooldown, and then locks/reads configured authority and existing ownership. Secure weighted selection uses Node `crypto.randomInt` through an injectable service seam. Unique Inventory rewards already owned are removed before selection while original segment positions remain stable.
+
+Cost debit, SP/XP/Inventory grant, immutable spin snapshots, and `reward_wheel.spun` commit in one transaction through the existing ledger and Inventory helpers. Zero-cost spins create no fake debit. Any grant or uniqueness race rolls back the cost and spin. Different-key requests serialize per player and re-check cooldown; same-key requests resolve to one committed spin.
+
+API-mode frontend code loads the configured layout/status and waits for the authoritative result before playing wheel animation or reward audio. One key is retained across unresolved retries, and the wheel lands on the returned configured position. Mock mode retains its local demonstration layout, including Retry; API mode defines no Retry reward semantics.
+
 ## Phase 3G-D Rename Card Boundary
 
 `PlayerIdentityActionService` is the authenticated display-name mutation boundary. It normalizes one client-supplied name, while the session supplies player identity and the database supplies Inventory ownership, quantity, and reward type. It never accepts or mutates public player identity, user identity, session identity, or Wix identity.

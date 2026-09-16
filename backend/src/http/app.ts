@@ -20,6 +20,7 @@ import type { RewardCatalogService } from "../domain/rewardCatalog.js";
 import type { StorePurchaseService } from "../domain/storePurchases.js";
 import { equipmentSlots, type InventoryService } from "../domain/inventory.js";
 import type { PlayerIdentityActionService } from "../domain/playerIdentityActions.js";
+import type { RewardWheelService } from "../domain/rewardWheel.js";
 
 export interface AppDeps {
   env: Env;
@@ -38,6 +39,7 @@ export interface AppDeps {
   storePurchases: StorePurchaseService;
   inventory: InventoryService;
   playerIdentityActions: PlayerIdentityActionService;
+  rewardWheel: RewardWheelService;
   checkDb: () => Promise<void>;
 }
 
@@ -85,7 +87,7 @@ const equipmentParamsSchema = z.object({ slot: z.enum(equipmentSlots) }).strict(
 const equipBodySchema = z.object({ slot: z.enum(equipmentSlots) }).strict();
 const renameDisplayNameBodySchema = z.object({ inventoryItemId: z.string().uuid(), displayName: z.string() }).strict();
 
-export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, playerIdentityActions, checkDb }: AppDeps) {
+export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, playerIdentityActions, rewardWheel, checkDb }: AppDeps) {
   const app = Fastify({
     logger: env.NODE_ENV === "test" ? false : {
       level: "info",
@@ -202,6 +204,20 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
     const idempotencyKey = typeof header === "string" ? header.trim() : "";
     if (!idempotencyKey || idempotencyKey.length > 200) throw validationFailed("A valid Idempotency-Key header is required.");
     return reply.send(await storePurchases.purchase({ playerId: player.internalId, listingId: params.data.listingId, idempotencyKey }));
+  });
+
+  app.get("/api/wheel", async (request, reply) => {
+    const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+    return reply.send(await rewardWheel.getStatus(player.internalId));
+  });
+
+  app.post("/api/wheel/spin", async (request, reply) => {
+    const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+    if (request.body !== undefined && (request.body === null || typeof request.body !== "object" || Array.isArray(request.body) || Object.keys(request.body).length > 0)) throw validationFailed("Reward Wheel spin does not accept request data.");
+    const header = request.headers["idempotency-key"];
+    const idempotencyKey = typeof header === "string" ? header.trim() : "";
+    if (!idempotencyKey || idempotencyKey.length > 200) throw validationFailed("A valid Idempotency-Key header is required.");
+    return reply.send(await rewardWheel.spin({ playerId: player.internalId, idempotencyKey }));
   });
 
   app.get("/api/me/inventory", async (request, reply) => {

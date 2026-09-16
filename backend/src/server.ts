@@ -16,6 +16,7 @@ import { DrizzleRewardCatalogRepository, RewardCatalogService } from "./domain/r
 import { DrizzleStorePurchaseRepository, StorePurchaseService } from "./domain/storePurchases.js";
 import { DrizzleInventoryRepository, InventoryService } from "./domain/inventory.js";
 import { DrizzlePlayerIdentityActionRepository, PlayerIdentityActionService } from "./domain/playerIdentityActions.js";
+import { DrizzleRewardWheelRepository, RewardWheelService } from "./domain/rewardWheel.js";
 
 const env = loadEnv();
 const { pool, db } = createDb(env.DATABASE_URL, (error) => {
@@ -39,6 +40,7 @@ const rewardCatalog = new RewardCatalogService(new DrizzleRewardCatalogRepositor
 const storePurchases = new StorePurchaseService(new DrizzleStorePurchaseRepository(db));
 const inventory = new InventoryService(new DrizzleInventoryRepository(db));
 const playerIdentityActions = new PlayerIdentityActionService(new DrizzlePlayerIdentityActionRepository(db));
+const rewardWheel = new RewardWheelService(new DrizzleRewardWheelRepository(db));
 const app = buildApp({
   env,
   identity,
@@ -56,6 +58,7 @@ const app = buildApp({
   storePurchases,
   inventory,
   playerIdentityActions,
+  rewardWheel,
   checkDb: async () => {
     await pool.query("select 1");
   },

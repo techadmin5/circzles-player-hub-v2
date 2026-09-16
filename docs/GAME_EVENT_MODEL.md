@@ -177,3 +177,9 @@ The claim event uses deterministic key `mission.claimed:{playerId}:{missionId}:{
 `inventory.item.consumed` and `player.display_name.changed` are emitted in the same transaction as Rename Card decrement, immutable consumption history, and `players.display_name` update. Both use the consumption UUID as source and deterministic event keys, so exact operation replay emits neither event again.
 
 The consumption payload includes reward definition, owned item, `RENAME_CARD`, quantity one, quantity after, and `DISPLAY_NAME_CHANGE`. The identity event includes previous and new display names. Neither includes email, Wix identity, session data, tokens, or secrets. The immutable `publicPlayerId` is not changed or represented as client-controlled data.
+
+## Phase 3H Reward Wheel Event
+
+`reward_wheel.spun` is emitted exactly once in the same transaction as cost debit, authoritative reward grant, and immutable spin history. It uses source type `REWARD_WHEEL_SPIN`, the canonical spin UUID as `sourceId`, and deterministic key `reward_wheel.spun:<spinId>`.
+
+The payload may include wheel identity/code, configured segment position, reward-definition identity/type/quantity, configured cost, and resulting balance. It never includes random roll, total weight, segment weights, probabilities, session data, or secrets. Point, XP, and Inventory helpers continue emitting their normal authoritative events; exact spin replay emits none again.
