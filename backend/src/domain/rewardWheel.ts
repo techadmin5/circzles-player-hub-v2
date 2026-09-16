@@ -1,14 +1,14 @@
 import { randomInt as secureRandomInt } from "node:crypto";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, sql } from "drizzle-orm";
 import type { Database } from "../db/client.js";
-import { playerInventoryItems, rewardDefinitions, rewardWheelSegments, rewardWheelSpins, rewardWheels } from "../db/schema.js";
-import { AppError, validationFailed } from "./errors.js";
+import { playerInventoryItems, rewardDefinitions, rewardWheelSegments, rewardWheelSpins, rewardWheelSpinTiers, rewardWheels, wallets } from "../db/schema.js";
+import { AppError, insufficientPoints, validationFailed } from "./errors.js";
 import { creditPointsInTransaction, debitPointsInTransaction, grantXpInTransaction, lockWalletAndGetBalanceInTransaction } from "./gameState.js";
 import { insertGameEventInTransaction } from "./gameEvents.js";
 import { grantInventoryItemInTransaction, uniqueInventoryTypes } from "./inventory.js";
 import type { RewardDefinitionType } from "./rewardCatalog.js";
 
-export type WheelUnavailableReason = "WHEEL_NOT_STARTED" | "WHEEL_ENDED" | "WHEEL_COOLDOWN_ACTIVE" | "WHEEL_NO_ELIGIBLE_REWARDS" | "WHEEL_NOT_CONFIGURED";
+export type WheelUnavailableReason = "WHEEL_NOT_STARTED" | "WHEEL_ENDED" | "WHEEL_DAILY_LIMIT_REACHED" | "WHEEL_NO_ELIGIBLE_REWARDS" | "WHEEL_NOT_CONFIGURED" | "INSUFFICIENT_POINTS";
 
 export interface RewardWheelSegmentDto {
   wheelSegmentIndex: number;
@@ -25,9 +25,16 @@ export interface RewardWheelStatusDto {
   wheel: null | {
     code: string;
     name: string;
-    costSynapsePoints: number;
-    cooldownSeconds: number;
-    nextSpinAt: string | null;
+    cycleSeconds: number;
+    cycleStartedAt: string | null;
+    cycleEndsAt: string | null;
+    spinsUsed: number;
+    maxSpinsPerCycle: number;
+    spinsRemaining: number;
+    nextSpinNumber: number | null;
+    nextSpinCostSynapsePoints: number | null;
+    nextSpinIsFree: boolean;
+    canAffordNextSpin: boolean;
     canSpin: boolean;
     unavailableReason: WheelUnavailableReason | null;
     segments: RewardWheelSegmentDto[];
@@ -45,7 +52,10 @@ export interface RewardWheelSpinResult {
   resultingBalance: number;
   wheelSegmentIndex: number;
   spunAt: string;
-  nextSpinAt: string | null;
+  spinNumber: number | null;
+  chargedSynapsePoints: number;
+  cycleStartedAt: string | null;
+  cycleEndsAt: string | null;
   idempotent: boolean;
 }
 
@@ -94,6 +104,10 @@ export class DrizzleRewardWheelRepository implements RewardWheelRepository {
     const [wheel] = await this.db.select().from(rewardWheels).where(eq(rewardWheels.active, true)).limit(1);
     if (!wheel) return { available: false, wheel: null };
 
+    const tiers = validateTierSchedule(await this.db.select().from(rewardWheelSpinTiers)
+      .where(and(eq(rewardWheelSpinTiers.rewardWheelId, wheel.rewardWheelId), eq(rewardWheelSpinTiers.active, true)))
+      .orderBy(asc(rewardWheelSpinTiers.spinNumber)));
+
     const rows = await this.db.select({ segment: rewardWheelSegments, reward: rewardDefinitions })
       .from(rewardWheelSegments)
       .innerJoin(rewardDefinitions, eq(rewardWheelSegments.rewardDefinitionId, rewardDefinitions.rewardDefinitionId))
@@ -103,18 +117,27 @@ export class DrizzleRewardWheelRepository implements RewardWheelRepository {
       .from(playerInventoryItems).where(eq(playerInventoryItems.playerId, playerId));
     const owned = new Set(ownedRows.filter((item) => item.quantity > 0).map((item) => item.rewardDefinitionId));
     const eligible = rows.filter(({ reward }) => !uniqueInventoryTypes.includes(reward.rewardType) || !owned.has(reward.rewardDefinitionId));
-    const [latest] = await this.db.select({ spunAt: rewardWheelSpins.spunAt }).from(rewardWheelSpins)
-      .where(and(eq(rewardWheelSpins.playerId, playerId), eq(rewardWheelSpins.rewardWheelId, wheel.rewardWheelId)))
+    const [latest] = await this.db.select().from(rewardWheelSpins)
+      .where(and(eq(rewardWheelSpins.playerId, playerId), eq(rewardWheelSpins.rewardWheelId, wheel.rewardWheelId), isNotNull(rewardWheelSpins.cycleEndsAt)))
       .orderBy(desc(rewardWheelSpins.spunAt)).limit(1);
-    const state = wheelAvailability(wheel, latest?.spunAt ?? null, eligible.length, now);
+    const [wallet] = await this.db.select({ balance: wallets.balance }).from(wallets).where(eq(wallets.playerId, playerId)).limit(1);
+    const cycle = resolveCycle(wheel, tiers, latest, now, false);
+    const state = wheelAvailability(wheel, cycle, eligible.length, wallet?.balance ?? 0, now);
     return {
-      available: state.reason === null || state.reason === "WHEEL_COOLDOWN_ACTIVE",
+      available: state.reason === null || state.reason === "WHEEL_DAILY_LIMIT_REACHED" || state.reason === "INSUFFICIENT_POINTS",
       wheel: {
         code: wheel.code,
         name: wheel.name,
-        costSynapsePoints: wheel.spinCostSynapsePoints,
-        cooldownSeconds: wheel.cooldownSeconds,
-        nextSpinAt: state.nextSpinAt?.toISOString() ?? null,
+        cycleSeconds: wheel.cycleSeconds,
+        cycleStartedAt: cycle.cycleStartedAt?.toISOString() ?? null,
+        cycleEndsAt: cycle.cycleEndsAt?.toISOString() ?? null,
+        spinsUsed: cycle.spinsUsed,
+        maxSpinsPerCycle: tiers.length,
+        spinsRemaining: tiers.length - cycle.spinsUsed,
+        nextSpinNumber: cycle.tier?.spinNumber ?? null,
+        nextSpinCostSynapsePoints: cycle.tier?.costSynapsePoints ?? null,
+        nextSpinIsFree: cycle.tier?.costSynapsePoints === 0,
+        canAffordNextSpin: cycle.tier ? (wallet?.balance ?? 0) >= cycle.tier.costSynapsePoints : false,
         canSpin: state.reason === null,
         unavailableReason: state.reason,
         segments: rows.map(({ segment, reward }) => ({
@@ -142,11 +165,20 @@ export class DrizzleRewardWheelRepository implements RewardWheelRepository {
 
       const [wheel] = await tx.select().from(rewardWheels).where(eq(rewardWheels.active, true)).limit(1).for("share");
       if (!wheel) throw new AppError("WHEEL_NOT_AVAILABLE", "No Reward Wheel is currently available.", 409);
-      const [latest] = await tx.select({ spunAt: rewardWheelSpins.spunAt }).from(rewardWheelSpins)
-        .where(and(eq(rewardWheelSpins.playerId, input.playerId), eq(rewardWheelSpins.rewardWheelId, wheel.rewardWheelId)))
+      const tiers = validateTierSchedule(await tx.select().from(rewardWheelSpinTiers)
+        .where(and(eq(rewardWheelSpinTiers.rewardWheelId, wheel.rewardWheelId), eq(rewardWheelSpinTiers.active, true)))
+        .orderBy(asc(rewardWheelSpinTiers.spinNumber)).for("share"));
+      const [latest] = await tx.select().from(rewardWheelSpins)
+        .where(and(eq(rewardWheelSpins.playerId, input.playerId), eq(rewardWheelSpins.rewardWheelId, wheel.rewardWheelId), isNotNull(rewardWheelSpins.cycleEndsAt)))
         .orderBy(desc(rewardWheelSpins.spunAt)).limit(1);
-      const initialAvailability = wheelAvailability(wheel, latest?.spunAt ?? null, 1, input.now);
-      if (initialAvailability.reason) throw wheelUnavailable(initialAvailability.reason, initialAvailability.nextSpinAt);
+      const cycle = resolveCycle(wheel, tiers, latest, input.now, true);
+      const initialAvailability = wheelAvailability(wheel, cycle, 1, Number.MAX_SAFE_INTEGER, input.now);
+      if (initialAvailability.reason === "INSUFFICIENT_POINTS") throw insufficientPoints();
+      if (initialAvailability.reason) throw wheelUnavailable(initialAvailability.reason, cycle.cycleEndsAt);
+      if (!cycle.tier || !cycle.cycleStartedAt || !cycle.cycleEndsAt) throw new AppError("WHEEL_CONFIGURATION_INVALID", "Reward Wheel cycle configuration is invalid.", 500);
+
+      const startingBalance = await lockWalletAndGetBalanceInTransaction(tx, input.playerId);
+      if (startingBalance < cycle.tier.costSynapsePoints) throw insufficientPoints();
 
       const rows = await tx.select({ segment: rewardWheelSegments, reward: rewardDefinitions })
         .from(rewardWheelSegments)
@@ -163,16 +195,15 @@ export class DrizzleRewardWheelRepository implements RewardWheelRepository {
         throw new AppError("WHEEL_CONFIGURATION_INVALID", "Unique Reward Wheel items must have quantity one.", 500);
       }
 
-      const startingBalance = await lockWalletAndGetBalanceInTransaction(tx, input.playerId);
       const spinId = crypto.randomUUID();
       const source = { sourceType: "REWARD_WHEEL_SPIN", sourceId: spinId };
-      const debit = wheel.spinCostSynapsePoints > 0 ? await debitPointsInTransaction(tx, {
+      const debit = cycle.tier.costSynapsePoints > 0 ? await debitPointsInTransaction(tx, {
         playerId: input.playerId,
-        amount: wheel.spinCostSynapsePoints,
+        amount: cycle.tier.costSynapsePoints,
         reason: "REWARD_WHEEL_SPIN",
         ...source,
         idempotencyKey: `reward-wheel.cost:${spinId}`,
-        metadata: { rewardWheelId: wheel.rewardWheelId },
+        metadata: { rewardWheelId: wheel.rewardWheelId, spinNumber: cycle.tier.spinNumber },
       }) : undefined;
       let resultingBalance = debit?.balanceAfter ?? startingBalance;
       let rewardPointTransactionId: string | undefined;
@@ -196,13 +227,17 @@ export class DrizzleRewardWheelRepository implements RewardWheelRepository {
         playerId: input.playerId,
         rewardWheelId: wheel.rewardWheelId,
         rewardWheelSegmentId: selected.segment.rewardWheelSegmentId,
+        rewardWheelSpinTierId: cycle.tier.rewardWheelSpinTierId,
         rewardDefinitionId: selected.reward.rewardDefinitionId,
         wheelCodeSnapshot: wheel.code,
         wheelNameSnapshot: wheel.name,
         segmentPositionSnapshot: selected.segment.position,
         segmentLabelSnapshot: selected.segment.displayLabel,
-        spinCostSynapsePointsSnapshot: wheel.spinCostSynapsePoints,
+        spinCostSynapsePointsSnapshot: cycle.tier.costSynapsePoints,
         cooldownSecondsSnapshot: wheel.cooldownSeconds,
+        spinNumberSnapshot: cycle.tier.spinNumber,
+        cycleStartedAt: cycle.cycleStartedAt,
+        cycleEndsAt: cycle.cycleEndsAt,
         rewardQuantitySnapshot: selected.segment.rewardQuantity,
         rewardTypeSnapshot: selected.reward.rewardType,
         rewardCodeSnapshot: selected.reward.code,
@@ -224,7 +259,7 @@ export class DrizzleRewardWheelRepository implements RewardWheelRepository {
         eventType: "reward_wheel.spun",
         ...source,
         idempotencyKey: `reward_wheel.spun:${spinId}`,
-        payload: { rewardWheelId: wheel.rewardWheelId, rewardWheelCode: wheel.code, segmentPosition: selected.segment.position, rewardDefinitionId: selected.reward.rewardDefinitionId, rewardType: selected.reward.rewardType, rewardQuantity: selected.segment.rewardQuantity, configuredCost: wheel.spinCostSynapsePoints, resultingBalance },
+        payload: { rewardWheelId: wheel.rewardWheelId, rewardWheelCode: wheel.code, segmentPosition: selected.segment.position, spinNumber: cycle.tier.spinNumber, chargedSynapsePoints: cycle.tier.costSynapsePoints, cycleStartedAt: cycle.cycleStartedAt.toISOString(), cycleEndsAt: cycle.cycleEndsAt.toISOString(), rewardDefinitionId: selected.reward.rewardDefinitionId, rewardType: selected.reward.rewardType, rewardQuantity: selected.segment.rewardQuantity, resultingBalance },
       });
       return spinResult(spin, false);
     });
@@ -232,27 +267,57 @@ export class DrizzleRewardWheelRepository implements RewardWheelRepository {
 }
 
 type WheelRow = typeof rewardWheels.$inferSelect;
-function wheelAvailability(wheel: WheelRow, latestSpinAt: Date | null, eligibleCount: number, now: Date) {
-  if (wheel.startsAt && now < wheel.startsAt) return { reason: "WHEEL_NOT_STARTED" as const, nextSpinAt: wheel.startsAt };
-  if (wheel.endsAt && now >= wheel.endsAt) return { reason: "WHEEL_ENDED" as const, nextSpinAt: null };
-  if (eligibleCount === 0) return { reason: "WHEEL_NO_ELIGIBLE_REWARDS" as const, nextSpinAt: null };
-  if (latestSpinAt && wheel.cooldownSeconds > 0) {
-    const nextSpinAt = new Date(latestSpinAt.getTime() + wheel.cooldownSeconds * 1000);
-    if (now < nextSpinAt) return { reason: "WHEEL_COOLDOWN_ACTIVE" as const, nextSpinAt };
-  }
-  return { reason: null, nextSpinAt: null };
+type TierRow = typeof rewardWheelSpinTiers.$inferSelect;
+type SpinRow = typeof rewardWheelSpins.$inferSelect;
+type CycleState = {
+  cycleStartedAt: Date | null;
+  cycleEndsAt: Date | null;
+  spinsUsed: number;
+  tier: TierRow | null;
+};
+
+export function validateTierSchedule<T extends Pick<TierRow, "spinNumber" | "costSynapsePoints">>(tiers: T[]): T[] {
+  const valid = tiers.length === 4
+    && tiers.every((tier, index) => tier.spinNumber === index + 1 && Number.isInteger(tier.costSynapsePoints) && tier.costSynapsePoints >= 0)
+    && tiers[0]?.costSynapsePoints === 0;
+  if (!valid) throw new AppError("WHEEL_CONFIGURATION_INVALID", "Reward Wheel spin tiers are invalid.", 500);
+  return tiers;
 }
 
-function wheelUnavailable(reason: Exclude<WheelUnavailableReason, "WHEEL_NOT_CONFIGURED">, nextSpinAt: Date | null) {
-  const code = reason === "WHEEL_COOLDOWN_ACTIVE" ? reason : reason === "WHEEL_NO_ELIGIBLE_REWARDS" ? reason : "WHEEL_NOT_AVAILABLE";
-  const message = reason === "WHEEL_COOLDOWN_ACTIVE" ? "The Reward Wheel is still cooling down." : reason === "WHEEL_NO_ELIGIBLE_REWARDS" ? "No eligible Reward Wheel prizes remain." : "The Reward Wheel is not currently available.";
-  return new AppError(code, message, 409, nextSpinAt ? { nextSpinAt: nextSpinAt.toISOString() } : undefined);
+function resolveCycle(wheel: WheelRow, tiers: TierRow[], latest: SpinRow | undefined, now: Date, establishNew: boolean): CycleState {
+  if (latest?.cycleStartedAt && latest.cycleEndsAt && latest.spinNumberSnapshot && now < latest.cycleEndsAt) {
+    const spinsUsed = latest.spinNumberSnapshot;
+    return {
+      cycleStartedAt: latest.cycleStartedAt,
+      cycleEndsAt: latest.cycleEndsAt,
+      spinsUsed,
+      tier: tiers[spinsUsed] ?? null,
+    };
+  }
+  return {
+    cycleStartedAt: establishNew ? now : null,
+    cycleEndsAt: establishNew ? new Date(now.getTime() + wheel.cycleSeconds * 1000) : null,
+    spinsUsed: 0,
+    tier: tiers[0] ?? null,
+  };
+}
+
+function wheelAvailability(wheel: WheelRow, cycle: CycleState, eligibleCount: number, balance: number, now: Date) {
+  if (wheel.startsAt && now < wheel.startsAt) return { reason: "WHEEL_NOT_STARTED" as const };
+  if (wheel.endsAt && now >= wheel.endsAt) return { reason: "WHEEL_ENDED" as const };
+  if (eligibleCount === 0) return { reason: "WHEEL_NO_ELIGIBLE_REWARDS" as const };
+  if (!cycle.tier) return { reason: "WHEEL_DAILY_LIMIT_REACHED" as const };
+  if (balance < cycle.tier.costSynapsePoints) return { reason: "INSUFFICIENT_POINTS" as const };
+  return { reason: null };
+}
+
+function wheelUnavailable(reason: Exclude<WheelUnavailableReason, "WHEEL_NOT_CONFIGURED" | "INSUFFICIENT_POINTS">, cycleEndsAt: Date | null) {
+  const code = reason === "WHEEL_DAILY_LIMIT_REACHED" || reason === "WHEEL_NO_ELIGIBLE_REWARDS" ? reason : "WHEEL_NOT_AVAILABLE";
+  const message = reason === "WHEEL_DAILY_LIMIT_REACHED" ? "The Reward Wheel spin limit has been reached for this cycle." : reason === "WHEEL_NO_ELIGIBLE_REWARDS" ? "No eligible Reward Wheel prizes remain." : "The Reward Wheel is not currently available.";
+  return new AppError(code, message, 409, reason === "WHEEL_DAILY_LIMIT_REACHED" && cycleEndsAt ? { cycleEndsAt: cycleEndsAt.toISOString() } : undefined);
 }
 
 function spinResult(spin: typeof rewardWheelSpins.$inferSelect, idempotent: boolean): RewardWheelSpinResult {
-  const nextSpinAt = spin.cooldownSecondsSnapshot > 0
-    ? new Date(spin.spunAt.getTime() + spin.cooldownSecondsSnapshot * 1000).toISOString()
-    : null;
   return {
     spinId: spin.rewardWheelSpinId,
     rewardId: spin.rewardDefinitionId,
@@ -263,7 +328,10 @@ function spinResult(spin: typeof rewardWheelSpins.$inferSelect, idempotent: bool
     resultingBalance: spin.resultingSynapsePointBalance,
     wheelSegmentIndex: spin.segmentPositionSnapshot,
     spunAt: spin.spunAt.toISOString(),
-    nextSpinAt,
+    spinNumber: spin.spinNumberSnapshot,
+    chargedSynapsePoints: spin.spinCostSynapsePointsSnapshot,
+    cycleStartedAt: spin.cycleStartedAt?.toISOString() ?? null,
+    cycleEndsAt: spin.cycleEndsAt?.toISOString() ?? null,
     idempotent,
   };
 }

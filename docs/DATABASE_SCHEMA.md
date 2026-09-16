@@ -333,7 +333,11 @@ Indexes: `(player_id, created_at)` for player claim history.
 
 ### reward_wheels
 
-Purpose: persisted Reward Wheel authority. Stores stable unique code, display name, global active flag, non-negative SP cost and cooldown, optional ordered UTC window, and timestamps. A partial unique index permits only one globally active wheel.
+Purpose: persisted Reward Wheel authority. Stores stable unique code, display name, global active flag, legacy non-negative SP cost/cooldown fields, positive configurable `cycle_seconds` (default `86400`), optional ordered UTC window, and timestamps. A partial unique index permits only one globally active wheel. Cycle-based operation no longer uses cooldown as a per-spin limiter.
+
+### reward_wheel_spin_tiers
+
+Purpose: normalized authoritative cost schedule for one rolling wheel cycle. Rows contain a restrictive wheel FK, positive spin number, non-negative SP cost, active flag, and timestamps. Unique `(reward_wheel_id, spin_number)` preserves one tier per position; runtime validation requires exactly four contiguous active tiers beginning at spin 1 with cost zero. The intended DEVELOPMENT configuration is `1 -> 0`, `2 -> 300`, `3 -> 450`, `4 -> 700`, configured outside migrations.
 
 ### reward_wheel_segments
 
@@ -341,9 +345,9 @@ Purpose: configured visual and weighted reward segments. Each row has a restrict
 
 ### reward_wheel_spins
 
-Purpose: immutable logical spin and replay history. Stores restrictive player/wheel/segment/reward FKs; wheel, segment, cost, cooldown, quantity, reward presentation, and resulting-balance snapshots; optional restrictive links to cost/reward point transactions, XP transaction, and Inventory grant; player-scoped idempotency key; metadata; and server spin time.
+Purpose: immutable logical spin and replay history. Stores restrictive player/wheel/segment/reward FKs; nullable restrictive tier FK; wheel, segment, charged cost, cooldown, spin number, rolling-cycle boundaries, quantity, reward presentation, and resulting-balance snapshots; optional restrictive links to cost/reward point transactions, XP transaction, and Inventory grant; player-scoped idempotency key; metadata; and server spin time. Tier/cycle fields are nullable only for compatibility with historical `0015` rows.
 
-Constraints include unique `(player_id, idempotency_key)`, non-negative cost/cooldown/balance, positive reward quantity, non-negative segment position, and a cost-ledger consistency check. Player/time, player/wheel/time, and wheel/time indexes support cooldown and history reads.
+Constraints include unique `(player_id, idempotency_key)`, positive nullable spin number, valid nullable cycle boundaries, non-negative cost/cooldown/balance, positive reward quantity, non-negative segment position, and a cost-ledger consistency check. Player/time, player/wheel/time, and wheel/time indexes support cycle and history reads.
 
 ### friendships
 
@@ -482,7 +486,9 @@ Player, Inventory-item, and reward-definition foreign keys are restrictive. `(pl
 
 Migration `0015_reflective_karen_page.sql` adds `reward_wheels`, `reward_wheel_segments`, and immutable `reward_wheel_spins`. It is additive and schema-only: no drops, deletes, seed rows, or permanent wheel configuration. All history and authority foreign keys use restrictive deletion.
 
-The migration has been generated and inspected but has **not** been applied to Neon Development or Production. A temporary DEVELOPMENT wheel will be configured manually only after migration review.
+Migration `0015_reflective_karen_page.sql` is **APPLIED AND VERIFIED on Neon DEVELOPMENT only**. It has not been applied to Production. The committed DEVELOPMENT smoke spin remains historical audit data.
+
+Migration `0016_windy_xorn.sql` adds `reward_wheel_spin_tiers`, `reward_wheels.cycle_seconds`, and nullable tier/cycle snapshots on `reward_wheel_spins`. It is additive and schema-only, with restrictive foreign keys and no seed rows. It is generated and inspected but **NOT APPLIED** to Neon Development or Production. Tier rows, including the intended `0/300/450/700` schedule, must be configured separately after migration review.
 
 ## Phase 3D Implemented Tables
 

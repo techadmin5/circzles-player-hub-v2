@@ -596,6 +596,7 @@ export const rewardWheels = pgTable("reward_wheels", {
   active: boolean("active").notNull().default(false),
   spinCostSynapsePoints: integer("spin_cost_synapse_points").notNull().default(0),
   cooldownSeconds: integer("cooldown_seconds").notNull().default(0),
+  cycleSeconds: integer("cycle_seconds").notNull().default(86400),
   startsAt: timestamp("starts_at", { withTimezone: true }),
   endsAt: timestamp("ends_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -606,7 +607,23 @@ export const rewardWheels = pgTable("reward_wheels", {
   activeWindowIndex: index("reward_wheels_active_window_idx").on(table.active, table.startsAt, table.endsAt),
   costCheck: check("reward_wheels_spin_cost_check", sql`${table.spinCostSynapsePoints} >= 0`),
   cooldownCheck: check("reward_wheels_cooldown_check", sql`${table.cooldownSeconds} >= 0`),
+  cycleCheck: check("reward_wheels_cycle_seconds_check", sql`${table.cycleSeconds} > 0`),
   availabilityCheck: check("reward_wheels_availability_check", sql`${table.endsAt} is null or ${table.startsAt} is null or ${table.endsAt} > ${table.startsAt}`),
+}));
+
+export const rewardWheelSpinTiers = pgTable("reward_wheel_spin_tiers", {
+  rewardWheelSpinTierId: uuid("reward_wheel_spin_tier_id").primaryKey().defaultRandom(),
+  rewardWheelId: uuid("reward_wheel_id").notNull().references(() => rewardWheels.rewardWheelId, { onDelete: "restrict" }),
+  spinNumber: integer("spin_number").notNull(),
+  costSynapsePoints: integer("cost_synapse_points").notNull(),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  wheelSpinNumberUnique: uniqueIndex("reward_wheel_spin_tiers_wheel_id_spin_number_unique").on(table.rewardWheelId, table.spinNumber),
+  wheelActiveSpinNumberIndex: index("reward_wheel_spin_tiers_wheel_id_active_spin_number_idx").on(table.rewardWheelId, table.active, table.spinNumber),
+  spinNumberCheck: check("reward_wheel_spin_tiers_spin_number_check", sql`${table.spinNumber} > 0`),
+  costCheck: check("reward_wheel_spin_tiers_cost_check", sql`${table.costSynapsePoints} >= 0`),
 }));
 
 export const rewardWheelSegments = pgTable("reward_wheel_segments", {
@@ -635,6 +652,7 @@ export const rewardWheelSpins = pgTable("reward_wheel_spins", {
   playerId: uuid("player_id").notNull().references(() => players.playerId, { onDelete: "restrict" }),
   rewardWheelId: uuid("reward_wheel_id").notNull().references(() => rewardWheels.rewardWheelId, { onDelete: "restrict" }),
   rewardWheelSegmentId: uuid("reward_wheel_segment_id").notNull().references(() => rewardWheelSegments.rewardWheelSegmentId, { onDelete: "restrict" }),
+  rewardWheelSpinTierId: uuid("reward_wheel_spin_tier_id").references(() => rewardWheelSpinTiers.rewardWheelSpinTierId, { onDelete: "restrict" }),
   rewardDefinitionId: uuid("reward_definition_id").notNull().references(() => rewardDefinitions.rewardDefinitionId, { onDelete: "restrict" }),
   wheelCodeSnapshot: text("wheel_code_snapshot").notNull(),
   wheelNameSnapshot: text("wheel_name_snapshot").notNull(),
@@ -642,6 +660,9 @@ export const rewardWheelSpins = pgTable("reward_wheel_spins", {
   segmentLabelSnapshot: text("segment_label_snapshot").notNull(),
   spinCostSynapsePointsSnapshot: integer("spin_cost_synapse_points_snapshot").notNull(),
   cooldownSecondsSnapshot: integer("cooldown_seconds_snapshot").notNull(),
+  spinNumberSnapshot: integer("spin_number_snapshot"),
+  cycleStartedAt: timestamp("cycle_started_at", { withTimezone: true }),
+  cycleEndsAt: timestamp("cycle_ends_at", { withTimezone: true }),
   rewardQuantitySnapshot: integer("reward_quantity_snapshot").notNull(),
   rewardTypeSnapshot: rewardDefinitionType("reward_type_snapshot").notNull(),
   rewardCodeSnapshot: text("reward_code_snapshot").notNull(),
@@ -664,6 +685,8 @@ export const rewardWheelSpins = pgTable("reward_wheel_spins", {
   segmentPositionCheck: check("reward_wheel_spins_segment_position_snapshot_check", sql`${table.segmentPositionSnapshot} >= 0`),
   costCheck: check("reward_wheel_spins_spin_cost_snapshot_check", sql`${table.spinCostSynapsePointsSnapshot} >= 0`),
   cooldownCheck: check("reward_wheel_spins_cooldown_snapshot_check", sql`${table.cooldownSecondsSnapshot} >= 0`),
+  spinNumberCheck: check("reward_wheel_spins_spin_number_snapshot_check", sql`${table.spinNumberSnapshot} is null or ${table.spinNumberSnapshot} > 0`),
+  cycleWindowCheck: check("reward_wheel_spins_cycle_window_check", sql`(${table.cycleStartedAt} is null and ${table.cycleEndsAt} is null) or (${table.cycleStartedAt} is not null and ${table.cycleEndsAt} > ${table.cycleStartedAt})`),
   rewardQuantityCheck: check("reward_wheel_spins_reward_quantity_snapshot_check", sql`${table.rewardQuantitySnapshot} > 0`),
   balanceCheck: check("reward_wheel_spins_resulting_balance_check", sql`${table.resultingSynapsePointBalance} >= 0`),
   costLedgerLinkCheck: check("reward_wheel_spins_cost_ledger_link_check", sql`(${table.spinCostSynapsePointsSnapshot} = 0 and ${table.costPointTransactionId} is null) or (${table.spinCostSynapsePointsSnapshot} > 0 and ${table.costPointTransactionId} is not null)`),

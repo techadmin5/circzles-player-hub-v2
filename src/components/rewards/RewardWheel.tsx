@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Gem, Sparkles, X } from "lucide-react";
 import type { RewardWheelResult, RewardWheelStatus } from "@/types";
@@ -59,20 +59,44 @@ export function RewardWheel() {
   const [result, setResult] = useState<RewardWheelResult | null>(null);
   const [reveal, setReveal] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [countdownMs, setCountdownMs] = useState(0);
   const intentKey = useRef<string | null>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const reduced = useReducedMotion();
 
-  useEffect(() => {
+  const loadStatus = useCallback(async (signal?: AbortSignal) => {
     if (dataMode !== "api") return;
-    const controller = new AbortController();
-    rewardService.getWheelStatus(controller.signal).then(setStatus).catch((cause) => {
-      if (!controller.signal.aborted) setError(errorMessage(cause, "Reward Wheel status could not be loaded."));
-    }).finally(() => { if (!controller.signal.aborted) setLoadingStatus(false); });
-    return () => controller.abort();
+    try {
+      const nextStatus = await rewardService.getWheelStatus(signal);
+      if (!signal?.aborted) { setStatus(nextStatus); setError(null); }
+    } catch (cause) {
+      if (!signal?.aborted) setError(errorMessage(cause, "Reward Wheel status could not be loaded."));
+    } finally {
+      if (!signal?.aborted) setLoadingStatus(false);
+    }
   }, []);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    const initialLoad = setTimeout(() => { void loadStatus(controller.signal); }, 0);
+    return () => { clearTimeout(initialLoad); controller.abort(); };
+  }, [loadStatus]);
+
   useEffect(() => () => { timers.current.forEach(clearTimeout); }, []);
+
+  useEffect(() => {
+    const cycleEndsAt = status?.wheel?.unavailableReason === "WHEEL_DAILY_LIMIT_REACHED" ? status.wheel.cycleEndsAt : null;
+    if (!cycleEndsAt) return;
+    let refreshed = false;
+    const update = () => {
+      const remaining = Math.max(0, new Date(cycleEndsAt).getTime() - Date.now());
+      setCountdownMs(remaining);
+      if (remaining === 0 && !refreshed) { refreshed = true; void loadStatus(); }
+    };
+    const initialTick = setTimeout(update, 0);
+    const interval = setInterval(update, 1000);
+    return () => { clearTimeout(initialTick); clearInterval(interval); };
+  }, [status?.wheel?.cycleEndsAt, status?.wheel?.unavailableReason, loadStatus]);
 
   const segments = useMemo<DisplaySegment[]>(() => {
     if (dataMode === "mock") return MOCK_SEGMENTS;
@@ -102,6 +126,7 @@ export function RewardWheel() {
     intentKey.current = key;
     try {
       const response = await rewardService.spinWheel(key);
+      void loadStatus();
       const displayIndex = segments.findIndex((segment) => segment.wheelSegmentIndex === response.wheelSegmentIndex);
       if (displayIndex < 0) throw new Error("The confirmed reward segment is not present in the loaded wheel configuration.");
       intentKey.current = null;
@@ -117,7 +142,6 @@ export function RewardWheel() {
         setResult(response);
         setReveal(true);
         setSpinning(false);
-        setStatus((currentStatus) => currentStatus?.wheel ? { ...currentStatus, wheel: { ...currentStatus.wheel, canSpin: response.nextSpinAt ? false : currentStatus.wheel.canSpin, nextSpinAt: response.nextSpinAt ?? null, unavailableReason: response.nextSpinAt ? "WHEEL_COOLDOWN_ACTIVE" : currentStatus.wheel.unavailableReason } } : currentStatus);
         duckMusic(2200);
         playSound("wheelReward");
       }, durationMs + 60));
@@ -139,7 +163,7 @@ export function RewardWheel() {
       <div className="text-center">
         <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-[var(--cz-aqua)]">Daily Mechanic</p>
         <h2 className="cz-display text-xl font-bold">{wheel?.name ?? "Reward Wheel"}</h2>
-        {dataMode === "api" && wheel && <p className="mt-1 text-xs text-[var(--cz-text-tertiary)]">{wheel.costSynapsePoints > 0 ? `${formatNumber(wheel.costSynapsePoints)} SP per spin` : "Free spin"}</p>}
+        {dataMode === "api" && wheel && <p className="mt-1 text-xs text-[var(--cz-text-tertiary)]">1 Free + 3 Paid Spins per 24h - {wheel.spinsUsed} of {wheel.maxSpinsPerCycle} used</p>}
       </div>
 
       <div className="relative grid aspect-square w-[min(300px,82vw)] place-items-center">
@@ -162,7 +186,7 @@ export function RewardWheel() {
         <div className="absolute z-20 grid h-16 w-16 place-items-center rounded-full border border-[rgba(61,234,212,0.4)] bg-[var(--cz-void)] shadow-[0_0_20px_rgba(61,234,212,0.2)]"><Sparkles size={22} className="text-[var(--cz-aqua)]" /></div>
       </div>
 
-      <button onClick={spin} disabled={spinning || loadingStatus || !canSpin} data-sound="silent" className="cz-btn cz-btn-gold min-w-40" data-testid="wheel-spin">{loadingStatus ? "Loading..." : spinning ? "Resolving..." : "Spin Wheel"}</button>
+      <button onClick={spin} disabled={spinning || loadingStatus || !canSpin} data-sound="silent" className="cz-btn cz-btn-gold min-w-40" data-testid="wheel-spin">{wheelButtonLabel(status, loadingStatus, spinning, countdownMs)}</button>
       <p className="max-w-xs text-center text-xs text-[var(--cz-text-tertiary)]">{wheelStatusMessage(status, error)}</p>
 
       <AnimatePresence>
@@ -198,9 +222,30 @@ function wheelStatusMessage(status: RewardWheelStatus | null, error: string | nu
   if (dataMode === "mock") return "Demo result is selected locally in mock mode.";
   if (!status) return "Loading server-authoritative wheel status.";
   if (!status.wheel) return "No Reward Wheel is currently available.";
-  if (status.wheel.nextSpinAt && !status.wheel.canSpin) return `Next spin: ${new Date(status.wheel.nextSpinAt).toLocaleString()}`;
+  if (status.wheel.unavailableReason === "INSUFFICIENT_POINTS" && status.wheel.nextSpinCostSynapsePoints !== null) return `You need ${formatNumber(status.wheel.nextSpinCostSynapsePoints)} SP to spin.`;
+  if (status.wheel.unavailableReason === "WHEEL_DAILY_LIMIT_REACHED") return "All spins used. Your next free spin is available when the current cycle ends.";
   if (!status.wheel.canSpin) return status.wheel.unavailableReason === "WHEEL_NO_ELIGIBLE_REWARDS" ? "You already own every unique reward currently available." : "This Reward Wheel is not currently available.";
   return "The server determines the reward and final balance before the wheel animates.";
+}
+
+function wheelButtonLabel(status: RewardWheelStatus | null, loading: boolean, spinning: boolean, countdownMs: number) {
+  if (loading) return "Loading...";
+  if (spinning) return "Resolving...";
+  if (dataMode === "mock") return "Spin Wheel";
+  const wheel = status?.wheel;
+  if (!wheel) return "Wheel Unavailable";
+  if (wheel.unavailableReason === "WHEEL_DAILY_LIMIT_REACHED") return `Next Free Spin in ${formatCountdown(countdownMs)}`;
+  if (wheel.nextSpinIsFree) return "Free Spin";
+  if (wheel.nextSpinCostSynapsePoints !== null) return `Spend ${formatNumber(wheel.nextSpinCostSynapsePoints)} SP to Spin`;
+  return "Wheel Unavailable";
+}
+
+function formatCountdown(milliseconds: number) {
+  const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return [hours, minutes, seconds].map((value) => String(value).padStart(2, "0")).join(":");
 }
 
 function errorMessage(cause: unknown, fallback: string) {
