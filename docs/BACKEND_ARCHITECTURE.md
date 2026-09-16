@@ -165,7 +165,17 @@ Reward definition and store availability are separate concerns. Later purchase p
 
 `StorePurchaseService` validates operation identity and delegates the atomic operation to `StorePurchaseRepository`. The Drizzle repository serializes exact keys with a transaction advisory lock, takes shared row locks on canonical listing/reward configuration, then locks the player's wallet before checking limits. Paid operations reuse the shared point-ledger debit helper; free operations lock/read the wallet without creating a zero-value ledger record.
 
-Purchase history and `store.purchase.completed` are written in the same transaction as the debit. The point ledger remains financial authority; `store_purchases` supplies business/audit snapshots and purchase-limit evidence. Inventory entitlements remain a separate Phase 3G-C boundary, so the API-mode frontend does not yet expose an enabled purchase action.
+Purchase history and `store.purchase.completed` are written in the same transaction as the debit. The point ledger remains financial authority; `store_purchases` supplies business/audit snapshots and purchase-limit evidence.
+
+## Phase 3G-C Inventory Boundary
+
+`grantInventoryItemInTransaction` is the reusable, source-neutral entitlement engine. It validates supported reward types, serializes a player's reward row, enforces player-scoped idempotency and immutable-payload replay, appends `inventory_grants`, updates `player_inventory_items`, and emits `inventory.item.granted` in its caller's transaction.
+
+Store purchase now validates unique ownership before charging and performs debit, purchase history, entitlement, current Inventory update, and both semantic events in one transaction. A failed grant rolls back every effect. Exact purchase replay returns purchase history before executing another grant.
+
+`InventoryService` exposes authenticated list, equip, and unequip operations. Equipment changes serialize per player, validate owned positive-quantity items against explicit slots, and emit their event with the mutation. Public profiles project only the equipped Avatar image, Frame name, and three Badge names in slot order; quantities, grants, purchases, and metadata remain private.
+
+API mode uses authoritative Inventory and Store responses with no mock fallback. The purchase response's `balanceAfter` replaces the displayed SP balance exactly. Rename Cards are visible and stackable but cannot be consumed until Phase 3G-D; Coupons are visible and stackable but cannot be redeemed or bridged to Wix yet.
 
 ## Operations Requiring Database Transactions
 

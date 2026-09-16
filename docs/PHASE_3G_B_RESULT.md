@@ -22,12 +22,14 @@ Free purchases do not create bogus zero-SP ledger rows. Their nullable `point_tr
 
 Authenticated `POST /api/rewards/store/:listingId/purchase` requires `{}` and a trimmed, non-empty `Idempotency-Key` of at most 200 characters. It returns stable purchase/reward snapshots, authoritative price and balance, purchase time, and replay status without metadata or player UUID.
 
-The frontend API client includes `purchaseStoreListing(listingId, idempotencyKey)`. API-mode Buy remains disabled through the existing coming-soon state because Phase 3G-B creates purchase proof but not an inventory entitlement. No success sound is fabricated; real purchase UI waits for Phase 3G-C.
+The frontend API client includes `purchaseStoreListing(listingId, idempotencyKey)`. Phase 3G-B intentionally left API-mode Buy disabled until Phase 3G-C could add an inventory entitlement in the purchase transaction.
 
 ## Event And Migration
 
 Each first successful purchase appends one `store.purchase.completed` event in the same transaction using `store.purchase.completed:<purchaseId>`. Its payload contains purchase/listing/reward identity, reward type, authoritative price, and resulting balance. Exact replay emits nothing new.
 
-Migration `0012_early_the_hood.sql` adds `store_purchases` only. It is additive, schema-only, contains no drops or seed data, and was not run. No development wallet values or catalog records were changed.
+Migration `0012_early_the_hood.sql` adds `store_purchases` only. It is additive, schema-only, and contains no drops or seed data.
+
+Verification status: **APPLIED AND VERIFIED - Neon DEVELOPMENT**. Manual verification confirmed `store_purchases` exists, player-scoped idempotency uniqueness, one-purchase-per-ledger uniqueness, the paid/free ledger-link check, all four restrictive foreign keys, and zero purchase rows. This is not a production migration claim; no production database action occurred.
 
 Automated tests use fake repositories and a serialized transaction harness; they make no external calls. Concurrent retry and purchase-limit behavior was exercised in that harness, but live PostgreSQL concurrency was not integration-tested in this phase.

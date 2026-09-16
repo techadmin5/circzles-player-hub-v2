@@ -337,3 +337,19 @@ Authentication: required player session cookie. `listingId` must be a UUID. Requ
 Returns `{ purchaseId, listingId, reward: { rewardDefinitionId, code, rewardType, name, imageUrl, rarity }, priceSynapsePoints, balanceAfter, purchasedAt, idempotent }`. Exact same-player/key/listing retries return the same immutable purchase with `idempotent: true`; another listing with the same key returns `409 IDEMPOTENCY_CONFLICT`.
 
 Unavailable listings return `STORE_LISTING_UNAVAILABLE`, exhausted limits return `PURCHASE_LIMIT_REACHED`, and insufficient wallet balance uses the existing insufficient-points error. Failed purchases commit no debit, purchase, or event.
+
+In Phase 3G-C, supported inventory rewards are granted in the same transaction. Unique rewards already owned return `ITEM_ALREADY_OWNED` before debit; Store listings for XP or Synapse Points return `STORE_REWARD_NOT_INVENTORY_SUPPORTED`. The authenticated Store catalog also returns `ownedQuantity`, `alreadyOwned`, `purchaseCount`, `remainingPurchases`, and server-derived `canPurchase`.
+
+## Phase 3G-C Inventory And Equipment
+
+### `GET /api/me/inventory`
+
+Authentication: required player session cookie. Returns `{ items, equipment }` for the authenticated player only. Items contain safe reward presentation data, authoritative quantity and acquisition time, and `equippedSlots`; grant history and reward metadata are private.
+
+### `POST /api/me/inventory/:inventoryItemId/equip`
+
+Authentication: required player session cookie. Body is `{ "slot": "FRAME" | "AVATAR" | "BADGE_1" | "BADGE_2" | "BADGE_3" }`. The server verifies ownership, positive quantity, and reward/slot compatibility. Equipping replaces the existing item in that slot, while one inventory item cannot occupy multiple slots.
+
+### `DELETE /api/me/equipment/:slot`
+
+Authentication: required player session cookie. Removes the authenticated player's equipment assignment for the validated slot without removing ownership. Both equipment mutations return the refreshed Inventory DTO.

@@ -1,5 +1,5 @@
 import { activity, coupons, currentPlayer, friendRequests, inventory, leaderboard, missions, notifications, playerPuzzles, players, puzzles, season, storeItems, submissions } from "@/mocks/data";
-import type { ApiStoreCatalogItem, LeaderboardCatalog, LeaderboardResponse, MissionClaimResult, PublicPlayerProfile, RewardWheelResult, StoreItem } from "@/types";
+import type { ApiStoreCatalogItem, EquipmentSlot, InventoryItem, LeaderboardCatalog, LeaderboardResponse, MissionClaimResult, PublicPlayerProfile, RewardWheelResult, StoreItem } from "@/types";
 import { dataMode } from "@/config/dataMode";
 import { apiClient, ApiClientError } from "@/lib/apiClient";
 import { mockDelay } from "./mockRuntime";
@@ -121,23 +121,33 @@ export const storeService = {
     await mockDelay();
     return storeItems;
   },
-  async purchaseItem(itemId: string) { await mockDelay(); return { itemId, resultingBalance: currentPlayer.synapsePoints - 3000, state: "OWNED" as const }; },
+  async purchaseItem(itemId: string, idempotencyKey?: string) { if (canUseBrowserApi()) return apiClient.purchaseStoreListing(itemId, idempotencyKey ?? crypto.randomUUID()); await mockDelay(); return { itemId, balanceAfter: currentPlayer.synapsePoints - 3000, state: "OWNED" as const }; },
 };
 
 function adaptStoreCatalogItem(item: ApiStoreCatalogItem): StoreItem {
-  const type: StoreItem["type"] = item.rewardType === "FRAME" ? "Frame" : item.rewardType === "BADGE" ? "Badge" : item.rewardType === "COUPON" ? "Coupon" : "Utility";
+  const type: StoreItem["type"] = item.rewardType === "FRAME" ? "Frame" : item.rewardType === "BADGE" ? "Badge" : item.rewardType === "AVATAR" ? "Avatar" : item.rewardType === "COUPON" ? "Coupon" : "Utility";
   const rarity = item.rarity?.toLowerCase();
   return {
     id: item.listingId,
     name: item.name,
     type,
     cost: item.priceSynapsePoints,
-    state: "COMING_SOON",
+    state: item.alreadyOwned && ["FRAME", "BADGE", "AVATAR", "COSMETIC"].includes(item.rewardType) ? "OWNED" : item.canPurchase ? "BUY" : "COMING_SOON",
     rarity: rarity === "rare" || rarity === "epic" || rarity === "legendary" ? rarity : "common",
     description: item.description,
+    rewardType: item.rewardType, imageUrl: item.imageUrl, ownedQuantity: item.ownedQuantity, canPurchase: item.canPurchase, remainingPurchases: item.remainingPurchases,
   };
 }
-export const inventoryService = { async getInventory() { await mockDelay(); return inventory; }, async equipItem(itemId: string) { await mockDelay(); return { itemId, state: "Equipped" as const }; } };
+export const inventoryService = {
+  async getInventory(signal?: AbortSignal): Promise<InventoryItem[]> { if (canUseBrowserApi()) return (await apiClient.getInventory(signal)).items.map(adaptInventoryItem); await mockDelay(); return inventory; },
+  async equipItem(itemId: string, slot: EquipmentSlot = "FRAME") { if (canUseBrowserApi()) return (await apiClient.equipInventoryItem(itemId, slot)).items.map(adaptInventoryItem); await mockDelay(); return inventory.map((item) => item.id === itemId ? { ...item, state: "Equipped" as const } : item); },
+  async unequip(slot: EquipmentSlot) { if (canUseBrowserApi()) return (await apiClient.unequipSlot(slot)).items.map(adaptInventoryItem); await mockDelay(); return inventory; },
+};
+function adaptInventoryItem(item: Awaited<ReturnType<typeof apiClient.getInventory>>["items"][number]): InventoryItem {
+  const categories: Record<string, InventoryItem["category"]> = { FRAME: "Frames", BADGE: "Badges", AVATAR: "Avatars", RENAME_CARD: "Rename Cards", COUPON: "Coupons", COSMETIC: "Special" };
+  const rarity = item.rarity?.toLowerCase();
+  return { id: item.inventoryItemId, rewardDefinitionId: item.rewardDefinitionId, code: item.code, rewardType: item.rewardType, name: item.name, description: item.description, imageUrl: item.imageUrl, category: categories[item.rewardType] ?? "Special", state: item.equippedSlots.length ? "Equipped" : ["RENAME_CARD", "COUPON"].includes(item.rewardType) ? "Consumable" : "Owned", rarity: rarity === "rare" || rarity === "epic" || rarity === "legendary" ? rarity : "common", quantity: item.quantity, firstAcquiredAt: item.firstAcquiredAt, equippedSlots: item.equippedSlots };
+}
 export const couponService = { async getCoupons() { await mockDelay(); return coupons; } };
 export const activityService = { async getActivity() { await mockDelay(); return activity; } };
 export const friendService = { async getFriends() { await mockDelay(); return players.slice(1).map((player) => ({ player, since: "2026-08-01" })); }, async searchPlayers(query: string) { await mockDelay(); return players.filter((p) => `${p.publicPlayerId} ${p.displayName}`.toLowerCase().includes(query.toLowerCase())); }, async sendRequest(playerId: string) { await mockDelay(); return { playerId, status: "SENT" }; }, async getRequests() { await mockDelay(); return friendRequests; } };

@@ -12,6 +12,7 @@ import { PublicProfileService } from "../src/domain/publicProfiles.js";
 import { MissionClaimService, PlayerMissionService } from "../src/domain/missions.js";
 import { RewardCatalogService, type RewardCatalogRepository, type StoreCatalogItemDto } from "../src/domain/rewardCatalog.js";
 import { StorePurchaseService, type StorePurchaseRepository, type StorePurchaseResult } from "../src/domain/storePurchases.js";
+import { InventoryService } from "../src/domain/inventory.js";
 import { FakeAdminAuthorizationRepository, FakeAdminSubmissionRepository, FakeGameStateRepository, FakeIdentityRepository, FakeLeaderboardRepository, FakeMissionClaimRepository, FakePlayerMissionRepository, FakePublicProfileRepository, FakePuzzleRepository, FakeSubmissionRepository, FakeSubmissionReviewRepository, FakeVideoStorage } from "./fakes.js";
 import type { Env } from "../src/config/env.js";
 
@@ -56,15 +57,18 @@ async function appWithFakes(overrides: Partial<Env> = {}) {
   const missions = new PlayerMissionService(missionRepo);
   const missionClaimRepo = new FakeMissionClaimRepository();
   const missionClaims = new MissionClaimService(missionClaimRepo);
-  const catalogItems: StoreCatalogItemDto[] = [{ listingId: "10000000-0000-4000-8000-000000000001", rewardDefinitionId: "20000000-0000-4000-8000-000000000001", code: "FRAME_TEST", rewardType: "FRAME", name: "Test Frame", description: "Test catalog item.", imageUrl: null, rarity: "RARE", priceSynapsePoints: 250, featured: true, displayOrder: 1, purchaseLimit: null }];
+  const catalogItems: StoreCatalogItemDto[] = [{ listingId: "10000000-0000-4000-8000-000000000001", rewardDefinitionId: "20000000-0000-4000-8000-000000000001", code: "FRAME_TEST", rewardType: "FRAME", name: "Test Frame", description: "Test catalog item.", imageUrl: null, rarity: "RARE", priceSynapsePoints: 250, featured: true, displayOrder: 1, purchaseLimit: null, ownedQuantity: 0, alreadyOwned: false, purchaseCount: 0, remainingPurchases: null, canPurchase: true }];
   const rewardCatalog = new RewardCatalogService({ listAvailable: async () => catalogItems } satisfies RewardCatalogRepository);
   const purchaseCalls: Array<{ playerId: string; listingId: string; idempotencyKey: string }> = [];
   const storePurchases = new StorePurchaseService({ purchase: async (input) => {
     purchaseCalls.push(input);
     return { purchaseId: "30000000-0000-4000-8000-000000000001", listingId: input.listingId, reward: { rewardDefinitionId: catalogItems[0].rewardDefinitionId, code: "FRAME_TEST", rewardType: "FRAME", name: "Test Frame", imageUrl: null, rarity: "RARE" }, priceSynapsePoints: 250, balanceAfter: 750, purchasedAt: "2026-09-12T12:00:00.000Z", idempotent: false } satisfies StorePurchaseResult;
   } } satisfies StorePurchaseRepository);
-  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, checkDb: async () => {} });
-  return { app, gameRepo, puzzleRepo, submissionRepo, videoStorage, adminAuthRepo, adminSubmissionRepo, leaderboardRepo, reviewRepo, publicProfileRepo, missionRepo, missionClaimRepo, purchaseCalls, testEnv };
+  const emptyInventory = { items: [], equipment: {} };
+  const inventoryCalls: string[] = [];
+  const inventory = new InventoryService({ list: async (playerId) => { inventoryCalls.push(`list:${playerId}`); return emptyInventory; }, equip: async (playerId, itemId, slot) => { inventoryCalls.push(`equip:${playerId}:${itemId}:${slot}`); return emptyInventory; }, unequip: async (playerId, slot) => { inventoryCalls.push(`unequip:${playerId}:${slot}`); return emptyInventory; } });
+  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, checkDb: async () => {} });
+  return { app, gameRepo, puzzleRepo, submissionRepo, videoStorage, adminAuthRepo, adminSubmissionRepo, leaderboardRepo, reviewRepo, publicProfileRepo, missionRepo, missionClaimRepo, purchaseCalls, inventoryCalls, testEnv };
 }
 
 async function login(app: Awaited<ReturnType<typeof appWithFakes>>["app"]) {
@@ -167,6 +171,7 @@ describe("http auth poc", () => {
       missionClaims: new MissionClaimService(new FakeMissionClaimRepository()),
       rewardCatalog: new RewardCatalogService({ listAvailable: async () => [] }),
       storePurchases: new StorePurchaseService({ purchase: async () => { throw new Error("not used"); } }),
+      inventory: new InventoryService({ list: async () => ({ items: [], equipment: {} }), equip: async () => ({ items: [], equipment: {} }), unequip: async () => ({ items: [], equipment: {} }) }),
       checkDb: async () => { checked = true; },
     });
     const res = await app.inject({ method: "GET", url: "/health" });
@@ -210,6 +215,17 @@ describe("http auth poc", () => {
     const response = await app.inject({ method: "POST", url, headers: { cookie, ...headers }, payload });
     expect(response.statusCode).toBe(400);
     expect(response.json().code).toBe("VALIDATION_FAILED");
+  });
+
+  it("Inventory endpoints require auth, derive player identity, and validate slots", async () => {
+    const { app, inventoryCalls } = await appWithFakes({ NODE_ENV: "development" });
+    expect((await app.inject({ method: "GET", url: "/api/me/inventory" })).statusCode).toBe(401);
+    const cookie = await login(app); const itemId = "40000000-0000-4000-8000-000000000001";
+    expect((await app.inject({ method: "GET", url: "/api/me/inventory", headers: { cookie } })).statusCode).toBe(200);
+    expect((await app.inject({ method: "POST", url: `/api/me/inventory/${itemId}/equip`, headers: { cookie }, payload: { slot: "FRAME" } })).statusCode).toBe(200);
+    expect((await app.inject({ method: "DELETE", url: "/api/me/equipment/FRAME", headers: { cookie } })).statusCode).toBe(200);
+    expect((await app.inject({ method: "POST", url: `/api/me/inventory/${itemId}/equip`, headers: { cookie }, payload: { slot: "WRONG" } })).statusCode).toBe(400);
+    expect(inventoryCalls.some((call) => call.startsWith("equip:"))).toBe(true); expect(inventoryCalls.some((call) => call.startsWith("unequip:"))).toBe(true);
   });
 
   it("development grant endpoints are unavailable in production", async () => {

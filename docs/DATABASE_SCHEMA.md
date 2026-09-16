@@ -466,7 +466,19 @@ Migration `0012_early_the_hood.sql` adds immutable `store_purchases`: purchase/p
 
 Player, listing, reward-definition, and point-transaction foreign keys are restrictive. `(player_id, idempotency_key)` is unique, and a point transaction can belong to at most one purchase. Price and balance snapshots are non-negative. A consistency check requires paid purchases to reference their debit and free purchases to have no point transaction. Player/listing and player/time indexes support purchase-limit and history reads.
 
-The migration is additive and schema-only and was not applied during Phase 3G-B.
+Migration `0012_early_the_hood.sql` was applied and manually verified on Neon Development after Phase 3G-B. It has not been applied to production.
+
+## Phase 3G-C Inventory And Equipment
+
+Migration `0013_absurd_slayback.sql` adds the `equipment_slot` enum (`FRAME`, `AVATAR`, `BADGE_1`, `BADGE_2`, `BADGE_3`) and three schema-only tables:
+
+- `inventory_grants` is immutable grant history with restrictive player/reward foreign keys and player-scoped idempotency uniqueness.
+- `player_inventory_items` is current ownership state, unique by player and reward definition, with non-negative quantity.
+- `player_equipment` assigns an owned inventory row to a slot, unique by player/slot and by player/inventory item. All foreign keys are restrictive.
+
+Frames, Badges, Avatars, and basic Cosmetics are unique entitlements with quantity one. Rename Cards and Coupons stack. XP and Synapse Points remain ledger rewards and are never Inventory items.
+
+The migration is additive, contains no drops or seed data, and was generated but not run in Phase 3G-C. Neon Development had zero `store_purchases` rows when Inventory was introduced, so no development backfill is needed. Any environment containing purchases created before Inventory exists must use an intentional reconciliation/backfill process; entitlements must never be fabricated silently.
 
 ## Phase 3D Implemented Tables
 

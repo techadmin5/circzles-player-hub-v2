@@ -5,6 +5,7 @@ import { AppError, validationFailed } from "./errors.js";
 import { debitPointsInTransaction, lockWalletAndGetBalanceInTransaction } from "./gameState.js";
 import { insertGameEventInTransaction } from "./gameEvents.js";
 import type { RewardDefinitionType } from "./rewardCatalog.js";
+import { assertInventoryPurchasableInTransaction, grantInventoryItemInTransaction } from "./inventory.js";
 
 export interface StorePurchaseInput { playerId: string; listingId: string; idempotencyKey: string; now?: Date }
 export interface StorePurchaseResult {
@@ -63,6 +64,8 @@ export class DrizzleStorePurchaseRepository implements StorePurchaseRepository {
         throw new AppError("PURCHASE_LIMIT_REACHED", "The purchase limit for this Store listing has been reached.", 409);
       }
 
+      await assertInventoryPurchasableInTransaction(tx, input.playerId, authority.reward.rewardDefinitionId, authority.reward.rewardType);
+
       const purchaseId = crypto.randomUUID();
       const price = authority.listing.priceSynapsePoints;
       const ledger = price > 0 ? await debitPointsInTransaction(tx, {
@@ -92,6 +95,8 @@ export class DrizzleStorePurchaseRepository implements StorePurchaseRepository {
         idempotencyKey: input.idempotencyKey,
       }).returning();
       if (!purchase) throw new AppError("STORE_PURCHASE_FAILED", "Could not record Store purchase.", 500);
+
+      await grantInventoryItemInTransaction(tx, { playerId: input.playerId, rewardDefinitionId: authority.reward.rewardDefinitionId, rewardType: authority.reward.rewardType, quantity: 1, sourceType: "STORE_PURCHASE", sourceId: purchase.purchaseId, idempotencyKey: `store.purchase.inventory:${purchase.purchaseId}` });
 
       await insertGameEventInTransaction(tx, {
         playerId: input.playerId,

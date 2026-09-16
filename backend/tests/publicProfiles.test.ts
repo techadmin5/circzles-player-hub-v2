@@ -11,11 +11,12 @@ class ProfileFixtureRepository implements PublicProfileRepository {
   active = true;
   attempts: Attempt[] = [];
   profile = { publicPlayerId: "CZ-8F42KD", displayName: "Smokey_OP", progressionRank: "Peasant" };
+  equipment = { avatarUrl: null as string | null, equippedFrame: null as string | null, displayedBadges: [] as string[] };
 
   async findByPublicPlayerId(publicPlayerId: string): Promise<PublicPlayerProfileDto | null> {
     if (!this.active || publicPlayerId !== this.profile.publicPlayerId) return null;
     const approvedPuzzles = new Set(this.attempts.filter((attempt) => attempt.publicPlayerId === publicPlayerId && attempt.status === "APPROVED").map((attempt) => attempt.puzzleId));
-    return { ...this.profile, approvedPuzzlesSolved: approvedPuzzles.size, avatarUrl: null, equippedFrame: null, displayedBadges: [] };
+    return { ...this.profile, approvedPuzzlesSolved: approvedPuzzles.size, ...this.equipment };
   }
 }
 
@@ -53,5 +54,11 @@ describe("public player profiles", () => {
     await expect(service.getPublicProfile("CZ-UNKNOWN")).rejects.toMatchObject({ code: "PLAYER_NOT_FOUND", statusCode: 404 });
     repo.active = false;
     await expect(service.getPublicProfile("CZ-8F42KD")).rejects.toMatchObject({ code: "PLAYER_NOT_FOUND", statusCode: 404 });
+  });
+
+  it("returns authoritative public equipment in badge-slot order without private state", async () => {
+    const repo = new ProfileFixtureRepository(); repo.equipment = { avatarUrl: "/avatar.png", equippedFrame: "Neon Frame", displayedBadges: ["First", "Second", "Third"] };
+    const profile = await new PublicProfileService(repo).getPublicProfile("CZ-8F42KD");
+    expect(profile).toMatchObject(repo.equipment); expect(profile).not.toHaveProperty("playerId"); expect(profile).not.toHaveProperty("quantity"); expect(profile).not.toHaveProperty("synapsePoints"); expect(profile).not.toHaveProperty("purchases");
   });
 });

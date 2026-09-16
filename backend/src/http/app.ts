@@ -18,6 +18,7 @@ import type { PublicProfileService } from "../domain/publicProfiles.js";
 import type { MissionClaimService, PlayerMissionService } from "../domain/missions.js";
 import type { RewardCatalogService } from "../domain/rewardCatalog.js";
 import type { StorePurchaseService } from "../domain/storePurchases.js";
+import { equipmentSlots, type InventoryService } from "../domain/inventory.js";
 
 export interface AppDeps {
   env: Env;
@@ -34,6 +35,7 @@ export interface AppDeps {
   missionClaims: MissionClaimService;
   rewardCatalog: RewardCatalogService;
   storePurchases: StorePurchaseService;
+  inventory: InventoryService;
   checkDb: () => Promise<void>;
 }
 
@@ -76,8 +78,11 @@ const reviewSubmissionBodySchema = z.object({
   reviewNote: z.string().max(2000).optional(),
 }).strict();
 const storePurchaseParamsSchema = z.object({ listingId: z.string().uuid() }).strict();
+const inventoryItemParamsSchema = z.object({ inventoryItemId: z.string().uuid() }).strict();
+const equipmentParamsSchema = z.object({ slot: z.enum(equipmentSlots) }).strict();
+const equipBodySchema = z.object({ slot: z.enum(equipmentSlots) }).strict();
 
-export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, checkDb }: AppDeps) {
+export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, checkDb }: AppDeps) {
   const app = Fastify({
     logger: env.NODE_ENV === "test" ? false : {
       level: "info",
@@ -181,8 +186,8 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
   });
 
   app.get("/api/rewards/store", async (request, reply) => {
-    await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
-    return reply.send({ items: await rewardCatalog.listAvailable() });
+    const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+    return reply.send({ items: await rewardCatalog.listAvailable(player.internalId) });
   });
 
   app.post("/api/rewards/store/:listingId/purchase", async (request, reply) => {
@@ -194,6 +199,25 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
     const idempotencyKey = typeof header === "string" ? header.trim() : "";
     if (!idempotencyKey || idempotencyKey.length > 200) throw validationFailed("A valid Idempotency-Key header is required.");
     return reply.send(await storePurchases.purchase({ playerId: player.internalId, listingId: params.data.listingId, idempotencyKey }));
+  });
+
+  app.get("/api/me/inventory", async (request, reply) => {
+    const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+    return reply.send(await inventory.list(player.internalId));
+  });
+
+  app.post("/api/me/inventory/:inventoryItemId/equip", async (request, reply) => {
+    const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+    const params = inventoryItemParamsSchema.safeParse(request.params); const body = equipBodySchema.safeParse(request.body);
+    if (!params.success || !body.success) throw validationFailed("Invalid equipment request.", { params: params.success ? undefined : params.error.flatten(), body: body.success ? undefined : body.error.flatten() });
+    return reply.send(await inventory.equip(player.internalId, params.data.inventoryItemId, body.data.slot));
+  });
+
+  app.delete("/api/me/equipment/:slot", async (request, reply) => {
+    const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+    const params = equipmentParamsSchema.safeParse(request.params);
+    if (!params.success) throw validationFailed("Invalid equipment slot.", params.error.flatten());
+    return reply.send(await inventory.unequip(player.internalId, params.data.slot));
   });
 
   app.post("/api/missions/:missionId/claim", async (request, reply) => {

@@ -18,6 +18,7 @@ interface PlayerUiStore {
   hydrate: (player: PlayerProfile) => void;
   applyClaim: (claim: MissionClaimResult, previous: PlayerUiSnapshot) => PlayerUiSnapshot;
   setDisplayedSynapsePoints: (value: number) => void;
+  setSynapsePoints: (value: number) => void;
   setBalancePulse: (value: boolean) => void;
 }
 
@@ -36,6 +37,7 @@ export const usePlayerUiState = create<PlayerUiStore>((set) => ({
     return player;
   },
   setDisplayedSynapsePoints: (displayedSynapsePoints) => set({ displayedSynapsePoints }),
+  setSynapsePoints: (synapsePoints) => set((state) => ({ player: state.player ? { ...state.player, synapsePoints } : state.player, displayedSynapsePoints: synapsePoints, balancePulse: true })),
   setBalancePulse: (balancePulse) => set({ balancePulse }),
 }));
 

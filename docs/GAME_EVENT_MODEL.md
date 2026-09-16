@@ -165,3 +165,9 @@ The claim event uses deterministic key `mission.claimed:{playerId}:{missionId}:{
 ## Phase 3G-B Store Purchase Event
 
 `store.purchase.completed` is emitted once in the successful purchase transaction. Its source is the immutable purchase and its deterministic idempotency key is `store.purchase.completed:<purchaseId>`. The payload contains `purchaseId`, `listingId`, `rewardDefinitionId`, `rewardType`, `priceSynapsePoints`, and `balanceAfter`; it excludes metadata and secrets. Exact purchase replay does not append another event.
+
+## Phase 3G-C Inventory Events
+
+`inventory.item.granted` is emitted in the same transaction as immutable grant history and current ownership. Store grants use deterministic grant identity `store.purchase.inventory:<purchaseId>`; replay neither increments quantity nor emits another event. Payload contains reward definition/type, granted quantity, and source type only.
+
+`inventory.item.equipped` and `inventory.item.unequipped` are emitted transactionally with equipment changes. Equip payload identifies the reward definition, owned inventory item, and explicit slot. Unequip identifies the slot and removed item. These internal events do not expose player-private Inventory quantities or purchase history.

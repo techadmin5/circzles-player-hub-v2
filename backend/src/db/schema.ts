@@ -10,6 +10,7 @@ export const puzzleCompetitionCategory = pgEnum("puzzle_competition_category", [
 export const adminRole = pgEnum("admin_role", ["SUPER_ADMIN", "REVIEWER"]);
 export const submissionReviewDecision = pgEnum("submission_review_decision", ["APPROVED", "REJECTED", "RESUBMISSION_REQUIRED"]);
 export const rewardDefinitionType = pgEnum("reward_definition_type", ["FRAME", "BADGE", "AVATAR", "RENAME_CARD", "COUPON", "SYNAPSE_POINTS", "XP", "COSMETIC"]);
+export const equipmentSlot = pgEnum("equipment_slot", ["FRAME", "AVATAR", "BADGE_1", "BADGE_2", "BADGE_3"]);
 
 export const users = pgTable("users", {
   userId: uuid("user_id").primaryKey().defaultRandom(),
@@ -525,4 +526,46 @@ export const storePurchases = pgTable("store_purchases", {
   priceCheck: check("store_purchases_price_synapse_points_snapshot_check", sql`${table.priceSynapsePointsSnapshot} >= 0`),
   balanceCheck: check("store_purchases_balance_after_check", sql`${table.balanceAfter} >= 0`),
   ledgerLinkCheck: check("store_purchases_point_transaction_link_check", sql`(${table.priceSynapsePointsSnapshot} = 0 and ${table.pointTransactionId} is null) or (${table.priceSynapsePointsSnapshot} > 0 and ${table.pointTransactionId} is not null)`),
+}));
+
+export const inventoryGrants = pgTable("inventory_grants", {
+  inventoryGrantId: uuid("inventory_grant_id").primaryKey().defaultRandom(),
+  playerId: uuid("player_id").notNull().references(() => players.playerId, { onDelete: "restrict" }),
+  rewardDefinitionId: uuid("reward_definition_id").notNull().references(() => rewardDefinitions.rewardDefinitionId, { onDelete: "restrict" }),
+  sourceType: text("source_type").notNull(),
+  sourceId: text("source_id").notNull(),
+  quantity: integer("quantity").notNull(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  playerIdempotencyUnique: uniqueIndex("inventory_grants_player_id_idempotency_key_unique").on(table.playerId, table.idempotencyKey),
+  playerCreatedIndex: index("inventory_grants_player_id_created_at_idx").on(table.playerId, table.createdAt),
+  sourceIndex: index("inventory_grants_source_idx").on(table.sourceType, table.sourceId),
+  quantityCheck: check("inventory_grants_quantity_check", sql`${table.quantity} > 0`),
+}));
+
+export const playerInventoryItems = pgTable("player_inventory_items", {
+  playerInventoryItemId: uuid("player_inventory_item_id").primaryKey().defaultRandom(),
+  playerId: uuid("player_id").notNull().references(() => players.playerId, { onDelete: "restrict" }),
+  rewardDefinitionId: uuid("reward_definition_id").notNull().references(() => rewardDefinitions.rewardDefinitionId, { onDelete: "restrict" }),
+  quantity: integer("quantity").notNull(),
+  firstAcquiredAt: timestamp("first_acquired_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  playerRewardUnique: uniqueIndex("player_inventory_items_player_id_reward_definition_id_unique").on(table.playerId, table.rewardDefinitionId),
+  playerIndex: index("player_inventory_items_player_id_idx").on(table.playerId),
+  quantityCheck: check("player_inventory_items_quantity_check", sql`${table.quantity} >= 0`),
+}));
+
+export const playerEquipment = pgTable("player_equipment", {
+  playerEquipmentId: uuid("player_equipment_id").primaryKey().defaultRandom(),
+  playerId: uuid("player_id").notNull().references(() => players.playerId, { onDelete: "restrict" }),
+  slot: equipmentSlot("slot").notNull(),
+  playerInventoryItemId: uuid("player_inventory_item_id").notNull().references(() => playerInventoryItems.playerInventoryItemId, { onDelete: "restrict" }),
+  equippedAt: timestamp("equipped_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  playerSlotUnique: uniqueIndex("player_equipment_player_id_slot_unique").on(table.playerId, table.slot),
+  playerItemUnique: uniqueIndex("player_equipment_player_id_inventory_item_unique").on(table.playerId, table.playerInventoryItemId),
+  playerIndex: index("player_equipment_player_id_idx").on(table.playerId),
 }));
