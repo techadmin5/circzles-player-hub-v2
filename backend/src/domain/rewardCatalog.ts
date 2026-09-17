@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gt, isNull, lte, or } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type * as schema from "../db/schema.js";
-import { playerInventoryItems, rewardDefinitions, storeListings, storePurchases } from "../db/schema.js";
+import { couponOwnerships, playerInventoryItems, rewardDefinitions, storeListings, storePurchases } from "../db/schema.js";
 import { validationFailed } from "./errors.js";
 
 type Db = NodePgDatabase<typeof schema>;
@@ -56,12 +56,15 @@ export class DrizzleRewardCatalogRepository implements RewardCatalogRepository {
       .orderBy(desc(storeListings.featured), asc(storeListings.displayOrder), asc(storeListings.storeListingId));
 
     const ownedRows = await this.db.select().from(playerInventoryItems).where(eq(playerInventoryItems.playerId, playerId));
+    const couponRows = await this.db.select({ playerId: couponOwnerships.playerId, rewardDefinitionId: couponOwnerships.rewardDefinitionId, status: couponOwnerships.status, expiresAt: couponOwnerships.expiresAt }).from(couponOwnerships).where(
+      eq(couponOwnerships.playerId, playerId),
+    );
     const purchaseRows = await this.db.select({ storeListingId: storePurchases.storeListingId }).from(storePurchases).where(eq(storePurchases.playerId, playerId));
-    const owned = new Map(ownedRows.map((row) => [row.rewardDefinitionId, row.quantity]));
+    const { inventory: owned, coupons: ownedCoupons } = buildCatalogOwnedQuantities(playerId, now, ownedRows, couponRows);
     const purchases = new Map<string, number>();
     for (const row of purchaseRows) purchases.set(row.storeListingId, (purchases.get(row.storeListingId) ?? 0) + 1);
     return rows.map(({ listing, reward }) => {
-      const ownedQuantity = owned.get(reward.rewardDefinitionId) ?? 0;
+      const ownedQuantity = reward.rewardType === "COUPON" ? ownedCoupons.get(reward.rewardDefinitionId) ?? 0 : owned.get(reward.rewardDefinitionId) ?? 0;
       const purchaseCount = purchases.get(listing.storeListingId) ?? 0;
       const remainingPurchases = listing.purchaseLimit === null ? null : Math.max(0, listing.purchaseLimit - purchaseCount);
       const uniqueOwned = ["FRAME", "BADGE", "AVATAR", "COSMETIC"].includes(reward.rewardType) && ownedQuantity > 0;
@@ -83,4 +86,19 @@ export class DrizzleRewardCatalogRepository implements RewardCatalogRepository {
       canPurchase: supported && !uniqueOwned && (remainingPurchases === null || remainingPurchases > 0),
     }); });
   }
+}
+
+export function buildCatalogOwnedQuantities(
+  playerId: string,
+  now: Date,
+  inventoryRows: Array<{ playerId: string; rewardDefinitionId: string; quantity: number }>,
+  couponRows: Array<{ playerId: string; rewardDefinitionId: string; status: "ACTIVE" | "REDEEMED" | "REVOKED"; expiresAt: Date | null }>,
+) {
+  const inventory = new Map(inventoryRows.filter((row) => row.playerId === playerId).map((row) => [row.rewardDefinitionId, row.quantity]));
+  const coupons = new Map<string, number>();
+  for (const row of couponRows) {
+    if (row.playerId !== playerId || row.status !== "ACTIVE" || (row.expiresAt && row.expiresAt <= now)) continue;
+    coupons.set(row.rewardDefinitionId, (coupons.get(row.rewardDefinitionId) ?? 0) + 1);
+  }
+  return { inventory, coupons };
 }

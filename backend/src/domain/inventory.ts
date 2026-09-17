@@ -9,7 +9,7 @@ import type { RewardDefinitionType } from "./rewardCatalog.js";
 export const equipmentSlots = ["FRAME", "AVATAR", "BADGE_1", "BADGE_2", "BADGE_3"] as const;
 export type EquipmentSlot = typeof equipmentSlots[number];
 export const uniqueInventoryTypes: RewardDefinitionType[] = ["FRAME", "BADGE", "AVATAR", "COSMETIC"];
-export const stackableInventoryTypes: RewardDefinitionType[] = ["RENAME_CARD", "COUPON"];
+export const stackableInventoryTypes: RewardDefinitionType[] = ["RENAME_CARD"];
 
 export interface InventoryItemDto { inventoryItemId: string; rewardDefinitionId: string; code: string; rewardType: RewardDefinitionType; name: string; description: string; imageUrl: string | null; rarity: string | null; quantity: number; firstAcquiredAt: string; equippedSlots: EquipmentSlot[] }
 export interface InventoryDto { items: InventoryItemDto[]; equipment: Partial<Record<EquipmentSlot, string>> }

@@ -15,6 +15,7 @@ import { StorePurchaseService, type StorePurchaseRepository, type StorePurchaseR
 import { InventoryService } from "../src/domain/inventory.js";
 import { PlayerIdentityActionService, type PlayerIdentityActionRepository, type RenameDisplayNameInput } from "../src/domain/playerIdentityActions.js";
 import { RewardWheelService, type RewardWheelRepository, type RewardWheelSpinInput } from "../src/domain/rewardWheel.js";
+import { CouponService, type CouponDto } from "../src/domain/coupons.js";
 import { FakeAdminAuthorizationRepository, FakeAdminSubmissionRepository, FakeGameStateRepository, FakeIdentityRepository, FakeLeaderboardRepository, FakeMissionClaimRepository, FakePlayerMissionRepository, FakePublicProfileRepository, FakePuzzleRepository, FakeSubmissionRepository, FakeSubmissionReviewRepository, FakeVideoStorage } from "./fakes.js";
 import type { Env } from "../src/config/env.js";
 
@@ -69,6 +70,9 @@ async function appWithFakes(overrides: Partial<Env> = {}) {
   const emptyInventory = { items: [], equipment: {} };
   const inventoryCalls: string[] = [];
   const inventory = new InventoryService({ list: async (playerId) => { inventoryCalls.push(`list:${playerId}`); return emptyInventory; }, equip: async (playerId, itemId, slot) => { inventoryCalls.push(`equip:${playerId}:${itemId}:${slot}`); return emptyInventory; }, unequip: async (playerId, slot) => { inventoryCalls.push(`unequip:${playerId}:${slot}`); return emptyInventory; } });
+  const couponCalls: string[] = [];
+  const couponRows: CouponDto[] = [{ couponOwnershipId: "70000000-0000-4000-8000-000000000001", rewardDefinitionId: "20000000-0000-4000-8000-000000000002", rewardCode: "COUPON_TEST", name: "Test Coupon", description: "A test coupon.", imageUrl: null, rarity: "RARE", status: "ACTIVE", issuedAt: "2026-09-17T00:00:00.000Z", expiresAt: null, displayMetadata: { discountLabel: "10% off" } }];
+  const coupons = new CouponService({ list: async (playerId) => { couponCalls.push(playerId); return couponRows; } });
   const renameCalls: RenameDisplayNameInput[] = [];
   const playerIdentityActions = new PlayerIdentityActionService({ renameDisplayName: async (input) => {
     renameCalls.push(input);
@@ -84,8 +88,8 @@ async function appWithFakes(overrides: Partial<Env> = {}) {
     getStatus: async () => ({ available: true, wheel: { code: "DEV_WHEEL", name: "Development Wheel", cycleSeconds: 86400, cycleStartedAt: null, cycleEndsAt: null, spinsUsed: 0, maxSpinsPerCycle: 4, spinsRemaining: 4, nextSpinNumber: 1, nextSpinCostSynapsePoints: 0, nextSpinIsFree: true, canAffordNextSpin: true, canSpin: true, unavailableReason: null, segments: [{ wheelSegmentIndex: 4, label: "100 SP", rewardType: "SYNAPSE_POINTS", rewardValue: 100, imageUrl: null, rarity: null, displayMetadata: { tone: "aqua" } }] } }),
     spin: async (input) => { wheelSpinCalls.push(input); return { spinId: "60000000-0000-4000-8000-000000000001", rewardId: "20000000-0000-4000-8000-000000000001", rewardDefinitionId: "20000000-0000-4000-8000-000000000001", rewardType: "SYNAPSE_POINTS", rewardLabel: "100 SP", rewardValue: 100, resultingBalance: 1050, wheelSegmentIndex: 4, spunAt: "2026-09-16T12:00:00.000Z", spinNumber: 1, chargedSynapsePoints: 0, cycleStartedAt: "2026-09-16T12:00:00.000Z", cycleEndsAt: "2026-09-17T12:00:00.000Z", idempotent: false }; },
   } satisfies RewardWheelRepository);
-  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, playerIdentityActions, rewardWheel, checkDb: async () => {} });
-  return { app, gameRepo, puzzleRepo, submissionRepo, videoStorage, adminAuthRepo, adminSubmissionRepo, leaderboardRepo, reviewRepo, publicProfileRepo, missionRepo, missionClaimRepo, purchaseCalls, inventoryCalls, renameCalls, wheelSpinCalls, testEnv };
+  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, coupons, playerIdentityActions, rewardWheel, checkDb: async () => {} });
+  return { app, gameRepo, puzzleRepo, submissionRepo, videoStorage, adminAuthRepo, adminSubmissionRepo, leaderboardRepo, reviewRepo, publicProfileRepo, missionRepo, missionClaimRepo, purchaseCalls, inventoryCalls, couponCalls, renameCalls, wheelSpinCalls, testEnv };
 }
 
 async function login(app: Awaited<ReturnType<typeof appWithFakes>>["app"]) {
@@ -189,6 +193,7 @@ describe("http auth poc", () => {
       rewardCatalog: new RewardCatalogService({ listAvailable: async () => [] }),
       storePurchases: new StorePurchaseService({ purchase: async () => { throw new Error("not used"); } }),
       inventory: new InventoryService({ list: async () => ({ items: [], equipment: {} }), equip: async () => ({ items: [], equipment: {} }), unequip: async () => ({ items: [], equipment: {} }) }),
+      coupons: new CouponService({ list: async () => [] }),
       playerIdentityActions: new PlayerIdentityActionService({ renameDisplayName: async () => { throw new Error("not used"); } }),
       rewardWheel: new RewardWheelService({ getStatus: async () => ({ available: false, wheel: null }), spin: async () => { throw new Error("not used"); } }),
       checkDb: async () => { checked = true; },
@@ -279,6 +284,20 @@ describe("http auth poc", () => {
     expect((await app.inject({ method: "DELETE", url: "/api/me/equipment/FRAME", headers: { cookie } })).statusCode).toBe(200);
     expect((await app.inject({ method: "POST", url: `/api/me/inventory/${itemId}/equip`, headers: { cookie }, payload: { slot: "WRONG" } })).statusCode).toBe(400);
     expect(inventoryCalls.some((call) => call.startsWith("equip:"))).toBe(true); expect(inventoryCalls.some((call) => call.startsWith("unequip:"))).toBe(true);
+  });
+
+  it("Coupon listing requires auth and derives player identity from the session", async () => {
+    const { app, couponCalls } = await appWithFakes({ NODE_ENV: "development" });
+    expect((await app.inject({ method: "GET", url: "/api/me/coupons" })).statusCode).toBe(401);
+
+    const cookie = await login(app);
+    const response = await app.inject({ method: "GET", url: "/api/me/coupons", headers: { cookie } });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ coupons: [expect.objectContaining({ rewardCode: "COUPON_TEST", status: "ACTIVE" })] });
+    expect(response.json().coupons[0]).not.toHaveProperty("idempotencyKey");
+    expect(response.json().coupons[0]).not.toHaveProperty("sourceId");
+    expect(couponCalls).toEqual(["player-1"]);
   });
 
   it("display name change requires auth and derives player identity from the session", async () => {

@@ -7,6 +7,7 @@ type Segment = { id: string; position: number; label: string; weight: number; re
 type Tier = { rewardWheelSpinTierId: string; spinNumber: number; costSynapsePoints: number; active: boolean };
 type Wheel = { id: string; code: string; name: string; active: boolean; cycleSeconds: number; startsAt: Date | null; endsAt: Date | null; tiers: Tier[]; segments: Segment[] };
 type StoredSpin = RewardWheelSpinResult & { playerId: string; idempotencyKey: string; wheelId: string };
+type CouponOwnership = { couponOwnershipId: string; playerId: string; rewardDefinitionId: string; sourceId: string; issuanceOrdinal: number };
 
 class WheelHarness implements RewardWheelRepository {
   wheel: Wheel | null = configuredWheel();
@@ -18,8 +19,10 @@ class WheelHarness implements RewardWheelRepository {
   pointCredits: Array<{ spinId: string; amount: number }> = [];
   xpGrants: Array<{ spinId: string; amount: number }> = [];
   inventoryGrants: Array<{ spinId: string; rewardDefinitionId: string; quantity: number }> = [];
+  couponOwnerships: CouponOwnership[] = [];
   events: Array<{ spinId: string; type: string; spinNumber: number }> = [];
   failRewardGrant = false;
+  failAfterCouponIssue = false;
   private sequence = Promise.resolve();
 
   async getStatus(playerId: string, at: Date): Promise<RewardWheelStatusDto> {
@@ -54,7 +57,7 @@ class WheelHarness implements RewardWheelRepository {
   }
 
   private async spinAtomically(input: Required<RewardWheelSpinInput>, randomInt: WheelRandomInt): Promise<RewardWheelSpinResult> {
-    const snapshot = { wallets: new Map(this.wallets), xp: new Map(this.xp), inventory: new Map(this.inventory), spins: [...this.spins], debits: [...this.debits], pointCredits: [...this.pointCredits], xpGrants: [...this.xpGrants], inventoryGrants: [...this.inventoryGrants], events: [...this.events] };
+    const snapshot = { wallets: new Map(this.wallets), xp: new Map(this.xp), inventory: new Map(this.inventory), spins: [...this.spins], debits: [...this.debits], pointCredits: [...this.pointCredits], xpGrants: [...this.xpGrants], inventoryGrants: [...this.inventoryGrants], couponOwnerships: [...this.couponOwnerships], events: [...this.events] };
     try {
       const replay = this.spins.find((entry) => entry.playerId === input.playerId && entry.idempotencyKey === input.idempotencyKey);
       if (replay) return { ...replay, idempotent: true };
@@ -78,13 +81,18 @@ class WheelHarness implements RewardWheelRepository {
       if (this.failRewardGrant) throw new Error("simulated reward grant failure");
       if (selected.rewardType === "SYNAPSE_POINTS") { resultingBalance += selected.quantity; this.wallets.set(input.playerId, resultingBalance); this.pointCredits.push({ spinId, amount: selected.quantity }); }
       else if (selected.rewardType === "XP") { this.xp.set(input.playerId, (this.xp.get(input.playerId) ?? 0) + selected.quantity); this.xpGrants.push({ spinId, amount: selected.quantity }); }
+      else if (selected.rewardType === "COUPON") {
+        for (let ordinal = 1; ordinal <= selected.quantity; ordinal += 1) this.couponOwnerships.push({ couponOwnershipId: `coupon-${this.couponOwnerships.length + 1}`, playerId: input.playerId, rewardDefinitionId: selected.rewardDefinitionId, sourceId: spinId, issuanceOrdinal: ordinal });
+        this.events.push({ spinId, type: "coupon.issued", spinNumber });
+        if (this.failAfterCouponIssue) throw new Error("simulated post-coupon failure");
+      }
       else { const key = `${input.playerId}:${selected.rewardDefinitionId}`; const unique = isUnique(selected.rewardType); this.inventory.set(key, unique ? 1 : (this.inventory.get(key) ?? 0) + selected.quantity); this.inventoryGrants.push({ spinId, rewardDefinitionId: selected.rewardDefinitionId, quantity: selected.quantity }); }
       const result: StoredSpin = { spinId, rewardId: selected.rewardDefinitionId, rewardDefinitionId: selected.rewardDefinitionId, rewardType: selected.rewardType, rewardLabel: selected.label, rewardValue: selected.quantity, resultingBalance, wheelSegmentIndex: selected.position, spunAt: input.now.toISOString(), spinNumber, chargedSynapsePoints: tier.costSynapsePoints, cycleStartedAt, cycleEndsAt, idempotent: false, playerId: input.playerId, idempotencyKey: input.idempotencyKey, wheelId: wheel.id };
       this.spins.push(result);
       this.events.push({ spinId, type: "reward_wheel.spun", spinNumber });
       return result;
     } catch (error) {
-      this.wallets = snapshot.wallets; this.xp = snapshot.xp; this.inventory = snapshot.inventory; this.spins = snapshot.spins; this.debits = snapshot.debits; this.pointCredits = snapshot.pointCredits; this.xpGrants = snapshot.xpGrants; this.inventoryGrants = snapshot.inventoryGrants; this.events = snapshot.events;
+      this.wallets = snapshot.wallets; this.xp = snapshot.xp; this.inventory = snapshot.inventory; this.spins = snapshot.spins; this.debits = snapshot.debits; this.pointCredits = snapshot.pointCredits; this.xpGrants = snapshot.xpGrants; this.inventoryGrants = snapshot.inventoryGrants; this.couponOwnerships = snapshot.couponOwnerships; this.events = snapshot.events;
       throw error;
     }
   }
@@ -131,8 +139,10 @@ describe("backend-authoritative Reward Wheel cycle", () => {
   it("serializes concurrent first spins so only one is free", async () => { const { repo, service } = setup(); repo.wheel = configuredWheel({ tiers: tiers([0, 5, 6, 7]) }); const results = await Promise.all([service.spin(input()), service.spin(input({ idempotencyKey: "concurrent-2" }))]); expect(results.map((result) => result.spinNumber)).toEqual([1, 2]); expect(results.map((result) => result.chargedSynapsePoints)).toEqual([0, 5]); expect(repo.debits).toHaveLength(1); });
   it("serializes concurrent final-tier requests so no fifth spin commits", async () => { const { repo, service } = setup(); repo.wheel = configuredWheel({ tiers: tiers([0, 1, 1, 1]) }); for (let number = 1; number <= 3; number += 1) await spinAt(service, number); const results = await Promise.allSettled([spinAt(service, 4), service.spin(input({ idempotencyKey: "concurrent-fifth" }))]); expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1); expect(repo.spins).toHaveLength(4); });
   it("returns the final balance after tier debit and SP reward", async () => { const { service } = setup(); await spinAt(service, 1); const result = await spinAt(service, 2); expect(result.resultingBalance).toBe(1900); });
-  it("grants XP and Inventory rewards through existing paths", async () => { const xp = setup(); xp.repo.wheel = configuredWheel({ segments: [segment({ rewardType: "XP", rewardDefinitionId: "reward-xp", quantity: 250 })] }); await spinAt(xp.service, 1); expect(xp.repo.xp.get("player-1")).toBe(250); const inventory = setup(); inventory.repo.wheel = configuredWheel({ segments: [segment({ rewardType: "COUPON", rewardDefinitionId: "coupon", quantity: 2 })] }); await spinAt(inventory.service, 1); expect(inventory.repo.inventory.get("player-1:coupon")).toBe(2); });
+  it("grants XP and Inventory rewards through their existing paths", async () => { const xp = setup(); xp.repo.wheel = configuredWheel({ segments: [segment({ rewardType: "XP", rewardDefinitionId: "reward-xp", quantity: 250 })] }); await spinAt(xp.service, 1); expect(xp.repo.xp.get("player-1")).toBe(250); const inventory = setup(); inventory.repo.wheel = configuredWheel({ segments: [segment({ rewardType: "RENAME_CARD", rewardDefinitionId: "rename-card", quantity: 2 })] }); await spinAt(inventory.service, 1); expect(inventory.repo.inventory.get("player-1:rename-card")).toBe(2); });
+  it("awards Wheel coupons as stable ownership rows and replays without duplication", async () => { const { repo, service } = setup(); repo.wheel = configuredWheel({ segments: [segment({ rewardType: "COUPON", rewardDefinitionId: "coupon", quantity: 2 })] }); const first = await spinAt(service, 1); const replay = await spinAt(service, 1); expect(replay).toEqual({ ...first, idempotent: true }); expect(repo.couponOwnerships).toHaveLength(2); expect(repo.couponOwnerships.map((coupon) => coupon.issuanceOrdinal)).toEqual([1, 2]); expect(repo.inventory.has("player-1:coupon")).toBe(false); expect(repo.events.map((event) => event.type)).toEqual(["coupon.issued", "reward_wheel.spun"]); });
   it("excludes owned unique rewards and keeps weighted selection valid", async () => { const { repo, service } = setup(); repo.wheel = configuredWheel({ segments: [segment({ rewardType: "FRAME", rewardDefinitionId: "owned", weight: 100 }), segment({ id: "segment-2", position: 7, rewardDefinitionId: "reward-xp", rewardType: "XP", quantity: 50, weight: 1 })] }); repo.inventory.set("player-1:owned", 1); expect(await spinAt(service, 1)).toMatchObject({ rewardType: "XP", wheelSegmentIndex: 7 }); });
   it("rolls back cost, reward, spin, and event atomically", async () => { const { repo, service } = setup(); await spinAt(service, 1); repo.failRewardGrant = true; const balance = repo.wallets.get("player-1"); await expect(spinAt(service, 2)).rejects.toThrow("simulated reward grant failure"); expect(repo.wallets.get("player-1")).toBe(balance); expect(repo.spins).toHaveLength(1); expect(repo.debits).toHaveLength(0); expect(repo.events).toHaveLength(1); });
+  it("rolls back coupon ownership with the Wheel transaction", async () => { const { repo, service } = setup(); repo.wheel = configuredWheel({ segments: [segment({ rewardType: "COUPON", rewardDefinitionId: "coupon", quantity: 1 })] }); repo.failAfterCouponIssue = true; await expect(spinAt(service, 1)).rejects.toThrow("simulated post-coupon failure"); expect(repo.couponOwnerships).toHaveLength(0); expect(repo.spins).toHaveLength(0); expect(repo.events).toHaveLength(0); });
   it("does not expose weights, probabilities, or RNG internals", async () => { const { service } = setup(); const serialized = JSON.stringify(await service.getStatus("player-1", now)); expect(serialized).not.toContain("weight"); expect(serialized).not.toContain("probab"); expect(serialized).not.toContain("roll"); });
 });

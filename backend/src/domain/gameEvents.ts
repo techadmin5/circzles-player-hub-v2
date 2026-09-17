@@ -11,6 +11,7 @@ export const implementedGameEventTypes = [
   "mission.completed",
   "mission.claimed",
   "store.purchase.completed",
+  "coupon.issued",
   "inventory.item.granted", "inventory.item.equipped", "inventory.item.unequipped", "inventory.item.consumed",
   "player.display_name.changed",
   "reward_wheel.spun",

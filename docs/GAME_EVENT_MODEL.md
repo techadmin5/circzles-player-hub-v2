@@ -41,7 +41,7 @@ Dashboard events:
 - `progression.level_up`
 - `wheel.spun`
 - `store.purchase`
-- `coupon.earned`
+- `coupon.issued`
 - `coupon.expiring`
 - `badge.unlocked`
 - `frame.equipped`
@@ -168,7 +168,7 @@ The claim event uses deterministic key `mission.claimed:{playerId}:{missionId}:{
 
 ## Phase 3G-C Inventory Events
 
-`inventory.item.granted` is emitted in the same transaction as immutable grant history and current ownership. Store grants use deterministic grant identity `store.purchase.inventory:<purchaseId>`; replay neither increments quantity nor emits another event. Payload contains reward definition/type, granted quantity, and source type only.
+`inventory.item.granted` is emitted in the same transaction as immutable grant history and current ownership. Store entitlements use deterministic identity `store.purchase.entitlement:<purchaseId>`; non-coupon entitlements emit this Inventory event, while coupon entitlements emit `coupon.issued`. Replay neither increments quantity nor emits another event. Inventory event payload contains reward definition/type, granted quantity, and source type only.
 
 `inventory.item.equipped` and `inventory.item.unequipped` are emitted transactionally with equipment changes. Equip payload identifies the reward definition, owned inventory item, and explicit slot. Unequip identifies the slot and removed item. These internal events do not expose player-private Inventory quantities or purchase history.
 
@@ -183,3 +183,9 @@ The consumption payload includes reward definition, owned item, `RENAME_CARD`, q
 `reward_wheel.spun` is emitted exactly once in the same transaction as cost debit, authoritative reward grant, and immutable spin history. It uses source type `REWARD_WHEEL_SPIN`, the canonical spin UUID as `sourceId`, and deterministic key `reward_wheel.spun:<spinId>`.
 
 The payload includes wheel identity/code, configured segment position, immutable `spinNumber`, `chargedSynapsePoints`, `cycleStartedAt`, `cycleEndsAt`, reward-definition identity/type/quantity, and resulting balance. It never includes random roll, total weight, segment weights, probabilities, session data, or secrets. Point, XP, and Inventory helpers continue emitting their normal authoritative events; exact spin replay emits none again.
+
+## Phase 3I-A Coupon Issuance Event
+
+`coupon.issued` is emitted once in the same transaction as coupon ownership and its authoritative source operation. The event source retains the Store purchase, Reward Wheel spin, or future grant source; its deterministic event key derives from the first stable ownership UUID. Payload contains reward-definition identity, quantity, source type, and optional expiry only.
+
+Exact issuance replay returns existing ownership and emits no duplicate event. The payload excludes coupon grant keys, provider identifiers, external codes, Wix data, credentials, and player-private identity.
