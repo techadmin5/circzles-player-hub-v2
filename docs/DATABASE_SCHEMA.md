@@ -488,7 +488,7 @@ Migration `0015_reflective_karen_page.sql` adds `reward_wheels`, `reward_wheel_s
 
 Migration `0015_reflective_karen_page.sql` is **APPLIED AND VERIFIED on Neon DEVELOPMENT only**. It has not been applied to Production. The committed DEVELOPMENT smoke spin remains historical audit data.
 
-Migration `0016_windy_xorn.sql` adds `reward_wheel_spin_tiers`, `reward_wheels.cycle_seconds`, and nullable tier/cycle snapshots on `reward_wheel_spins`. It is additive and schema-only, with restrictive foreign keys and no seed rows. It is generated and inspected but **NOT APPLIED** to Neon Development or Production. Tier rows, including the intended `0/300/450/700` schedule, must be configured separately after migration review.
+Migration `0016_windy_xorn.sql` adds `reward_wheel_spin_tiers`, `reward_wheels.cycle_seconds`, and nullable tier/cycle snapshots on `reward_wheel_spins`. It is additive and schema-only, with restrictive foreign keys and no seed rows. It is **APPLIED AND VERIFIED on Neon DEVELOPMENT only** and has not been applied to Production. The intended `0/300/450/700` schedule was configured separately as temporary DEVELOPMENT runtime data after migration verification.
 
 ## Phase 3D Implemented Tables
 
