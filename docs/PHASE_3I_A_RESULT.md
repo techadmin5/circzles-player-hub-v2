@@ -30,12 +30,57 @@ The Store catalog counts only `ACTIVE`, unexpired coupon ownership for the authe
 
 ## Historical Coupon Preflight
 
-`docs/PHASE_3I_A_COUPON_PREFLIGHT.sql` is a read-only, repeatable-read Development preflight. Before applying migration `0017`, run it manually against Neon DEVELOPMENT and review the coupon definition count, Inventory row count, total quantity, affected players, grant history, consumption history, and per-player detail.
+`docs/PHASE_3I_A_COUPON_PREFLIGHT.sql` was run as a read-only, repeatable-read inspection against the confirmed Neon DEVELOPMENT database before migration `0017` was applied.
 
-- If historical coupon Inventory row count and total quantity are both zero, `0017` may remain schema-only.
-- If either value is non-zero, Phase 3I-A is **not safe to migrate** until a deterministic backfill strategy is designed from the reported grants/consumptions and separately reviewed.
+- Historical `COUPON` reward definitions: 0.
+- Historical coupon Inventory rows: 0.
+- Historical coupon quantity: 0.
+- Affected players: 0.
+- Historical coupon grants: 0.
+- Historical coupon consumptions: 0.
+- `coupon_ownerships` did not exist before migration.
+- Drizzle migration history ended at `0016_windy_xorn`.
+
+Because both the historical coupon Inventory row count and total quantity were zero, no backfill was required and the schema-only migration was approved for Development.
 
 The API does not synthesize legacy ownership or combine Inventory and coupon rows, preventing silent duplication and double counting.
+
+## Development Migration Verification
+
+Migration `0017_lowly_miss_america.sql` was applied manually and verified on Neon DEVELOPMENT only. Production and Wix were not touched.
+
+Post-migration inspection verified:
+
+- `coupon_ownerships` exists.
+- The `coupon_ownership_status` enum exists.
+- The named CHECK constraints `coupon_ownerships_expiry_check`, `coupon_ownerships_issuance_ordinal_check`, `coupon_ownerships_lifecycle_check`, `coupon_ownerships_redeemed_at_check`, and `coupon_ownerships_revoked_at_check` exist.
+- Both expected foreign keys exist.
+- The expected indexes exist.
+- The table initially contained 0 coupon ownership rows.
+
+## Development Runtime Smoke Test
+
+The authenticated smoke test used Development player `CZ-8F42KD` and a temporary Development-only Store reward with code `DEV_3I_SMOKE_COUPON`, reward type `COUPON`, price 0 SP, and purchase limit 1.
+
+The first purchase succeeded with purchase ID `69ebc82c-52a2-4676-859f-cbab8cdeb6f1` and coupon ownership ID `0366efa4-5990-4cfb-a7d6-06db5722f261`. It returned `rewardType = COUPON`, `priceSynapsePoints = 0`, and `idempotent = false`; the player's balance remained 361 SP. Authenticated `GET /api/me/coupons` returned the ownership with status `ACTIVE`.
+
+An exact same-key replay returned the same purchase ID with `idempotent = true`. A second logical purchase with a different key was rejected with `PURCHASE_LIMIT_REACHED`.
+
+Final Development database reconciliation verified:
+
+- `store_purchase_rows = 1`
+- `original_key_rows = 1`
+- `rejected_second_key_rows = 0`
+- `coupon_ownership_rows = 1`
+- `coupon_source_rows = 1`
+- `coupon_entitlement_key_rows = 1`
+- `coupon_issued_events = 1`
+- `purchase_completed_events = 1`
+- `point_transaction_rows = 0`
+- `purchase_has_no_debit_link = true`
+- `purchase_price_snapshot = 0`
+- `purchase_balance_after = 361`
+- `coupon_status = ACTIVE`
 
 ## Tests
 
@@ -44,6 +89,8 @@ Focused tests cover stable per-unit ownership, exact replay, conflicting replay,
 ## Boundaries And Limitations
 
 There is no redemption endpoint, coupon scheduler, frontend redesign, Wix call, provider credential, external coupon code, or provider mapping. Future Phase 3I-B integration must map from internal ownership without making Wix authoritative.
+
+The Development verification covers the real PostgreSQL migration and one player's runtime behavior on Neon DEVELOPMENT. No Production migration was performed, no Wix/provider bridge was tested, and no real concurrent PostgreSQL race test was performed. Phase 3I-B remains separate.
 
 ## Verification
 
@@ -54,6 +101,6 @@ There is no redemption endpoint, coupon scheduler, frontend redesign, Wix call, 
 
 ## Migration Status
 
-**GENERATED / NOT YET APPLIED**
+**APPLIED AND VERIFIED ON NEON DEVELOPMENT ONLY**
 
-Migration `0017_lowly_miss_america.sql` was not run against Neon Development, Production, or any other database. The historical coupon preflight must be completed and reviewed before Development migration approval.
+Migration `0017_lowly_miss_america.sql` was applied manually to Neon DEVELOPMENT after the historical preflight passed. It has not been applied to Production.
