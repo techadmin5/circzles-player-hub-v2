@@ -283,7 +283,7 @@ Constraints: unique `(player_id, reward_definition_id)` for non-stackable items;
 
 Purpose: authoritative, provider-independent ownership of coupon rewards. Coupon definitions remain in `reward_definitions`; no duplicate coupon-definition table or Wix dependency is introduced.
 
-Columns: `coupon_ownership_id` PK, restrictive player and reward-definition FKs, `source_type`, `source_id`, positive `issuance_ordinal`, `idempotency_key`, `ACTIVE|REDEEMED|REVOKED` stored status, `issued_at`, optional `expires_at`, `redeemed_at`, and `revoked_at`.
+Columns: `coupon_ownership_id` PK, unique checkout-safe `coupon_code`, restrictive player and reward-definition FKs, `source_type`, `source_id`, positive `issuance_ordinal`, `idempotency_key`, `ACTIVE|REDEEMED|REVOKED` stored status, `issued_at`, optional `expires_at`, `redeemed_at`, and `revoked_at`.
 
 Constraints and indexes enforce player-scoped idempotent units; source-unit uniqueness independent of reward definition; direct source tracing by `(source_type, source_id)`; positive ordinals; expiry strictly after issuance; redemption/revocation at or after issuance; consistent lifecycle timestamps; player/issue-time queries; player/status queries; and reward-definition lookup. `EXPIRED` is an effective read-time status rather than a stored status.
 
@@ -488,7 +488,17 @@ Migration `0016_windy_xorn.sql` adds `reward_wheel_spin_tiers`, `reward_wheels.c
 
 Migration `0017_lowly_miss_america.sql` adds `coupon_ownership_status` and `coupon_ownerships`. It is additive and schema-only, with restrictive player/reward-definition foreign keys, lifecycle checks, player-scoped idempotency/source-unit uniqueness, and direct source query indexes. It contains no drops, destructive data statements, seed rows, provider mapping, or Wix data.
 
-Migration status: **GENERATED / NOT YET APPLIED**. It has not been run against Neon Development or Production. Before Development migration, run `docs/PHASE_3I_A_COUPON_PREFLIGHT.sql`: zero historical coupon Inventory rows/quantity permits the schema-only migration; any non-zero result blocks migration until a deterministic backfill is designed and reviewed.
+Migration status: **APPLIED AND VERIFIED ON NEON DEVELOPMENT ONLY**. The Development preflight found zero historical coupon Inventory rows/quantity. Migration `0017` has not been applied to Production.
+
+## Phase 3I-B1 Coupon Provider Bridge
+
+Migration `0018_brave_wild_child.sql` adds the `coupon_storefront_target`, `coupon_provider`, and `coupon_provider_sync_status` enums; canonical `coupon_ownerships.coupon_code`; `coupon_provider_mappings`; and immutable `coupon_redemptions`. It is generated and not applied.
+
+`coupon_provider_mappings` has a restrictive ownership FK, one-row-per-ownership/storefront uniqueness, storefront-scoped non-null provider-coupon-ID uniqueness, provider/storefront pairing checks, sync-state/timestamp checks, and indexes for ownership and reconciliation queues. Sync states are `PENDING_CREATE`, `ACTIVE`, `PENDING_DISABLE`, `DISABLED`, and `ERROR`.
+
+`coupon_redemptions` has a restrictive ownership FK, one authoritative redemption per ownership, ownership-scoped idempotency, storefront/source uniqueness, nonblank identity checks, and a storefront/time audit index. It does not cascade away with an ownership.
+
+Existing Phase 3I-A ownership rows are handled inside `0018` by adding `coupon_code` as nullable, deterministically setting `CZ` plus the first 16 uppercase hexadecimal characters of the ownership UUID's MD5 digest, then setting `NOT NULL`. The database format check requires 1-20 uppercase ASCII alphanumeric characters and the unique index makes any collision fail the migration rather than pass silently. New ownerships use the same deterministic algorithm in application code. The migration contains no drops, provider seed rows, credentials, or mapping/redemption fabrication.
 
 ## Phase 3D Implemented Tables
 

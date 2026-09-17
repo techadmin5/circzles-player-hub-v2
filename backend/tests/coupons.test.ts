@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AppError } from "../src/domain/errors.js";
-import { CouponService, effectiveCouponStatus, validateCouponGrant, type CouponDto, type CouponGrantInput, type CouponRepository } from "../src/domain/coupons.js";
+import { CouponService, couponCodeForOwnershipId, effectiveCouponStatus, validateCouponGrant, type CouponDto, type CouponGrantInput, type CouponRepository } from "../src/domain/coupons.js";
 
 type StoredCoupon = CouponDto & { playerId: string; idempotencyKey: string; sourceType: string; sourceId: string; issuanceOrdinal: number };
 
@@ -22,7 +22,8 @@ class CouponHarness implements CouponRepository {
     }
     const issuedAt = input.issuedAt ?? new Date("2026-09-17T12:00:00.000Z");
     const ownerships = Array.from({ length: input.quantity }, (_, index): StoredCoupon => ({
-      couponOwnershipId: `coupon-${this.coupons.length + index + 1}`,
+      couponOwnershipId: `00000000-0000-4000-8000-${String(this.coupons.length + index + 1).padStart(12, "0")}`,
+      couponCode: couponCodeForOwnershipId(`00000000-0000-4000-8000-${String(this.coupons.length + index + 1).padStart(12, "0")}`),
       playerId: input.playerId,
       rewardDefinitionId: input.rewardDefinitionId,
       rewardCode: "COUPON_TEST",
@@ -46,6 +47,7 @@ class CouponHarness implements CouponRepository {
   async list(playerId: string, now: Date): Promise<CouponDto[]> {
     return this.coupons.filter((coupon) => coupon.playerId === playerId).map((coupon) => ({
       couponOwnershipId: coupon.couponOwnershipId,
+      couponCode: coupon.couponCode,
       rewardDefinitionId: coupon.rewardDefinitionId,
       rewardCode: coupon.rewardCode,
       name: coupon.name,
@@ -65,6 +67,15 @@ function grant(overrides: Partial<CouponGrantInput> = {}): CouponGrantInput {
 }
 
 describe("coupon ownership authority", () => {
+  it("generates a stable checkout-safe code without player PII", () => {
+    const ownershipId = "00000000-0000-4000-8000-000000000001";
+    const first = couponCodeForOwnershipId(ownershipId);
+    expect(first).toBe(couponCodeForOwnershipId(ownershipId));
+    expect(first).toMatch(/^CZ[A-F0-9]{16}$/);
+    expect(first.length).toBeLessThanOrEqual(20);
+    expect(first).not.toContain("PLAYER");
+    expect(couponCodeForOwnershipId("00000000-0000-4000-8000-000000000002")).not.toBe(first);
+  });
   it("creates stable ownership rows and exact replay does not duplicate them", () => {
     const repo = new CouponHarness();
     const first = repo.grant(grant({ quantity: 2 }));
