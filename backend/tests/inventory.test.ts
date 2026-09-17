@@ -62,7 +62,7 @@ describe("Inventory grants", () => {
     expect(repo.inventory.get("player-1:reward-1")).toBe(1);
   });
 
-  it("stacks Rename Cards and Coupons", () => {
+  it("stacks Rename Cards", () => {
     for (const rewardType of stackableInventoryTypes) {
       const repo = new GrantHarness();
       repo.grant(grant({ rewardType, quantity: 2 }));
@@ -80,17 +80,17 @@ describe("Inventory grants", () => {
 
   it("rejects an idempotency key reused with a different grant payload", () => {
     const repo = new GrantHarness();
-    repo.grant(grant({ rewardType: "COUPON", quantity: 2 }));
-    expect(() => repo.grant(grant({ rewardType: "COUPON", quantity: 3 }))).toThrowError(expect.objectContaining({ code: "IDEMPOTENCY_CONFLICT" }));
+    repo.grant(grant({ rewardType: "RENAME_CARD", quantity: 2 }));
+    expect(() => repo.grant(grant({ rewardType: "RENAME_CARD", quantity: 3 }))).toThrowError(expect.objectContaining({ code: "IDEMPOTENCY_CONFLICT" }));
   });
 
-  it.each(["XP", "SYNAPSE_POINTS"] as const)("rejects unsupported %s grants", (rewardType) => {
+  it.each(["XP", "SYNAPSE_POINTS", "COUPON"] as const)("rejects unsupported %s grants", (rewardType) => {
     expect(() => new GrantHarness().grant(grant({ rewardType }))).toThrowError(expect.objectContaining({ code: "INVENTORY_REWARD_UNSUPPORTED" }));
   });
 });
 
 describe("Inventory equipment", () => {
-  it("defines unique, stackable, and unsupported reward semantics", () => { expect(uniqueInventoryTypes).toEqual(["FRAME", "BADGE", "AVATAR", "COSMETIC"]); expect(stackableInventoryTypes).toEqual(["RENAME_CARD", "COUPON"]); expect(isInventorySupported("XP")).toBe(false); expect(isInventorySupported("SYNAPSE_POINTS")).toBe(false); });
+  it("defines unique, stackable, and unsupported reward semantics", () => { expect(uniqueInventoryTypes).toEqual(["FRAME", "BADGE", "AVATAR", "COSMETIC"]); expect(stackableInventoryTypes).toEqual(["RENAME_CARD"]); expect(isInventorySupported("COUPON")).toBe(false); expect(isInventorySupported("XP")).toBe(false); expect(isInventorySupported("SYNAPSE_POINTS")).toBe(false); });
   it("equips, replaces, and unequips an owned Frame", async () => { const repo = new InventoryHarness(); repo.add("frame-1", "FRAME"); repo.add("frame-2", "FRAME"); const service = new InventoryService(repo); await service.equip("player-1", "frame-1", "FRAME"); expect(repo.equipment.FRAME).toBe("frame-1"); await service.equip("player-1", "frame-2", "FRAME"); expect(repo.equipment.FRAME).toBe("frame-2"); await service.unequip("player-1", "FRAME"); expect(repo.equipment.FRAME).toBeUndefined(); });
   it("equips and replaces an owned Avatar", async () => { const repo = new InventoryHarness(); repo.add("avatar-1", "AVATAR"); repo.add("avatar-2", "AVATAR"); const service = new InventoryService(repo); await service.equip("player-1", "avatar-1", "AVATAR"); await service.equip("player-1", "avatar-2", "AVATAR"); expect(repo.equipment.AVATAR).toBe("avatar-2"); });
   it("displays three different badges and replaces a selected slot", async () => { const repo = new InventoryHarness(); for (let i = 1; i <= 4; i++) repo.add(`badge-${i}`, "BADGE"); const service = new InventoryService(repo); await service.equip("player-1", "badge-1", "BADGE_1"); await service.equip("player-1", "badge-2", "BADGE_2"); await service.equip("player-1", "badge-3", "BADGE_3"); await service.equip("player-1", "badge-4", "BADGE_2"); expect(repo.equipment).toMatchObject({ BADGE_1: "badge-1", BADGE_2: "badge-4", BADGE_3: "badge-3" }); });

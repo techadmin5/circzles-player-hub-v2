@@ -2,10 +2,10 @@ import { and, count, eq, sql } from "drizzle-orm";
 import type { Database } from "../db/client.js";
 import { rewardDefinitions, storeListings, storePurchases } from "../db/schema.js";
 import { AppError, validationFailed } from "./errors.js";
-import { debitPointsInTransaction, lockWalletAndGetBalanceInTransaction } from "./gameState.js";
+import { debitPointsInTransaction, lockWalletAndGetBalanceInTransaction, type GameStateTransaction } from "./gameState.js";
 import { insertGameEventInTransaction } from "./gameEvents.js";
 import type { RewardDefinitionType } from "./rewardCatalog.js";
-import { assertInventoryPurchasableInTransaction, grantInventoryItemInTransaction } from "./inventory.js";
+import { assertRewardEntitlementPurchasableInTransaction, grantRewardEntitlementInTransaction } from "./rewardEntitlements.js";
 
 export interface StorePurchaseInput { playerId: string; listingId: string; idempotencyKey: string; now?: Date }
 export interface StorePurchaseResult {
@@ -64,7 +64,7 @@ export class DrizzleStorePurchaseRepository implements StorePurchaseRepository {
         throw new AppError("PURCHASE_LIMIT_REACHED", "The purchase limit for this Store listing has been reached.", 409);
       }
 
-      await assertInventoryPurchasableInTransaction(tx, input.playerId, authority.reward.rewardDefinitionId, authority.reward.rewardType);
+      await assertRewardEntitlementPurchasableInTransaction(tx, { playerId: input.playerId, rewardDefinitionId: authority.reward.rewardDefinitionId, rewardType: authority.reward.rewardType });
 
       const purchaseId = crypto.randomUUID();
       const price = authority.listing.priceSynapsePoints;
@@ -96,7 +96,7 @@ export class DrizzleStorePurchaseRepository implements StorePurchaseRepository {
       }).returning();
       if (!purchase) throw new AppError("STORE_PURCHASE_FAILED", "Could not record Store purchase.", 500);
 
-      await grantInventoryItemInTransaction(tx, { playerId: input.playerId, rewardDefinitionId: authority.reward.rewardDefinitionId, rewardType: authority.reward.rewardType, quantity: 1, sourceType: "STORE_PURCHASE", sourceId: purchase.purchaseId, idempotencyKey: `store.purchase.inventory:${purchase.purchaseId}` });
+      await grantStorePurchaseEntitlementInTransaction(tx, { playerId: input.playerId, rewardDefinitionId: authority.reward.rewardDefinitionId, rewardType: authority.reward.rewardType, purchaseId: purchase.purchaseId, issuedAt: now });
 
       await insertGameEventInTransaction(tx, {
         playerId: input.playerId,
@@ -109,6 +109,19 @@ export class DrizzleStorePurchaseRepository implements StorePurchaseRepository {
       return purchaseResult(purchase, false);
     });
   }
+}
+
+export function grantStorePurchaseEntitlementInTransaction(tx: GameStateTransaction, input: { playerId: string; rewardDefinitionId: string; rewardType: RewardDefinitionType; purchaseId: string; issuedAt: Date }) {
+  return grantRewardEntitlementInTransaction(tx, {
+    playerId: input.playerId,
+    rewardDefinitionId: input.rewardDefinitionId,
+    rewardType: input.rewardType,
+    quantity: 1,
+    sourceType: "STORE_PURCHASE",
+    sourceId: input.purchaseId,
+    idempotencyKey: `store.purchase.entitlement:${input.purchaseId}`,
+    issuedAt: input.issuedAt,
+  });
 }
 
 function purchaseResult(purchase: typeof storePurchases.$inferSelect, idempotent: boolean): StorePurchaseResult {

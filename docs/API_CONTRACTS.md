@@ -56,7 +56,7 @@ Common codes:
 | `storeService.purchaseItem(itemId)` | `POST /api/store/items/:itemId/purchase` |
 | `inventoryService.getInventory()` | `GET /api/inventory` |
 | `inventoryService.equipItem(itemId)` | `POST /api/inventory/:inventoryItemId/equip` |
-| `couponService.getCoupons()` | `GET /api/coupons` |
+| `couponService.getCoupons()` | `GET /api/me/coupons` |
 | `activityService.getActivity()` | `GET /api/activity` |
 | `friendService.getFriends()` | `GET /api/friends` |
 | `friendService.searchPlayers(query)` | `GET /api/players/search?q=` |
@@ -344,6 +344,8 @@ Unavailable listings return `STORE_LISTING_UNAVAILABLE`, exhausted limits return
 
 In Phase 3G-C, supported inventory rewards are granted in the same transaction. Unique rewards already owned return `ITEM_ALREADY_OWNED` before debit; Store listings for XP or Synapse Points return `STORE_REWARD_NOT_INVENTORY_SUPPORTED`. The authenticated Store catalog also returns `ownedQuantity`, `alreadyOwned`, `purchaseCount`, `remainingPurchases`, and server-derived `canPurchase`.
 
+In Phase 3I-A, a Store listing backed by a `COUPON` reward creates internal coupon ownership in the purchase transaction instead of an Inventory item. Catalog `ownedQuantity` for coupons counts only the authenticated player's `ACTIVE`, unexpired coupon ownerships; `REDEEMED`, `REVOKED`, and effectively expired coupons do not contribute. Other supported rewards retain their Inventory behavior.
+
 ## Phase 3G-C Inventory And Equipment
 
 ### `GET /api/me/inventory`
@@ -357,3 +359,11 @@ Authentication: required player session cookie. Body is `{ "slot": "FRAME" | "AV
 ### `DELETE /api/me/equipment/:slot`
 
 Authentication: required player session cookie. Removes the authenticated player's equipment assignment for the validated slot without removing ownership. Both equipment mutations return the refreshed Inventory DTO.
+
+## Phase 3I-A Coupon Ownership
+
+### `GET /api/me/coupons`
+
+Authentication: required player session cookie. Returns `{ coupons }` scoped to the authenticated player. Each coupon contains `couponOwnershipId`, `rewardDefinitionId`, `rewardCode`, display name and description, nullable image and rarity, effective `status`, `issuedAt`, nullable `expiresAt`, and a safe display-metadata subset.
+
+Expiration is derived at read time: a stored active coupon whose expiry has passed is returned as `EXPIRED`. Grant idempotency keys, issuance source identifiers, internal lifecycle timestamps, provider data, and credentials are not exposed. Phase 3I-A adds no redemption endpoint and no Wix operation.

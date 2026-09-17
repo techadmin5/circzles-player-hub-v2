@@ -279,19 +279,13 @@ Columns: `player_inventory_id` PK, `player_id` FK, `reward_definition_id` FK, `q
 
 Constraints: unique `(player_id, reward_definition_id)` for non-stackable items; CHECK quantity >= 0.
 
-### coupons
+### coupon_ownerships
 
-Purpose: internal coupon definition/code pool independent of Wix.
+Purpose: authoritative, provider-independent ownership of coupon rewards. Coupon definitions remain in `reward_definitions`; no duplicate coupon-definition table or Wix dependency is introduced.
 
-Columns: `coupon_id` PK, `code text unique`, `discount_type`, `discount_value`, `source_type`, `external_wix_coupon_id`, `starts_at`, `expires_at`, `created_at`, `deleted_at`.
+Columns: `coupon_ownership_id` PK, restrictive player and reward-definition FKs, `source_type`, `source_id`, positive `issuance_ordinal`, `idempotency_key`, `ACTIVE|REDEEMED|REVOKED` stored status, `issued_at`, optional `expires_at`, `redeemed_at`, and `revoked_at`.
 
-### player_coupons
-
-Purpose: player coupon ownership.
-
-Columns: `player_coupon_id` PK, `player_id` FK, `coupon_id` FK, `status`, `created_at`, `used_at`, `expires_at`, `source_type`, `source_id`.
-
-Indexes: `(player_id, status)`.
+Constraints and indexes enforce player-scoped idempotent units; source-unit uniqueness independent of reward definition; direct source tracing by `(source_type, source_id)`; positive ordinals; expiry strictly after issuance; redemption/revocation at or after issuance; consistent lifecycle timestamps; player/issue-time queries; player/status queries; and reward-definition lookup. `EXPIRED` is an effective read-time status rather than a stored status.
 
 ### missions
 
@@ -472,7 +466,7 @@ Migration `0013_absurd_slayback.sql` adds the `equipment_slot` enum (`FRAME`, `A
 - `player_inventory_items` is current ownership state, unique by player and reward definition, with non-negative quantity.
 - `player_equipment` assigns an owned inventory row to a slot, unique by player/slot and by player/inventory item. All foreign keys are restrictive.
 
-Frames, Badges, Avatars, and basic Cosmetics are unique entitlements with quantity one. Rename Cards and Coupons stack. XP and Synapse Points remain ledger rewards and are never Inventory items.
+Frames, Badges, Avatars, and basic Cosmetics are unique entitlements with quantity one. Rename Cards stack in Inventory. As of Phase 3I-A, new Coupons use dedicated coupon ownership; historical Inventory rows are not rewritten. XP and Synapse Points remain ledger rewards and are never Inventory items.
 
 The migration is additive, contains no drops or seed data, and is applied and verified on Neon Development only. Any environment containing purchases created before Inventory exists must use an intentional reconciliation/backfill process; entitlements must never be fabricated silently.
 
@@ -489,6 +483,12 @@ Migration `0015_reflective_karen_page.sql` adds `reward_wheels`, `reward_wheel_s
 Migration `0015_reflective_karen_page.sql` is **APPLIED AND VERIFIED on Neon DEVELOPMENT only**. It has not been applied to Production. The committed DEVELOPMENT smoke spin remains historical audit data.
 
 Migration `0016_windy_xorn.sql` adds `reward_wheel_spin_tiers`, `reward_wheels.cycle_seconds`, and nullable tier/cycle snapshots on `reward_wheel_spins`. It is additive and schema-only, with restrictive foreign keys and no seed rows. It is **APPLIED AND VERIFIED on Neon DEVELOPMENT only** and has not been applied to Production. The intended `0/300/450/700` schedule was configured separately as temporary DEVELOPMENT runtime data after migration verification.
+
+## Phase 3I-A Coupon Ownership
+
+Migration `0017_lowly_miss_america.sql` adds `coupon_ownership_status` and `coupon_ownerships`. It is additive and schema-only, with restrictive player/reward-definition foreign keys, lifecycle checks, player-scoped idempotency/source-unit uniqueness, and direct source query indexes. It contains no drops, destructive data statements, seed rows, provider mapping, or Wix data.
+
+Migration status: **GENERATED / NOT YET APPLIED**. It has not been run against Neon Development or Production. Before Development migration, run `docs/PHASE_3I_A_COUPON_PREFLIGHT.sql`: zero historical coupon Inventory rows/quantity permits the schema-only migration; any non-zero result blocks migration until a deterministic backfill is designed and reviewed.
 
 ## Phase 3D Implemented Tables
 

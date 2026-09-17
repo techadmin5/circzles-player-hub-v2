@@ -21,6 +21,7 @@ import type { StorePurchaseService } from "../domain/storePurchases.js";
 import { equipmentSlots, type InventoryService } from "../domain/inventory.js";
 import type { PlayerIdentityActionService } from "../domain/playerIdentityActions.js";
 import type { RewardWheelService } from "../domain/rewardWheel.js";
+import type { CouponService } from "../domain/coupons.js";
 
 export interface AppDeps {
   env: Env;
@@ -38,6 +39,7 @@ export interface AppDeps {
   rewardCatalog: RewardCatalogService;
   storePurchases: StorePurchaseService;
   inventory: InventoryService;
+  coupons: CouponService;
   playerIdentityActions: PlayerIdentityActionService;
   rewardWheel: RewardWheelService;
   checkDb: () => Promise<void>;
@@ -87,7 +89,7 @@ const equipmentParamsSchema = z.object({ slot: z.enum(equipmentSlots) }).strict(
 const equipBodySchema = z.object({ slot: z.enum(equipmentSlots) }).strict();
 const renameDisplayNameBodySchema = z.object({ inventoryItemId: z.string().uuid(), displayName: z.string() }).strict();
 
-export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, playerIdentityActions, rewardWheel, checkDb }: AppDeps) {
+export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, coupons, playerIdentityActions, rewardWheel, checkDb }: AppDeps) {
   const app = Fastify({
     logger: env.NODE_ENV === "test" ? false : {
       level: "info",
@@ -223,6 +225,11 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
   app.get("/api/me/inventory", async (request, reply) => {
     const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
     return reply.send(await inventory.list(player.internalId));
+  });
+
+  app.get("/api/me/coupons", async (request, reply) => {
+    const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+    return reply.send({ coupons: await coupons.list(player.internalId) });
   });
 
   app.post("/api/me/inventory/:inventoryItemId/equip", async (request, reply) => {

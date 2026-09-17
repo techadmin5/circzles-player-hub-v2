@@ -175,7 +175,7 @@ Store purchase now validates unique ownership before charging and performs debit
 
 `InventoryService` exposes authenticated list, equip, and unequip operations. Equipment changes serialize per player, validate owned positive-quantity items against explicit slots, and emit their event with the mutation. Public profiles project only the equipped Avatar image, Frame name, and three Badge names in slot order; quantities, grants, purchases, and metadata remain private.
 
-API mode uses authoritative Inventory and Store responses with no mock fallback. The purchase response's `balanceAfter` replaces the displayed SP balance exactly. Coupons remain visible and stackable but cannot be redeemed or bridged to Wix yet.
+API mode uses authoritative Inventory and Store responses with no mock fallback. The purchase response's `balanceAfter` replaces the displayed SP balance exactly. Historical coupon Inventory rows are not rewritten, but new coupon grants use the dedicated coupon ownership boundary.
 
 ## Phase 3H Reward Wheel Boundary
 
@@ -183,9 +183,19 @@ API mode uses authoritative Inventory and Store responses with no mock fallback.
 
 The Drizzle repository uses a player-wide transaction advisory lock, checks immutable same-player replay before current configuration, then validates four contiguous active tiers beginning with a zero-cost first spin. The first committed free spin establishes a server-time rolling cycle; subsequent spins reuse its boundaries and advance through the persisted tier schedule. Once server time reaches the cycle end, the next committed spin starts a new free cycle. Secure weighted selection uses Node `crypto.randomInt` through an injectable service seam. Unique Inventory rewards already owned are removed before selection while original segment positions remain stable.
 
-Tier cost debit, SP/XP/Inventory grant, immutable tier/cycle snapshots, and `reward_wheel.spun` commit in one transaction through the existing ledger and Inventory helpers. Zero-cost spins create no fake debit. Any grant or uniqueness race rolls back the cost and spin. Different-key requests serialize per player, so concurrent requests cannot create two first/free spins or exceed the final tier; same-key requests resolve to one committed spin.
+Tier cost debit, SP/XP/entitlement grant, immutable tier/cycle snapshots, and `reward_wheel.spun` commit in one transaction through the existing ledger and entitlement helpers. Zero-cost spins create no fake debit. Any grant or uniqueness race rolls back the cost and spin. Different-key requests serialize per player, so concurrent requests cannot create two first/free spins or exceed the final tier; same-key requests resolve to one committed spin.
 
 API-mode frontend code loads the configured layout/status and waits for the authoritative result before playing wheel animation or reward audio. It renders the backend-provided free/paid cost and affordability, refetches after every success, and uses `cycleEndsAt` only for a presentational limit countdown. Countdown zero triggers a server refresh and never unlocks locally. One key is retained across unresolved retries, and the wheel lands on the returned configured position. Mock mode retains its local demonstration layout, including Retry; API mode defines no Retry reward semantics.
+
+## Phase 3I-A Coupon Ownership Boundary
+
+`grantRewardEntitlementInTransaction` is the shared entitlement router used by Store and Reward Wheel operations. A canonical `COUPON` reward is routed to `grantCouponOwnershipInTransaction`; supported non-coupon entitlements continue through the existing Inventory helper unchanged. The caller's transaction contains payment or spin state, stable coupon ownership rows, `coupon.issued`, and its operation event, so failures roll back the entire operation.
+
+`coupon_ownerships` is provider-independent authority. Each issued unit has a stable UUID, canonical reward-definition link, player, issuance source, ordinal, idempotency key, issue/optional expiry times, and lifecycle state. A player advisory lock plus database uniqueness protects exact replay and makes `(player, source type, source ID, ordinal)` independent of reward definition. A separate source index supports audit lookup without first knowing the player. `CouponService` exposes only session-scoped safe DTOs through `GET /api/me/coupons`; effective expiration is derived during reads without a scheduler.
+
+Historical `COUPON` Inventory ownership is not silently projected or double-counted. Before migration, the read-only Development preflight must establish whether any such rows exist. Zero permits a schema-only migration; a non-zero result requires a separately reviewed deterministic backfill before migration.
+
+No Wix client, provider identifier, external coupon code, redemption endpoint, or credential is part of Phase 3I-A. A future bridge must map from internal ownership without replacing it as source of truth.
 
 ## Phase 3G-D Rename Card Boundary
 

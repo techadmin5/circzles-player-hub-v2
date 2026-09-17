@@ -10,6 +10,7 @@ export const puzzleCompetitionCategory = pgEnum("puzzle_competition_category", [
 export const adminRole = pgEnum("admin_role", ["SUPER_ADMIN", "REVIEWER"]);
 export const submissionReviewDecision = pgEnum("submission_review_decision", ["APPROVED", "REJECTED", "RESUBMISSION_REQUIRED"]);
 export const rewardDefinitionType = pgEnum("reward_definition_type", ["FRAME", "BADGE", "AVATAR", "RENAME_CARD", "COUPON", "SYNAPSE_POINTS", "XP", "COSMETIC"]);
+export const couponOwnershipStatus = pgEnum("coupon_ownership_status", ["ACTIVE", "REDEEMED", "REVOKED"]);
 export const equipmentSlot = pgEnum("equipment_slot", ["FRAME", "AVATAR", "BADGE_1", "BADGE_2", "BADGE_3"]);
 
 export const users = pgTable("users", {
@@ -542,6 +543,33 @@ export const inventoryGrants = pgTable("inventory_grants", {
   playerCreatedIndex: index("inventory_grants_player_id_created_at_idx").on(table.playerId, table.createdAt),
   sourceIndex: index("inventory_grants_source_idx").on(table.sourceType, table.sourceId),
   quantityCheck: check("inventory_grants_quantity_check", sql`${table.quantity} > 0`),
+}));
+
+export const couponOwnerships = pgTable("coupon_ownerships", {
+  couponOwnershipId: uuid("coupon_ownership_id").primaryKey().defaultRandom(),
+  playerId: uuid("player_id").notNull().references(() => players.playerId, { onDelete: "restrict" }),
+  rewardDefinitionId: uuid("reward_definition_id").notNull().references(() => rewardDefinitions.rewardDefinitionId, { onDelete: "restrict" }),
+  sourceType: text("source_type").notNull(),
+  sourceId: text("source_id").notNull(),
+  issuanceOrdinal: integer("issuance_ordinal").notNull(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  status: couponOwnershipStatus("status").notNull().default("ACTIVE"),
+  issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  redeemedAt: timestamp("redeemed_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+}, (table) => ({
+  playerIdempotencyOrdinalUnique: uniqueIndex("coupon_ownerships_player_id_idempotency_key_ordinal_unique").on(table.playerId, table.idempotencyKey, table.issuanceOrdinal),
+  playerSourceOrdinalUnique: uniqueIndex("coupon_ownerships_player_source_ordinal_unique").on(table.playerId, table.sourceType, table.sourceId, table.issuanceOrdinal),
+  playerIssuedAtIndex: index("coupon_ownerships_player_id_issued_at_idx").on(table.playerId, table.issuedAt),
+  playerStatusIndex: index("coupon_ownerships_player_id_status_idx").on(table.playerId, table.status),
+  sourceIndex: index("coupon_ownerships_source_idx").on(table.sourceType, table.sourceId),
+  rewardDefinitionIndex: index("coupon_ownerships_reward_definition_id_idx").on(table.rewardDefinitionId),
+  issuanceOrdinalCheck: check("coupon_ownerships_issuance_ordinal_check", sql`${table.issuanceOrdinal} > 0`),
+  expiryCheck: check("coupon_ownerships_expiry_check", sql`${table.expiresAt} is null or ${table.expiresAt} > ${table.issuedAt}`),
+  redeemedAtCheck: check("coupon_ownerships_redeemed_at_check", sql`${table.redeemedAt} is null or ${table.redeemedAt} >= ${table.issuedAt}`),
+  revokedAtCheck: check("coupon_ownerships_revoked_at_check", sql`${table.revokedAt} is null or ${table.revokedAt} >= ${table.issuedAt}`),
+  lifecycleCheck: check("coupon_ownerships_lifecycle_check", sql`(${table.status} = 'ACTIVE' and ${table.redeemedAt} is null and ${table.revokedAt} is null) or (${table.status} = 'REDEEMED' and ${table.redeemedAt} is not null and ${table.revokedAt} is null) or (${table.status} = 'REVOKED' and ${table.redeemedAt} is null and ${table.revokedAt} is not null)`),
 }));
 
 export const playerInventoryItems = pgTable("player_inventory_items", {

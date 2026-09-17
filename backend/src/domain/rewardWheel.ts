@@ -3,9 +3,10 @@ import { and, asc, desc, eq, isNotNull, sql } from "drizzle-orm";
 import type { Database } from "../db/client.js";
 import { playerInventoryItems, rewardDefinitions, rewardWheelSegments, rewardWheelSpins, rewardWheelSpinTiers, rewardWheels, wallets } from "../db/schema.js";
 import { AppError, insufficientPoints, validationFailed } from "./errors.js";
-import { creditPointsInTransaction, debitPointsInTransaction, grantXpInTransaction, lockWalletAndGetBalanceInTransaction } from "./gameState.js";
+import { creditPointsInTransaction, debitPointsInTransaction, grantXpInTransaction, lockWalletAndGetBalanceInTransaction, type GameStateTransaction } from "./gameState.js";
 import { insertGameEventInTransaction } from "./gameEvents.js";
-import { grantInventoryItemInTransaction, uniqueInventoryTypes } from "./inventory.js";
+import { uniqueInventoryTypes } from "./inventory.js";
+import { grantRewardEntitlementInTransaction } from "./rewardEntitlements.js";
 import type { RewardDefinitionType } from "./rewardCatalog.js";
 
 export type WheelUnavailableReason = "WHEEL_NOT_STARTED" | "WHEEL_ENDED" | "WHEEL_DAILY_LIMIT_REACHED" | "WHEEL_NO_ELIGIBLE_REWARDS" | "WHEEL_NOT_CONFIGURED" | "INSUFFICIENT_POINTS";
@@ -218,8 +219,8 @@ export class DrizzleRewardWheelRepository implements RewardWheelRepository {
         const xp = await grantXpInTransaction(tx, { playerId: input.playerId, amount: selected.segment.rewardQuantity, reason: "REWARD_WHEEL_REWARD", sourceType: source.sourceType, sourceId: source.sourceId, idempotencyKey: `reward-wheel.xp:${spinId}`, metadata: { rewardDefinitionId: selected.reward.rewardDefinitionId } });
         rewardXpTransactionId = xp.transactionId;
       } else {
-        const inventory = await grantInventoryItemInTransaction(tx, { playerId: input.playerId, rewardDefinitionId: selected.reward.rewardDefinitionId, rewardType: selected.reward.rewardType, quantity: selected.segment.rewardQuantity, ...source, idempotencyKey: `reward-wheel.inventory:${spinId}` });
-        rewardInventoryGrantId = inventory.grant.inventoryGrantId;
+        const entitlement = await grantRewardWheelEntitlementInTransaction(tx, { playerId: input.playerId, rewardDefinitionId: selected.reward.rewardDefinitionId, rewardType: selected.reward.rewardType, quantity: selected.segment.rewardQuantity, spinId, issuedAt: input.now });
+        if (entitlement.kind === "INVENTORY") rewardInventoryGrantId = entitlement.inventory.grant.inventoryGrantId;
       }
 
       const [spin] = await tx.insert(rewardWheelSpins).values({
@@ -264,6 +265,19 @@ export class DrizzleRewardWheelRepository implements RewardWheelRepository {
       return spinResult(spin, false);
     });
   }
+}
+
+export function grantRewardWheelEntitlementInTransaction(tx: GameStateTransaction, input: { playerId: string; rewardDefinitionId: string; rewardType: RewardDefinitionType; quantity: number; spinId: string; issuedAt: Date }) {
+  return grantRewardEntitlementInTransaction(tx, {
+    playerId: input.playerId,
+    rewardDefinitionId: input.rewardDefinitionId,
+    rewardType: input.rewardType,
+    quantity: input.quantity,
+    sourceType: "REWARD_WHEEL_SPIN",
+    sourceId: input.spinId,
+    idempotencyKey: `reward-wheel.entitlement:${input.spinId}`,
+    issuedAt: input.issuedAt,
+  });
 }
 
 type WheelRow = typeof rewardWheels.$inferSelect;

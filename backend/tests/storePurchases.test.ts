@@ -5,6 +5,7 @@ import type { RewardDefinitionType } from "../src/domain/rewardCatalog.js";
 
 type Listing = { id: string; rewardDefinitionId: string; rewardType: RewardDefinitionType; code: string; name: string; imageUrl: string | null; rarity: string | null; price: number; active: boolean; rewardActive: boolean; availableFrom: Date | null; availableUntil: Date | null; purchaseLimit: number | null };
 type Purchase = StorePurchaseResult & { playerId: string; idempotencyKey: string; pointTransactionId: string | null };
+type CouponOwnership = { couponOwnershipId: string; playerId: string; rewardDefinitionId: string; sourceId: string; idempotencyKey: string };
 
 class PurchaseHarness implements StorePurchaseRepository {
   listings = new Map<string, Listing>();
@@ -14,6 +15,7 @@ class PurchaseHarness implements StorePurchaseRepository {
   events: Array<{ type: string; key: string; purchaseId: string }> = [];
   inventory = new Map<string, number>();
   inventoryGrants: Array<{ purchaseId: string; rewardDefinitionId: string }> = [];
+  couponOwnerships: CouponOwnership[] = [];
   failAfterDebit = false;
   failInventory = false;
   private sequence = Promise.resolve();
@@ -25,7 +27,7 @@ class PurchaseHarness implements StorePurchaseRepository {
   }
 
   private async purchaseAtomically(input: StorePurchaseInput): Promise<StorePurchaseResult> {
-    const snapshot = { wallets: new Map(this.wallets), purchases: [...this.purchases], debits: [...this.debits], events: [...this.events], inventory: new Map(this.inventory), inventoryGrants: [...this.inventoryGrants] };
+    const snapshot = { wallets: new Map(this.wallets), purchases: [...this.purchases], debits: [...this.debits], events: [...this.events], inventory: new Map(this.inventory), inventoryGrants: [...this.inventoryGrants], couponOwnerships: [...this.couponOwnerships] };
     try {
       const replay = this.purchases.find((purchase) => purchase.playerId === input.playerId && purchase.idempotencyKey === input.idempotencyKey);
       if (replay) {
@@ -54,14 +56,19 @@ class PurchaseHarness implements StorePurchaseRepository {
       if (this.failAfterDebit) throw new Error("simulated post-debit failure");
       const result: Purchase = { purchaseId, playerId: input.playerId, listingId: listing.id, reward: { rewardDefinitionId: listing.rewardDefinitionId, code: listing.code, rewardType: listing.rewardType, name: listing.name, imageUrl: listing.imageUrl, rarity: listing.rarity }, priceSynapsePoints: listing.price, balanceAfter, purchasedAt: now.toISOString(), idempotent: false, idempotencyKey: input.idempotencyKey, pointTransactionId };
       this.purchases.push(result);
-      if (this.failInventory) throw new Error("simulated inventory failure");
-      this.inventory.set(inventoryKey, unique ? 1 : (this.inventory.get(inventoryKey) ?? 0) + 1);
-      this.inventoryGrants.push({ purchaseId, rewardDefinitionId: listing.rewardDefinitionId });
+      if (this.failInventory) throw new Error("simulated entitlement failure");
+      if (listing.rewardType === "COUPON") {
+        this.couponOwnerships.push({ couponOwnershipId: `coupon-${this.couponOwnerships.length + 1}`, playerId: input.playerId, rewardDefinitionId: listing.rewardDefinitionId, sourceId: purchaseId, idempotencyKey: `store.purchase.entitlement:${purchaseId}` });
+        this.events.push({ type: "coupon.issued", key: `coupon.issued:${purchaseId}`, purchaseId });
+      } else {
+        this.inventory.set(inventoryKey, unique ? 1 : (this.inventory.get(inventoryKey) ?? 0) + 1);
+        this.inventoryGrants.push({ purchaseId, rewardDefinitionId: listing.rewardDefinitionId });
+        this.events.push({ type: "inventory.item.granted", key: `inventory.item.granted:${purchaseId}`, purchaseId });
+      }
       this.events.push({ type: "store.purchase.completed", key: `store.purchase.completed:${purchaseId}`, purchaseId });
-      this.events.push({ type: "inventory.item.granted", key: `inventory.item.granted:${purchaseId}`, purchaseId });
       return result;
     } catch (error) {
-      this.wallets = snapshot.wallets; this.purchases = snapshot.purchases; this.debits = snapshot.debits; this.events = snapshot.events; this.inventory = snapshot.inventory; this.inventoryGrants = snapshot.inventoryGrants;
+      this.wallets = snapshot.wallets; this.purchases = snapshot.purchases; this.debits = snapshot.debits; this.events = snapshot.events; this.inventory = snapshot.inventory; this.inventoryGrants = snapshot.inventoryGrants; this.couponOwnerships = snapshot.couponOwnerships;
       throw error;
     }
   }
@@ -81,7 +88,7 @@ describe("secure Store purchases", () => {
     expect(repo.debits[0]).toMatchObject({ amount: 250, sourceId: result.purchaseId, sourceType: "STORE_PURCHASE" });
     expect(repo.purchases[0].pointTransactionId).toBe(repo.debits[0].id);
     expect(repo.inventory.get("player-1:reward-1")).toBe(1); expect(repo.inventoryGrants).toHaveLength(1);
-    expect(repo.events.map((event) => event.type)).toEqual(["store.purchase.completed", "inventory.item.granted"]);
+    expect(repo.events.map((event) => event.type)).toEqual(["inventory.item.granted", "store.purchase.completed"]);
   });
 
   it("handles free purchases without a zero-SP debit", async () => {
@@ -136,12 +143,24 @@ describe("secure Store purchases", () => {
     expect(repo.wallets.get("player-1")).toBe(1000); expect(repo.debits).toHaveLength(0); expect(repo.purchases).toHaveLength(0);
   });
 
-  it("stacks Rename Cards and Coupons once per successful purchase", async () => {
-    for (const rewardType of ["RENAME_CARD", "COUPON"] as const) {
-      const { repo, service } = setup({ rewardType });
-      await service.purchase(input()); await service.purchase(input({ idempotencyKey: "purchase-key-2" }));
-      expect(repo.inventory.get("player-1:reward-1")).toBe(2); expect(repo.inventoryGrants).toHaveLength(2);
-    }
+  it("stacks Rename Cards once per successful purchase", async () => {
+    const { repo, service } = setup({ rewardType: "RENAME_CARD" });
+    await service.purchase(input()); await service.purchase(input({ idempotencyKey: "purchase-key-2" }));
+    expect(repo.inventory.get("player-1:reward-1")).toBe(2); expect(repo.inventoryGrants).toHaveLength(2);
+  });
+
+  it("creates one stable coupon ownership per Store purchase without using Inventory", async () => {
+    const { repo, service } = setup({ rewardType: "COUPON" });
+    const first = await service.purchase(input());
+    const replay = await service.purchase(input());
+    await service.purchase(input({ idempotencyKey: "purchase-key-2" }));
+
+    expect(replay).toMatchObject({ purchaseId: first.purchaseId, idempotent: true });
+    expect(repo.couponOwnerships).toHaveLength(2);
+    expect(repo.couponOwnerships.map((coupon) => coupon.sourceId)).toEqual(["purchase-1", "purchase-2"]);
+    expect(repo.inventory.has("player-1:reward-1")).toBe(false);
+    expect(repo.inventoryGrants).toHaveLength(0);
+    expect(repo.events.filter((event) => event.type === "coupon.issued")).toHaveLength(2);
   });
 
   it.each(["XP", "SYNAPSE_POINTS"] as const)("rejects %s Store rewards from Inventory", async (rewardType) => {
@@ -175,7 +194,13 @@ describe("secure Store purchases", () => {
 
   it("rolls back debit and purchase when Inventory grant fails", async () => {
     const { repo, service } = setup(); repo.failInventory = true;
-    await expect(service.purchase(input())).rejects.toThrow("simulated inventory failure");
+    await expect(service.purchase(input())).rejects.toThrow("simulated entitlement failure");
     expect(repo.wallets.get("player-1")).toBe(1000); expect(repo.debits).toHaveLength(0); expect(repo.purchases).toHaveLength(0); expect(repo.inventoryGrants).toHaveLength(0); expect(repo.events).toHaveLength(0);
+  });
+
+  it("rolls back debit, purchase, and coupon ownership when coupon issuance fails", async () => {
+    const { repo, service } = setup({ rewardType: "COUPON" }); repo.failInventory = true;
+    await expect(service.purchase(input())).rejects.toThrow("simulated entitlement failure");
+    expect(repo.wallets.get("player-1")).toBe(1000); expect(repo.debits).toHaveLength(0); expect(repo.purchases).toHaveLength(0); expect(repo.couponOwnerships).toHaveLength(0); expect(repo.events).toHaveLength(0);
   });
 });

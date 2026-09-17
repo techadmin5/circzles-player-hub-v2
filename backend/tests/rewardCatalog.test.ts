@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RewardCatalogService, type RewardCatalogRepository, type StoreCatalogItemDto } from "../src/domain/rewardCatalog.js";
+import { buildCatalogOwnedQuantities, RewardCatalogService, type RewardCatalogRepository, type StoreCatalogItemDto } from "../src/domain/rewardCatalog.js";
 
 class FakeRewardCatalogRepository implements RewardCatalogRepository {
   rows: Array<StoreCatalogItemDto & { active: boolean; rewardActive: boolean; availableFrom: Date | null; availableUntil: Date | null }> = [];
@@ -85,5 +85,35 @@ describe("reward store catalog", () => {
   it("rejects an invalid catalog clock", () => {
     const service = new RewardCatalogService(new FakeRewardCatalogRepository());
     expect(() => service.listAvailable("player-1", new Date("invalid"))).toThrow(expect.objectContaining({ code: "VALIDATION_FAILED" }));
+  });
+
+  it("counts only ACTIVE, unexpired coupon ownership", () => {
+    const rows = [
+      { playerId: "player-1", rewardDefinitionId: "coupon-1", status: "ACTIVE" as const, expiresAt: null },
+      { playerId: "player-1", rewardDefinitionId: "coupon-1", status: "ACTIVE" as const, expiresAt: new Date("2026-09-13T00:00:00.000Z") },
+      { playerId: "player-1", rewardDefinitionId: "coupon-1", status: "ACTIVE" as const, expiresAt: now },
+      { playerId: "player-1", rewardDefinitionId: "coupon-1", status: "ACTIVE" as const, expiresAt: new Date("2026-09-11T00:00:00.000Z") },
+    ];
+    expect(buildCatalogOwnedQuantities("player-1", now, [], rows).coupons.get("coupon-1")).toBe(2);
+  });
+
+  it("excludes REDEEMED and REVOKED coupons from available Store quantity", () => {
+    const rows = [
+      { playerId: "player-1", rewardDefinitionId: "coupon-1", status: "REDEEMED" as const, expiresAt: null },
+      { playerId: "player-1", rewardDefinitionId: "coupon-1", status: "REVOKED" as const, expiresAt: null },
+    ];
+    expect(buildCatalogOwnedQuantities("player-1", now, [], rows).coupons.get("coupon-1")).toBeUndefined();
+  });
+
+  it("isolates coupon quantities by player and preserves non-coupon Inventory quantities", () => {
+    const ownership = buildCatalogOwnedQuantities("player-1", now, [
+      { playerId: "player-1", rewardDefinitionId: "frame-1", quantity: 1 },
+      { playerId: "player-2", rewardDefinitionId: "frame-1", quantity: 4 },
+    ], [
+      { playerId: "player-1", rewardDefinitionId: "coupon-1", status: "ACTIVE", expiresAt: null },
+      { playerId: "player-2", rewardDefinitionId: "coupon-1", status: "ACTIVE", expiresAt: null },
+    ]);
+    expect(ownership.coupons.get("coupon-1")).toBe(1);
+    expect(ownership.inventory.get("frame-1")).toBe(1);
   });
 });
