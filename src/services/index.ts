@@ -1,5 +1,5 @@
 import { activity, coupons, currentPlayer, friendRequests, inventory, leaderboard, missions, notifications, playerPuzzles, players, puzzles, season, storeItems, submissions } from "@/mocks/data";
-import type { ApiStoreCatalogItem, EquipmentSlot, InventoryItem, LeaderboardCatalog, LeaderboardResponse, MissionClaimResult, PublicPlayerProfile, RewardWheelResult, StoreItem } from "@/types";
+import type { ApiStoreCatalogItem, EquipmentSlot, InventoryItem, LeaderboardCatalog, LeaderboardResponse, MissionClaimResult, PublicPlayerProfile, RewardWheelResult, RewardWheelStatus, StoreItem } from "@/types";
 import { dataMode } from "@/config/dataMode";
 import { apiClient, ApiClientError } from "@/lib/apiClient";
 import { mockDelay } from "./mockRuntime";
@@ -154,7 +154,11 @@ export const activityService = { async getActivity() { await mockDelay(); return
 export const friendService = { async getFriends() { await mockDelay(); return players.slice(1).map((player) => ({ player, since: "2026-08-01" })); }, async searchPlayers(query: string) { await mockDelay(); return players.filter((p) => `${p.publicPlayerId} ${p.displayName}`.toLowerCase().includes(query.toLowerCase())); }, async sendRequest(playerId: string) { await mockDelay(); return { playerId, status: "SENT" }; }, async getRequests() { await mockDelay(); return friendRequests; } };
 export const notificationService = { async getNotifications() { await mockDelay(); return notifications; }, async markAllRead() { await mockDelay(); return true; } };
 export const seasonService = { async getCurrentSeason() { await mockDelay(); return season; } };
-export const rewardService = { async spinWheel(): Promise<RewardWheelResult> { await mockDelay(); return { rewardId: "rw-coin-700", rewardType: "Synapse Points", rewardLabel: "700 Synapse Points", rewardValue: 700, resultingBalance: currentPlayer.synapsePoints + 700, wheelSegmentIndex: 3 }; } };
+const mockWheelStatus: RewardWheelStatus = { available: true, wheel: { code: "MOCK_DAILY", name: "Reward Wheel", cycleSeconds: 86400, cycleStartedAt: null, cycleEndsAt: null, spinsUsed: 0, maxSpinsPerCycle: 4, spinsRemaining: 4, nextSpinNumber: 1, nextSpinCostSynapsePoints: 0, nextSpinIsFree: true, canAffordNextSpin: true, canSpin: true, unavailableReason: null, segments: [] } };
+export const rewardService = {
+  async getWheelStatus(signal?: AbortSignal): Promise<RewardWheelStatus> { if (canUseBrowserApi()) return apiClient.getRewardWheel(signal); await mockDelay(); return mockWheelStatus; },
+  async spinWheel(idempotencyKey?: string): Promise<RewardWheelResult> { if (canUseBrowserApi()) return apiClient.spinRewardWheel(idempotencyKey ?? crypto.randomUUID()); await mockDelay(); return { rewardId: "rw-coin-700", rewardType: "Synapse Points", rewardLabel: "700 Synapse Points", rewardValue: 700, resultingBalance: currentPlayer.synapsePoints + 700, wheelSegmentIndex: 3 }; },
+};
 export const adminService = {
   async getOverview() { await mockDelay(); return { players: players.length, pendingSubmissions: 8, activeMissions: 12, rewardsDistributed: 18400, season: season.name }; },
   async getPlayers() { await mockDelay(); return players; },

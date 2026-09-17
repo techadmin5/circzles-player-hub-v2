@@ -14,6 +14,7 @@ import { RewardCatalogService, type RewardCatalogRepository, type StoreCatalogIt
 import { StorePurchaseService, type StorePurchaseRepository, type StorePurchaseResult } from "../src/domain/storePurchases.js";
 import { InventoryService } from "../src/domain/inventory.js";
 import { PlayerIdentityActionService, type PlayerIdentityActionRepository, type RenameDisplayNameInput } from "../src/domain/playerIdentityActions.js";
+import { RewardWheelService, type RewardWheelRepository, type RewardWheelSpinInput } from "../src/domain/rewardWheel.js";
 import { FakeAdminAuthorizationRepository, FakeAdminSubmissionRepository, FakeGameStateRepository, FakeIdentityRepository, FakeLeaderboardRepository, FakeMissionClaimRepository, FakePlayerMissionRepository, FakePublicProfileRepository, FakePuzzleRepository, FakeSubmissionRepository, FakeSubmissionReviewRepository, FakeVideoStorage } from "./fakes.js";
 import type { Env } from "../src/config/env.js";
 
@@ -78,8 +79,13 @@ async function appWithFakes(overrides: Partial<Env> = {}) {
     if (publicProfile) publicProfile.displayName = input.displayName;
     return { inventoryConsumptionId: "50000000-0000-4000-8000-000000000001", publicPlayerId: account.player.publicPlayerId, previousDisplayName, displayName: input.displayName, inventoryItemId: input.inventoryItemId, remainingQuantity: 0, consumedAt: "2026-09-16T00:00:00.000Z", idempotent: false, inventory: emptyInventory };
   } } satisfies PlayerIdentityActionRepository);
-  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, playerIdentityActions, checkDb: async () => {} });
-  return { app, gameRepo, puzzleRepo, submissionRepo, videoStorage, adminAuthRepo, adminSubmissionRepo, leaderboardRepo, reviewRepo, publicProfileRepo, missionRepo, missionClaimRepo, purchaseCalls, inventoryCalls, renameCalls, testEnv };
+  const wheelSpinCalls: RewardWheelSpinInput[] = [];
+  const rewardWheel = new RewardWheelService({
+    getStatus: async () => ({ available: true, wheel: { code: "DEV_WHEEL", name: "Development Wheel", cycleSeconds: 86400, cycleStartedAt: null, cycleEndsAt: null, spinsUsed: 0, maxSpinsPerCycle: 4, spinsRemaining: 4, nextSpinNumber: 1, nextSpinCostSynapsePoints: 0, nextSpinIsFree: true, canAffordNextSpin: true, canSpin: true, unavailableReason: null, segments: [{ wheelSegmentIndex: 4, label: "100 SP", rewardType: "SYNAPSE_POINTS", rewardValue: 100, imageUrl: null, rarity: null, displayMetadata: { tone: "aqua" } }] } }),
+    spin: async (input) => { wheelSpinCalls.push(input); return { spinId: "60000000-0000-4000-8000-000000000001", rewardId: "20000000-0000-4000-8000-000000000001", rewardDefinitionId: "20000000-0000-4000-8000-000000000001", rewardType: "SYNAPSE_POINTS", rewardLabel: "100 SP", rewardValue: 100, resultingBalance: 1050, wheelSegmentIndex: 4, spunAt: "2026-09-16T12:00:00.000Z", spinNumber: 1, chargedSynapsePoints: 0, cycleStartedAt: "2026-09-16T12:00:00.000Z", cycleEndsAt: "2026-09-17T12:00:00.000Z", idempotent: false }; },
+  } satisfies RewardWheelRepository);
+  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, playerIdentityActions, rewardWheel, checkDb: async () => {} });
+  return { app, gameRepo, puzzleRepo, submissionRepo, videoStorage, adminAuthRepo, adminSubmissionRepo, leaderboardRepo, reviewRepo, publicProfileRepo, missionRepo, missionClaimRepo, purchaseCalls, inventoryCalls, renameCalls, wheelSpinCalls, testEnv };
 }
 
 async function login(app: Awaited<ReturnType<typeof appWithFakes>>["app"]) {
@@ -184,6 +190,7 @@ describe("http auth poc", () => {
       storePurchases: new StorePurchaseService({ purchase: async () => { throw new Error("not used"); } }),
       inventory: new InventoryService({ list: async () => ({ items: [], equipment: {} }), equip: async () => ({ items: [], equipment: {} }), unequip: async () => ({ items: [], equipment: {} }) }),
       playerIdentityActions: new PlayerIdentityActionService({ renameDisplayName: async () => { throw new Error("not used"); } }),
+      rewardWheel: new RewardWheelService({ getStatus: async () => ({ available: false, wheel: null }), spin: async () => { throw new Error("not used"); } }),
       checkDb: async () => { checked = true; },
     });
     const res = await app.inject({ method: "GET", url: "/health" });
@@ -213,6 +220,40 @@ describe("http auth poc", () => {
     expect(response.json()).toMatchObject({ listingId, priceSynapsePoints: 250, balanceAfter: 750 });
     expect(purchaseCalls[0]).toMatchObject({ listingId, idempotencyKey: "buy-1" });
     expect(purchaseCalls[0].playerId).toBeTruthy();
+  });
+
+  it("GET /api/wheel requires authentication and returns only safe presentation data", async () => {
+    const { app } = await appWithFakes({ NODE_ENV: "development" });
+    expect((await app.inject({ method: "GET", url: "/api/wheel" })).statusCode).toBe(401);
+    const response = await app.inject({ method: "GET", url: "/api/wheel", headers: { cookie: await login(app) } });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ available: true, wheel: { code: "DEV_WHEEL", canSpin: true, segments: [{ wheelSegmentIndex: 4, rewardType: "SYNAPSE_POINTS", rewardValue: 100 }] } });
+    expect(JSON.stringify(response.json())).not.toContain("weight");
+    expect(JSON.stringify(response.json())).not.toContain("probability");
+  });
+
+  it("POST /api/wheel/spin requires auth, derives the player, and normalizes Idempotency-Key", async () => {
+    const { app, wheelSpinCalls } = await appWithFakes({ NODE_ENV: "development" });
+    expect((await app.inject({ method: "POST", url: "/api/wheel/spin", headers: { "idempotency-key": "spin-1" }, payload: {} })).statusCode).toBe(401);
+    const response = await app.inject({ method: "POST", url: "/api/wheel/spin", headers: { cookie: await login(app), "idempotency-key": "  spin-1  " }, payload: {} });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ spinId: expect.any(String), rewardType: "SYNAPSE_POINTS", resultingBalance: 1050, wheelSegmentIndex: 4, idempotent: false });
+    expect(wheelSpinCalls).toHaveLength(1);
+    expect(wheelSpinCalls[0]).toMatchObject({ playerId: expect.any(String), idempotencyKey: "spin-1" });
+  });
+
+  it.each([
+    ["missing idempotency key", {}, {}],
+    ["oversized idempotency key", { "idempotency-key": "x".repeat(201) }, {}],
+    ["null body", { "idempotency-key": "spin-1", "content-type": "application/json" }, "null"],
+    ["client reward authority", { "idempotency-key": "spin-1" }, { rewardValue: 9999 }],
+    ["client segment authority", { "idempotency-key": "spin-1" }, { wheelSegmentIndex: 0 }],
+  ])("rejects Reward Wheel spin with %s", async (_label, headers, payload) => {
+    const { app, wheelSpinCalls } = await appWithFakes({ NODE_ENV: "development" });
+    const response = await app.inject({ method: "POST", url: "/api/wheel/spin", headers: { cookie: await login(app), ...headers }, payload });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().code).toBe("VALIDATION_FAILED");
+    expect(wheelSpinCalls).toHaveLength(0);
   });
 
   it.each([

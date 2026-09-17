@@ -13,6 +13,7 @@ export const implementedGameEventTypes = [
   "store.purchase.completed",
   "inventory.item.granted", "inventory.item.equipped", "inventory.item.unequipped", "inventory.item.consumed",
   "player.display_name.changed",
+  "reward_wheel.spun",
 ] as const;
 
 export type GameEventType = typeof implementedGameEventTypes[number];

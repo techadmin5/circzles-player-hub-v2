@@ -331,27 +331,23 @@ Constraints: unique progress row, unique `(player_id, mission_id, period_key)`, 
 
 Indexes: `(player_id, created_at)` for player claim history.
 
-### wheel_configurations
+### reward_wheels
 
-Purpose: active wheel setup.
+Purpose: persisted Reward Wheel authority. Stores stable unique code, display name, global active flag, legacy non-negative SP cost/cooldown fields, positive configurable `cycle_seconds` (default `86400`), optional ordered UTC window, and timestamps. A partial unique index permits only one globally active wheel. Cycle-based operation no longer uses cooldown as a per-spin limiter.
 
-Columns: `wheel_configuration_id` PK, `name`, `spin_cost_points`, `starts_at`, `ends_at`, `active`, `cooldown_seconds`, `created_at`, `updated_at`.
+### reward_wheel_spin_tiers
 
-### wheel_segments
+Purpose: normalized authoritative cost schedule for one rolling wheel cycle. Rows contain a restrictive wheel FK, positive spin number, non-negative SP cost, active flag, and timestamps. Unique `(reward_wheel_id, spin_number)` preserves one tier per position; runtime validation requires exactly four contiguous active tiers beginning at spin 1 with cost zero. The intended DEVELOPMENT configuration is `1 -> 0`, `2 -> 300`, `3 -> 450`, `4 -> 700`, configured outside migrations.
 
-Purpose: weighted wheel reward entries.
+### reward_wheel_segments
 
-Columns: `wheel_segment_id` PK, `wheel_configuration_id` FK, `segment_index int`, `reward_type`, `reward_definition_id` FK nullable, `amount int nullable`, `weight numeric`, `limit_per_player int nullable`, `active boolean`.
+Purpose: configured visual and weighted reward segments. Each row has a restrictive wheel FK, unique non-negative position within that wheel, display label, positive private weight, restrictive canonical reward-definition FK, positive quantity, active flag, safe display metadata, and timestamps.
 
-Constraints: unique `(wheel_configuration_id, segment_index)`.
+### reward_wheel_spins
 
-### wheel_spins
+Purpose: immutable logical spin and replay history. Stores restrictive player/wheel/segment/reward FKs; nullable restrictive tier FK; wheel, segment, charged cost, cooldown, spin number, rolling-cycle boundaries, quantity, reward presentation, and resulting-balance snapshots; optional restrictive links to cost/reward point transactions, XP transaction, and Inventory grant; player-scoped idempotency key; metadata; and server spin time. Tier/cycle fields are nullable only for compatibility with historical `0015` rows.
 
-Purpose: immutable spin result history.
-
-Columns: `wheel_spin_id` PK, `player_id` FK, `wheel_configuration_id` FK, `wheel_segment_id` FK, `cost_transaction_id` FK, `reward_transaction_id` FK nullable, `inventory_grant_id` FK nullable, `result_payload jsonb`, `idempotency_key`, `created_at`.
-
-Constraints: unique `idempotency_key`.
+Constraints include unique `(player_id, idempotency_key)`, positive nullable spin number, valid nullable cycle boundaries, non-negative cost/cooldown/balance, positive reward quantity, non-negative segment position, and a cost-ledger consistency check. Player/time, player/wheel/time, and wheel/time indexes support cycle and history reads.
 
 ### friendships
 
@@ -485,6 +481,14 @@ The migration is additive, contains no drops or seed data, and is applied and ve
 Migration `0014_tired_polaris.sql` adds immutable `inventory_consumptions`. It records player, owned Inventory item, reward definition, positive consumed quantity, non-negative quantity-after snapshot, reason, player-scoped idempotency key, immutable replay metadata, and creation time.
 
 Player, Inventory-item, and reward-definition foreign keys are restrictive. `(player_id, idempotency_key)` is unique. Indexes support player history and item history. The migration is additive and schema-only, contains no drops or seed data, and was generated but not run in Phase 3G-D.
+
+## Phase 3H Reward Wheel
+
+Migration `0015_reflective_karen_page.sql` adds `reward_wheels`, `reward_wheel_segments`, and immutable `reward_wheel_spins`. It is additive and schema-only: no drops, deletes, seed rows, or permanent wheel configuration. All history and authority foreign keys use restrictive deletion.
+
+Migration `0015_reflective_karen_page.sql` is **APPLIED AND VERIFIED on Neon DEVELOPMENT only**. It has not been applied to Production. The committed DEVELOPMENT smoke spin remains historical audit data.
+
+Migration `0016_windy_xorn.sql` adds `reward_wheel_spin_tiers`, `reward_wheels.cycle_seconds`, and nullable tier/cycle snapshots on `reward_wheel_spins`. It is additive and schema-only, with restrictive foreign keys and no seed rows. It is **APPLIED AND VERIFIED on Neon DEVELOPMENT only** and has not been applied to Production. The intended `0/300/450/700` schedule was configured separately as temporary DEVELOPMENT runtime data after migration verification.
 
 ## Phase 3D Implemented Tables
 
