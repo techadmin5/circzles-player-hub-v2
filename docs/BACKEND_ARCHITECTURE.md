@@ -205,6 +205,14 @@ No Wix client, provider identifier, external coupon code, redemption endpoint, o
 
 `recordCouponRedemptionInTransaction` locks the ownership, replays an exact source/idempotency identity, rejects conflicting, revoked, or effectively expired use, writes one immutable `coupon_redemptions` row, marks the ownership `REDEEMED`, moves every non-disabled projection to `PENDING_DISABLE`, and emits `coupon.redeemed` atomically. Later provider phases will authenticate inbound provider events and perform/retry external disable calls. Independent external checkouts can still race before providers report redemption, so B1 cannot guarantee cross-store prevention by itself; internal first-confirmed redemption remains final and provider failures never reactivate it.
 
+## Phase 3I-B2 Wix Coupon Adapter
+
+`WixCouponGateway` implements the B1 provider port for the four confirmed Wix storefronts. It maps each storefront to its fixed Wix site ID and currency, reads the backend-only `WIX_API_KEY` lazily, and uses an injectable HTTP boundary. Provisioning queries the target Wix site for an exact canonical coupon-code match before creating; one match is reused, multiple matches fail safely, and no match is created with one-use limits and the B1-selected percentage or fixed amount. Disable operations patch only `specification.active` with an explicit field mask.
+
+`WixCouponSyncService` applies successful and failed provider outcomes through the existing B1 transition helper. Success stores the provider ID and advances `PENDING_CREATE -> ACTIVE` or `PENDING_DISABLE -> DISABLED`; safe failures advance to `ERROR` without changing authoritative coupon ownership. Shopify mappings are skipped. No public provider endpoint, background worker, inbound redemption bridge, or live provider call is introduced in B2.
+
+Provider projections remain secondary to CircZles ownership. Independent external checkouts can still race before provider redemption reports reach the backend; authenticated inbound redemption synchronization is deferred to B4.
+
 ## Phase 3G-D Rename Card Boundary
 
 `PlayerIdentityActionService` is the authenticated display-name mutation boundary. It normalizes one client-supplied name, while the session supplies player identity and the database supplies Inventory ownership, quantity, and reward type. It never accepts or mutates public player identity, user identity, session identity, or Wix identity.
