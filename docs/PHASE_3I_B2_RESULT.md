@@ -29,7 +29,7 @@ Create mapping preserves the canonical CircZles coupon code, uses a PII-free `Ci
 
 ## Recovery And Synchronization
 
-Provisioning queries by canonical coupon code and then performs an exact in-memory match. One exact match reuses its Wix ID, no match proceeds to create, and multiple exact matches fail without choosing arbitrarily. This prevents a retry from knowingly creating a second coupon after an earlier remote create succeeded but local persistence did not.
+Provisioning queries Wix with supported `limit: 100` and `offset` pagination only, validates the reported `totalResults`, and performs exact canonical-code matching in memory across every represented page. One exact match reuses its Wix ID, no match proceeds to create, and multiple exact matches fail without choosing arbitrarily. This prevents a retry from knowingly creating a second coupon after an earlier remote create succeeded but local persistence did not.
 
 `WixCouponSyncService` reuses the Phase 3I-B1 transition rules. Successful provisioning stores `provider_coupon_id`, records sync timestamps, clears stale errors, and moves the mapping to `ACTIVE`. Successful disable moves a mapping to `DISABLED`. Safe provider failures move a valid mapping to `ERROR`, preserve an existing provider ID, and never alter or reactivate authoritative coupon ownership. Shopify mappings are not processed.
 

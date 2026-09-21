@@ -3,6 +3,7 @@ import type { CouponProviderGateway, CouponProvisionRequest, CouponStorefrontTar
 
 const WIX_COUPONS_URL = "https://www.wixapis.com/stores/v2/coupons";
 const WIX_COUPONS_QUERY_URL = `${WIX_COUPONS_URL}/query`;
+const WIX_QUERY_PAGE_SIZE = 100;
 
 export const wixCouponStorefronts = Object.freeze({
   WIX_CIRCZLES_IN: Object.freeze({ domain: "https://www.circzles.in/", wixSiteId: "5cd5bcc4-823e-485a-b791-c22fb487aaf8", currency: "INR" as const }),
@@ -61,25 +62,30 @@ export class WixCouponGateway implements CouponProviderGateway {
   }
 
   private async findByExactCode(storefrontTarget: CouponStorefrontTarget, couponCode: string) {
-    const response = await this.requestJson(storefrontTarget, "QUERY", WIX_COUPONS_QUERY_URL, {
-      method: "POST",
-      body: JSON.stringify({ query: { filter: JSON.stringify({ "specification.code": { $eq: couponCode } }) } }),
-    });
-    if (!isRecord(response) || !Array.isArray(response.coupons)) {
-      throw new WixCouponProviderError("WIX_COUPON_RESPONSE_INVALID", "Wix coupon query returned an invalid response.", { storefront: storefrontTarget, operation: "QUERY" });
+    let expectedTotal: number | null = null;
+    let matchedId: string | null = null;
+
+    for (let offset = 0; expectedTotal === null || offset < expectedTotal; offset += WIX_QUERY_PAGE_SIZE) {
+      const response = await this.requestJson(storefrontTarget, "QUERY", WIX_COUPONS_QUERY_URL, {
+        method: "POST",
+        body: JSON.stringify({ query: { paging: { limit: WIX_QUERY_PAGE_SIZE, offset } } }),
+      });
+      const page = readCouponQueryPage(response, storefrontTarget, offset, expectedTotal);
+      expectedTotal = page.totalResults;
+
+      for (const coupon of page.coupons) {
+        if (!isRecord(coupon) || !isRecord(coupon.specification) || coupon.specification.code !== couponCode) continue;
+        const providerCouponId = readNonblankString(coupon, "id");
+        if (!providerCouponId) {
+          throw new WixCouponProviderError("WIX_COUPON_RESPONSE_INVALID", "Matched Wix coupon did not include a valid id.", { storefront: storefrontTarget, operation: "QUERY" });
+        }
+        if (matchedId !== null) {
+          throw new WixCouponProviderError("WIX_COUPON_RECOVERY_AMBIGUOUS", "Multiple Wix coupons matched the canonical coupon code.", { storefront: storefrontTarget, operation: "QUERY" });
+        }
+        matchedId = providerCouponId;
+      }
     }
-    const matches = response.coupons.filter((coupon) => isRecord(coupon)
-      && isRecord(coupon.specification)
-      && coupon.specification.code === couponCode);
-    if (matches.length > 1) {
-      throw new WixCouponProviderError("WIX_COUPON_RECOVERY_AMBIGUOUS", "Multiple Wix coupons matched the canonical coupon code.", { storefront: storefrontTarget, operation: "QUERY" });
-    }
-    if (!matches.length) return null;
-    const providerCouponId = readNonblankString(matches[0], "id");
-    if (!providerCouponId) {
-      throw new WixCouponProviderError("WIX_COUPON_RESPONSE_INVALID", "Matched Wix coupon did not include a valid id.", { storefront: storefrontTarget, operation: "QUERY" });
-    }
-    return providerCouponId;
+    return matchedId;
   }
 
   private async requestJson(storefrontTarget: CouponStorefrontTarget, operation: "QUERY" | "CREATE" | "DISABLE", url: string, init: RequestInit) {
@@ -133,6 +139,23 @@ export function buildWixCreateCouponBody(request: CouponProvisionRequest) {
 function readNonblankString(value: unknown, key: string) {
   if (!isRecord(value) || typeof value[key] !== "string") return null;
   return value[key].trim() || null;
+}
+
+function readCouponQueryPage(response: unknown, storefrontTarget: CouponStorefrontTarget, offset: number, expectedTotal: number | null) {
+  if (!isRecord(response) || !Array.isArray(response.coupons)
+    || !Number.isSafeInteger(response.totalResults) || Number(response.totalResults) < 0) {
+    throw invalidCouponQueryResponse(storefrontTarget);
+  }
+  const totalResults = Number(response.totalResults);
+  const expectedPageLength = Math.min(WIX_QUERY_PAGE_SIZE, Math.max(totalResults - offset, 0));
+  if ((expectedTotal !== null && totalResults !== expectedTotal) || response.coupons.length !== expectedPageLength) {
+    throw invalidCouponQueryResponse(storefrontTarget);
+  }
+  return { coupons: response.coupons, totalResults };
+}
+
+function invalidCouponQueryResponse(storefrontTarget: CouponStorefrontTarget) {
+  return new WixCouponProviderError("WIX_COUPON_RESPONSE_INVALID", "Wix coupon query returned an invalid pagination response.", { storefront: storefrontTarget, operation: "QUERY" });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
