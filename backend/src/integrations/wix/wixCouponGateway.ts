@@ -5,6 +5,7 @@ import { WixAppOAuthClient, type WixAccessTokenProvider } from "./wixAppOAuthCli
 const WIX_COUPONS_URL = "https://www.wixapis.com/stores/v2/coupons";
 const WIX_COUPONS_QUERY_URL = `${WIX_COUPONS_URL}/query`;
 const WIX_QUERY_PAGE_SIZE = 100;
+const DEFAULT_RECOVERY_DELAYS_MS = [250, 500, 1_000] as const;
 
 export const wixCouponStorefronts = Object.freeze({
   WIX_CIRCZLES_IN: Object.freeze({ domain: "https://www.circzles.in/", wixSiteId: "5cd5bcc4-823e-485a-b791-c22fb487aaf8", currency: "INR" as const }),
@@ -17,7 +18,7 @@ export type WixCouponStorefrontTarget = keyof typeof wixCouponStorefronts;
 export type WixCouponHttpClient = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 export class WixCouponProviderError extends AppError {
-  constructor(code: string, message: string, details: { storefront: CouponStorefrontTarget; operation: "QUERY" | "CREATE" | "DISABLE"; httpStatus?: number }) {
+  constructor(code: string, message: string, details: { storefront: CouponStorefrontTarget; operation: "QUERY" | "CREATE" | "GET" | "DISABLE"; httpStatus?: number }) {
     super(code, message, 502, details);
   }
 }
@@ -32,10 +33,23 @@ export function resolveWixCouponStorefront(target: CouponStorefrontTarget) {
 export class WixCouponGateway implements CouponProviderGateway {
   private readonly fetchImpl: WixCouponHttpClient;
   private readonly accessTokens: WixAccessTokenProvider;
+  private readonly recoveryDelaysMs: readonly number[];
+  private readonly delay: (milliseconds: number) => Promise<void>;
 
-  constructor(options: { fetchImpl?: WixCouponHttpClient; accessTokens?: WixAccessTokenProvider } = {}) {
+  constructor(options: {
+    fetchImpl?: WixCouponHttpClient;
+    accessTokens?: WixAccessTokenProvider;
+    recoveryDelaysMs?: readonly number[];
+    delay?: (milliseconds: number) => Promise<void>;
+  } = {}) {
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch;
     this.accessTokens = options.accessTokens ?? new WixAppOAuthClient({ fetchImpl: this.fetchImpl });
+    const recoveryDelaysMs = [...(options.recoveryDelaysMs ?? DEFAULT_RECOVERY_DELAYS_MS)].slice(0, DEFAULT_RECOVERY_DELAYS_MS.length);
+    if (recoveryDelaysMs.some((milliseconds) => !Number.isSafeInteger(milliseconds) || milliseconds < 0)) {
+      throw validationFailed("Wix coupon recovery delays must be non-negative integer milliseconds.");
+    }
+    this.recoveryDelaysMs = recoveryDelaysMs;
+    this.delay = options.delay ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
   }
 
   async provision(request: CouponProvisionRequest) {
@@ -43,12 +57,21 @@ export class WixCouponGateway implements CouponProviderGateway {
     const existing = await this.findByExactCode(request.storefrontTarget, request.couponCode);
     if (existing) return { providerCouponId: existing };
 
-    const body = buildWixCreateCouponBody(request);
-    const response = await this.requestJson(request.storefrontTarget, "CREATE", WIX_COUPONS_URL, { method: "POST", body: JSON.stringify(body) });
-    const providerCouponId = readNonblankString(response, "id");
-    if (!providerCouponId) {
-      throw new WixCouponProviderError("WIX_COUPON_RESPONSE_INVALID", "Wix coupon create returned an invalid response.", { storefront: request.storefrontTarget, operation: "CREATE" });
+    let providerCouponId: string;
+    try {
+      const body = buildWixCreateCouponBody(request);
+      const response = await this.requestJson(request.storefrontTarget, "CREATE", WIX_COUPONS_URL, { method: "POST", body: JSON.stringify(body) });
+      const createdId = readNonblankString(response, "id");
+      if (!createdId) {
+        throw new WixCouponProviderError("WIX_COUPON_RESPONSE_INVALID", "Wix coupon create returned an invalid response.", { storefront: request.storefrontTarget, operation: "CREATE" });
+      }
+      providerCouponId = createdId;
+    } catch (error) {
+      if (!isAmbiguousCreateFailure(error)) throw error;
+      return { providerCouponId: await this.recoverAfterAmbiguousCreate(request.storefrontTarget, request.couponCode, error) };
     }
+
+    await this.verifyCreatedCoupon(request.storefrontTarget, providerCouponId, request.couponCode);
     return { providerCouponId };
   }
 
@@ -89,7 +112,35 @@ export class WixCouponGateway implements CouponProviderGateway {
     return matchedId;
   }
 
-  private async requestJson(storefrontTarget: CouponStorefrontTarget, operation: "QUERY" | "CREATE" | "DISABLE", url: string, init: RequestInit) {
+  private async verifyCreatedCoupon(storefrontTarget: CouponStorefrontTarget, providerCouponId: string, couponCode: string) {
+    const response = await this.requestJson(storefrontTarget, "GET", `${WIX_COUPONS_URL}/${encodeURIComponent(providerCouponId)}`, { method: "GET" });
+    if (!isRecord(response) || !isRecord(response.coupon) || !isRecord(response.coupon.specification)) {
+      throw new WixCouponProviderError("WIX_COUPON_RESPONSE_INVALID", "Wix get coupon returned an invalid response.", { storefront: storefrontTarget, operation: "GET" });
+    }
+    const returnedId = readNonblankString(response.coupon, "id");
+    if (returnedId !== providerCouponId || response.coupon.specification.code !== couponCode) {
+      throw new WixCouponProviderError("WIX_COUPON_VERIFICATION_FAILED", "Wix created coupon did not match the requested coupon.", { storefront: storefrontTarget, operation: "GET" });
+    }
+  }
+
+  private async recoverAfterAmbiguousCreate(storefrontTarget: CouponStorefrontTarget, couponCode: string, createError: WixCouponProviderError) {
+    for (const delayMs of this.recoveryDelaysMs) {
+      await this.delay(delayMs);
+      try {
+        const existing = await this.findByExactCode(storefrontTarget, couponCode);
+        if (existing) return existing;
+      } catch (error) {
+        if (!isRetryableRecoveryQueryFailure(error)) throw error;
+      }
+    }
+    throw new WixCouponProviderError("WIX_COUPON_RECOVERY_EXHAUSTED", "Wix coupon creation could not be reconciled safely.", {
+      storefront: storefrontTarget,
+      operation: "CREATE",
+      httpStatus: readHttpStatus(createError),
+    });
+  }
+
+  private async requestJson(storefrontTarget: CouponStorefrontTarget, operation: "QUERY" | "CREATE" | "GET" | "DISABLE", url: string, init: RequestInit) {
     resolveWixCouponStorefront(storefrontTarget);
     const accessToken = await this.accessTokens.getAccessToken(storefrontTarget);
 
@@ -127,6 +178,8 @@ export function buildWixCreateCouponBody(request: CouponProvisionRequest) {
     limitPerCustomer: 1,
     active: true,
     scope: { namespace: "stores" },
+    limitedToOneItem: false,
+    appliesToSubscriptions: false,
   };
   if (request.expiresAt) specification.expirationTime = String(request.expiresAt.getTime());
   if (request.benefit.type === "PERCENTAGE") specification.percentOffRate = request.benefit.percentage;
@@ -154,6 +207,29 @@ function readCouponQueryPage(response: unknown, storefrontTarget: CouponStorefro
 
 function invalidCouponQueryResponse(storefrontTarget: CouponStorefrontTarget) {
   return new WixCouponProviderError("WIX_COUPON_RESPONSE_INVALID", "Wix coupon query returned an invalid pagination response.", { storefront: storefrontTarget, operation: "QUERY" });
+}
+
+function isAmbiguousCreateFailure(error: unknown): error is WixCouponProviderError {
+  if (!(error instanceof WixCouponProviderError)) return false;
+  if (readErrorOperation(error) !== "CREATE") return false;
+  if (error.code === "WIX_COUPON_REQUEST_FAILED" || error.code === "WIX_COUPON_RESPONSE_INVALID") return true;
+  const status = readHttpStatus(error);
+  return status === 408 || status === 409 || status === 425 || status === 429 || (status !== undefined && status >= 500);
+}
+
+function isRetryableRecoveryQueryFailure(error: unknown) {
+  if (!(error instanceof WixCouponProviderError) || readErrorOperation(error) !== "QUERY") return false;
+  if (error.code === "WIX_COUPON_REQUEST_FAILED") return true;
+  const status = readHttpStatus(error);
+  return status === 408 || status === 425 || status === 429 || (status !== undefined && status >= 500);
+}
+
+function readHttpStatus(error: WixCouponProviderError) {
+  return isRecord(error.details) && typeof error.details.httpStatus === "number" ? error.details.httpStatus : undefined;
+}
+
+function readErrorOperation(error: WixCouponProviderError) {
+  return isRecord(error.details) && typeof error.details.operation === "string" ? error.details.operation : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

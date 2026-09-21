@@ -19,6 +19,10 @@ function queryResponse(coupons: unknown[], totalResults = coupons.length) {
   return response({ coupons, totalResults });
 }
 
+function getCouponResponse(id: string, code = "CZ95F70BA56FDCF99B") {
+  return response({ coupon: { id, specification: { code } } });
+}
+
 function fetchSequence(...responses: Array<Response | Error>) {
   const calls: HttpCall[] = [];
   const fetchImpl: WixCouponHttpClient = async (input, init = {}) => {
@@ -85,9 +89,10 @@ describe("Wix coupon request mapping", () => {
       limitPerCustomer: 1,
       active: true,
       scope: { namespace: "stores" },
+      limitedToOneItem: false,
+      appliesToSubscriptions: false,
       percentOffRate: 20,
     } });
-    expect(result.specification).not.toHaveProperty("limitedToOneItem");
     expect(result.specification.name).not.toMatch(/player|email/i);
   });
 
@@ -103,13 +108,14 @@ describe("Wix coupon request mapping", () => {
 
 describe("Wix coupon HTTP gateway", () => {
   it("queries safely, then creates with an instance-bound OAuth access token", async () => {
-    const fake = fetchSequence(queryResponse([]), response({ id: "wix-coupon-1" }));
+    const fake = fetchSequence(queryResponse([]), response({ id: "wix-coupon-1" }), getCouponResponse("wix-coupon-1"));
     const gateway = new WixCouponGateway({ accessTokens: accessTokens(), fetchImpl: fake.fetchImpl });
     await expect(gateway.provision(request())).resolves.toEqual({ providerCouponId: "wix-coupon-1" });
 
     expect(fake.calls.map((call) => [call.init.method, call.url])).toEqual([
       ["POST", "https://www.wixapis.com/stores/v2/coupons/query"],
       ["POST", "https://www.wixapis.com/stores/v2/coupons"],
+      ["GET", "https://www.wixapis.com/stores/v2/coupons/wix-coupon-1"],
     ]);
     expect(headers(fake.calls[1]).get("Authorization")).toBe("test-oauth-access-token");
     expect(headers(fake.calls[1]).has("wix-site-id")).toBe(false);
@@ -128,10 +134,10 @@ describe("Wix coupon HTTP gateway", () => {
   });
 
   it("ignores unrelated query rows and proceeds to create", async () => {
-    const fake = fetchSequence(queryResponse([{ id: "other", specification: { code: "OTHER" } }]), response({ id: "created-id" }));
+    const fake = fetchSequence(queryResponse([{ id: "other", specification: { code: "OTHER" } }]), response({ id: "created-id" }), getCouponResponse("created-id"));
     const gateway = new WixCouponGateway({ accessTokens: accessTokens(), fetchImpl: fake.fetchImpl });
     await expect(gateway.provision(request())).resolves.toEqual({ providerCouponId: "created-id" });
-    expect(fake.calls).toHaveLength(2);
+    expect(fake.calls).toHaveLength(3);
   });
 
   it("finds an exact code match on the second page", async () => {
@@ -154,6 +160,7 @@ describe("Wix coupon HTTP gateway", () => {
       queryResponse(firstPage, 101),
       queryResponse([{ id: "last-other", specification: { code: "LASTOTHER" } }], 101),
       response({ id: "created-id" }),
+      getCouponResponse("created-id"),
     );
     const gateway = new WixCouponGateway({ accessTokens: accessTokens(), fetchImpl: fake.fetchImpl });
     await expect(gateway.provision(request())).resolves.toEqual({ providerCouponId: "created-id" });
@@ -199,6 +206,7 @@ describe("Wix coupon HTTP gateway", () => {
     const fetchImpl: WixCouponHttpClient = async (input, init = {}) => {
       calls.push({ url: String(input), init });
       if (String(input).endsWith("/query")) return queryResponse(created ? [{ id: "stable-id", specification: { code: "CZ95F70BA56FDCF99B" } }] : []);
+      if (init.method === "GET") return getCouponResponse("stable-id");
       created = true;
       return response({ id: "stable-id" });
     };
@@ -208,11 +216,82 @@ describe("Wix coupon HTTP gateway", () => {
     expect(calls.filter((call) => call.url === "https://www.wixapis.com/stores/v2/coupons")).toHaveLength(1);
   });
 
+  it("fails when direct create verification returns a conflicting coupon code", async () => {
+    const fake = fetchSequence(queryResponse([]), response({ id: "created-id" }), getCouponResponse("created-id", "DIFFERENTCODE"));
+    const gateway = new WixCouponGateway({ accessTokens: accessTokens(), fetchImpl: fake.fetchImpl });
+    await expect(gateway.provision(request())).rejects.toMatchObject({ code: "WIX_COUPON_VERIFICATION_FAILED", details: { operation: "GET" } });
+  });
+
+  it("fails when direct create verification returns a malformed coupon", async () => {
+    const fake = fetchSequence(queryResponse([]), response({ id: "created-id" }), response({ coupon: { id: "created-id" } }));
+    const gateway = new WixCouponGateway({ accessTokens: accessTokens(), fetchImpl: fake.fetchImpl });
+    await expect(gateway.provision(request())).rejects.toMatchObject({ code: "WIX_COUPON_RESPONSE_INVALID", details: { operation: "GET" } });
+  });
+
+  it("recovers an ambiguous create when the coupon appears on a later bounded query", async () => {
+    const delays: number[] = [];
+    const fake = fetchSequence(
+      queryResponse([]),
+      response({ message: "uncertain" }, 500),
+      queryResponse([]),
+      queryResponse([{ id: "recovered-id", specification: { code: "CZ95F70BA56FDCF99B" } }]),
+    );
+    const gateway = new WixCouponGateway({
+      accessTokens: accessTokens(),
+      fetchImpl: fake.fetchImpl,
+      recoveryDelaysMs: [10, 20, 40],
+      delay: async (milliseconds) => { delays.push(milliseconds); },
+    });
+    await expect(gateway.provision(request())).resolves.toEqual({ providerCouponId: "recovered-id" });
+    expect(delays).toEqual([10, 20]);
+    expect(fake.calls.filter((call) => call.url === "https://www.wixapis.com/stores/v2/coupons")).toHaveLength(1);
+  });
+
+  it("fails safely when separate recovery matches are ambiguous", async () => {
+    const coupon = { specification: { code: "CZ95F70BA56FDCF99B" } };
+    const fake = fetchSequence(
+      queryResponse([]),
+      response({ message: "uncertain" }, 500),
+      queryResponse([{ id: "one", ...coupon }, { id: "two", ...coupon }]),
+    );
+    const gateway = new WixCouponGateway({ accessTokens: accessTokens(), fetchImpl: fake.fetchImpl, recoveryDelaysMs: [0], delay: async () => undefined });
+    await expect(gateway.provision(request())).rejects.toMatchObject({ code: "WIX_COUPON_RECOVERY_AMBIGUOUS" });
+    expect(fake.calls.filter((call) => call.url === "https://www.wixapis.com/stores/v2/coupons")).toHaveLength(1);
+  });
+
+  it("exhausts bounded recovery without issuing a second create", async () => {
+    const delays: number[] = [];
+    const accessToken = "do-not-leak-recovery-token";
+    const fake = fetchSequence(queryResponse([]), new Error(`uncertain transport ${accessToken}`), queryResponse([]), queryResponse([]), queryResponse([]));
+    const gateway = new WixCouponGateway({
+      accessTokens: accessTokens(accessToken),
+      fetchImpl: fake.fetchImpl,
+      recoveryDelaysMs: [10, 20, 40],
+      delay: async (milliseconds) => { delays.push(milliseconds); },
+    });
+    const error = await gateway.provision(request()).catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ code: "WIX_COUPON_RECOVERY_EXHAUSTED", details: { operation: "CREATE" } });
+    expect(JSON.stringify(error)).not.toContain(accessToken);
+    expect(delays).toEqual([10, 20, 40]);
+    expect(fake.calls.filter((call) => call.url === "https://www.wixapis.com/stores/v2/coupons")).toHaveLength(1);
+  });
+
+  it("recovers a duplicate-code conflict through exact-code query", async () => {
+    const fake = fetchSequence(
+      queryResponse([]),
+      response({ message: "duplicate code" }, 409),
+      queryResponse([{ id: "existing-id", specification: { code: "CZ95F70BA56FDCF99B" } }]),
+    );
+    const gateway = new WixCouponGateway({ accessTokens: accessTokens(), fetchImpl: fake.fetchImpl, recoveryDelaysMs: [0], delay: async () => undefined });
+    await expect(gateway.provision(request())).resolves.toEqual({ providerCouponId: "existing-id" });
+    expect(fake.calls.filter((call) => call.url === "https://www.wixapis.com/stores/v2/coupons")).toHaveLength(1);
+  });
+
   it("rejects blank or missing create ids", async () => {
     for (const malformed of [{}, { id: " " }]) {
       const fake = fetchSequence(queryResponse([]), response(malformed));
-      const gateway = new WixCouponGateway({ accessTokens: accessTokens(), fetchImpl: fake.fetchImpl });
-      await expect(gateway.provision(request())).rejects.toMatchObject({ code: "WIX_COUPON_RESPONSE_INVALID" });
+      const gateway = new WixCouponGateway({ accessTokens: accessTokens(), fetchImpl: fake.fetchImpl, recoveryDelaysMs: [] });
+      await expect(gateway.provision(request())).rejects.toMatchObject({ code: "WIX_COUPON_RECOVERY_EXHAUSTED" });
     }
   });
 
