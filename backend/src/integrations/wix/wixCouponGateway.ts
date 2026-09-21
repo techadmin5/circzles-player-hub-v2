@@ -1,5 +1,6 @@
 import { AppError, validationFailed } from "../../domain/errors.js";
 import type { CouponProviderGateway, CouponProvisionRequest, CouponStorefrontTarget } from "../../domain/couponBridge.js";
+import { WixAppOAuthClient, type WixAccessTokenProvider } from "./wixAppOAuthClient.js";
 
 const WIX_COUPONS_URL = "https://www.wixapis.com/stores/v2/coupons";
 const WIX_COUPONS_QUERY_URL = `${WIX_COUPONS_URL}/query`;
@@ -30,11 +31,11 @@ export function resolveWixCouponStorefront(target: CouponStorefrontTarget) {
 
 export class WixCouponGateway implements CouponProviderGateway {
   private readonly fetchImpl: WixCouponHttpClient;
-  private readonly getApiKey: () => string | undefined;
+  private readonly accessTokens: WixAccessTokenProvider;
 
-  constructor(options: { fetchImpl?: WixCouponHttpClient; apiKey?: string; getApiKey?: () => string | undefined } = {}) {
+  constructor(options: { fetchImpl?: WixCouponHttpClient; accessTokens?: WixAccessTokenProvider } = {}) {
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch;
-    this.getApiKey = options.getApiKey ?? (() => options.apiKey ?? process.env.WIX_API_KEY);
+    this.accessTokens = options.accessTokens ?? new WixAppOAuthClient({ fetchImpl: this.fetchImpl });
   }
 
   async provision(request: CouponProvisionRequest) {
@@ -89,17 +90,14 @@ export class WixCouponGateway implements CouponProviderGateway {
   }
 
   private async requestJson(storefrontTarget: CouponStorefrontTarget, operation: "QUERY" | "CREATE" | "DISABLE", url: string, init: RequestInit) {
-    const storefront = resolveWixCouponStorefront(storefrontTarget);
-    const apiKey = this.getApiKey()?.trim();
-    if (!apiKey) {
-      throw new WixCouponProviderError("WIX_API_KEY_MISSING", "Wix API key is not configured.", { storefront: storefrontTarget, operation });
-    }
+    resolveWixCouponStorefront(storefrontTarget);
+    const accessToken = await this.accessTokens.getAccessToken(storefrontTarget);
 
     let response: Response;
     try {
       response = await this.fetchImpl(url, {
         ...init,
-        headers: { Authorization: apiKey, "wix-site-id": storefront.wixSiteId, "Content-Type": "application/json" },
+        headers: { Authorization: accessToken, "Content-Type": "application/json" },
       });
     } catch {
       throw new WixCouponProviderError("WIX_COUPON_REQUEST_FAILED", "Wix coupon request failed before a response was received.", { storefront: storefrontTarget, operation });

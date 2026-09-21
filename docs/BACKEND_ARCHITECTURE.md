@@ -207,7 +207,9 @@ No Wix client, provider identifier, external coupon code, redemption endpoint, o
 
 ## Phase 3I-B2 Wix Coupon Adapter
 
-`WixCouponGateway` implements the B1 provider port for the four confirmed Wix storefronts. It maps each storefront to its fixed Wix site ID and currency, reads the backend-only `WIX_API_KEY` lazily, and uses an injectable HTTP boundary. Provisioning queries the target Wix site for an exact canonical coupon-code match before creating; one match is reused, multiple matches fail safely, and no match is created with one-use limits and the B1-selected percentage or fixed amount. Disable operations patch only `specification.active` with an explicit field mask.
+`WixCouponGateway` implements the B1 provider port for the four confirmed Wix storefronts. It maps each storefront to its fixed Wix site ID and currency and uses an injectable HTTP boundary. `WixAppOAuthClient` lazily exchanges the backend-only app ID, app secret, and storefront app-instance ID through Wix OAuth `client_credentials`; cached access tokens are isolated per storefront/app instance, refreshed before expiry, and used as the coupon request `Authorization` value. Instance-bound app tokens do not use the API-key-only `wix-site-id` header.
+
+Provisioning queries the target Wix app instance for an exact canonical coupon-code match before creating; one match is reused, multiple matches fail safely, and no match is created with one-use limits and the B1-selected percentage or fixed amount. Disable operations patch only `specification.active` with an explicit field mask. Missing credentials or an uninstalled storefront fail only when that Wix operation is attempted, allowing controlled per-storefront rollout.
 
 `WixCouponSyncService` applies successful and failed provider outcomes through the existing B1 transition helper. Success stores the provider ID and advances `PENDING_CREATE -> ACTIVE` or `PENDING_DISABLE -> DISABLED`; safe failures advance to `ERROR` without changing authoritative coupon ownership. Shopify mappings are skipped. No public provider endpoint, background worker, inbound redemption bridge, or live provider call is introduced in B2.
 

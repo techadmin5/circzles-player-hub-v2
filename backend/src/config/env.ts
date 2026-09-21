@@ -12,7 +12,12 @@ const envSchema = z.object({
     .default("false")
     .transform((value) => value === "true"),
   WIX_CLIENT_ID: z.string().optional(),
-  WIX_API_KEY: z.string().optional(),
+  WIX_APP_ID: z.string().optional(),
+  WIX_APP_SECRET: z.string().optional(),
+  WIX_CIRCZLES_IN_INSTANCE_ID: z.string().optional(),
+  WIX_CIRCZLES_COM_INSTANCE_ID: z.string().optional(),
+  WIX_COGZART_IN_INSTANCE_ID: z.string().optional(),
+  WIX_COGZART_COM_INSTANCE_ID: z.string().optional(),
   CLOUDINARY_CLOUD_NAME: z.string().optional(),
   CLOUDINARY_API_KEY: z.string().optional(),
   CLOUDINARY_API_SECRET: z.string().optional(),

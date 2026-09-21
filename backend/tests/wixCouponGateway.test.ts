@@ -7,6 +7,7 @@ import {
   wixCouponStorefronts,
   type WixCouponHttpClient,
 } from "../src/integrations/wix/wixCouponGateway.js";
+import type { WixAccessTokenProvider } from "../src/integrations/wix/wixAppOAuthClient.js";
 
 type HttpCall = { url: string; init: RequestInit };
 
@@ -53,6 +54,10 @@ function body(call: HttpCall) {
   return JSON.parse(String(call.init.body)) as Record<string, unknown>;
 }
 
+function accessTokens(accessToken = "test-oauth-access-token"): WixAccessTokenProvider {
+  return { getAccessToken: async () => accessToken };
+}
+
 describe("Wix coupon storefront configuration", () => {
   it("maps all four Wix storefronts to the confirmed site, domain, and currency", () => {
     expect(wixCouponStorefronts).toEqual({
@@ -97,17 +102,18 @@ describe("Wix coupon request mapping", () => {
 });
 
 describe("Wix coupon HTTP gateway", () => {
-  it("queries safely, then creates with API-key and site headers", async () => {
+  it("queries safely, then creates with an instance-bound OAuth access token", async () => {
     const fake = fetchSequence(queryResponse([]), response({ id: "wix-coupon-1" }));
-    const gateway = new WixCouponGateway({ apiKey: "test-secret-key", fetchImpl: fake.fetchImpl });
+    const gateway = new WixCouponGateway({ accessTokens: accessTokens(), fetchImpl: fake.fetchImpl });
     await expect(gateway.provision(request())).resolves.toEqual({ providerCouponId: "wix-coupon-1" });
 
     expect(fake.calls.map((call) => [call.init.method, call.url])).toEqual([
       ["POST", "https://www.wixapis.com/stores/v2/coupons/query"],
       ["POST", "https://www.wixapis.com/stores/v2/coupons"],
     ]);
-    expect(headers(fake.calls[1]).get("Authorization")).toBe("test-secret-key");
-    expect(headers(fake.calls[1]).get("wix-site-id")).toBe("5cd5bcc4-823e-485a-b791-c22fb487aaf8");
+    expect(headers(fake.calls[1]).get("Authorization")).toBe("test-oauth-access-token");
+    expect(headers(fake.calls[1]).has("wix-site-id")).toBe(false);
+    expect(JSON.stringify([...headers(fake.calls[1])])).not.toContain("app-secret");
     expect(headers(fake.calls[1]).get("Content-Type")).toBe("application/json");
     expect(body(fake.calls[1])).toEqual(buildWixCreateCouponBody(request()));
     expect(body(fake.calls[0])).toEqual({ query: { paging: { limit: 100, offset: 0 } } });
@@ -116,14 +122,14 @@ describe("Wix coupon HTTP gateway", () => {
 
   it("reuses an exact code match from the first page without creating another coupon", async () => {
     const fake = fetchSequence(queryResponse([{ id: "existing-wix-id", specification: { code: "CZ95F70BA56FDCF99B" } }]));
-    const gateway = new WixCouponGateway({ apiKey: "test-secret-key", fetchImpl: fake.fetchImpl });
+    const gateway = new WixCouponGateway({ accessTokens: accessTokens(), fetchImpl: fake.fetchImpl });
     await expect(gateway.provision(request())).resolves.toEqual({ providerCouponId: "existing-wix-id" });
     expect(fake.calls).toHaveLength(1);
   });
 
   it("ignores unrelated query rows and proceeds to create", async () => {
     const fake = fetchSequence(queryResponse([{ id: "other", specification: { code: "OTHER" } }]), response({ id: "created-id" }));
-    const gateway = new WixCouponGateway({ apiKey: "test-secret-key", fetchImpl: fake.fetchImpl });
+    const gateway = new WixCouponGateway({ accessTokens: accessTokens(), fetchImpl: fake.fetchImpl });
     await expect(gateway.provision(request())).resolves.toEqual({ providerCouponId: "created-id" });
     expect(fake.calls).toHaveLength(2);
   });
@@ -134,7 +140,7 @@ describe("Wix coupon HTTP gateway", () => {
       queryResponse(firstPage, 101),
       queryResponse([{ id: "second-page-match", specification: { code: "CZ95F70BA56FDCF99B" } }], 101),
     );
-    const gateway = new WixCouponGateway({ apiKey: "test-secret-key", fetchImpl: fake.fetchImpl });
+    const gateway = new WixCouponGateway({ accessTokens: accessTokens(), fetchImpl: fake.fetchImpl });
     await expect(gateway.provision(request())).resolves.toEqual({ providerCouponId: "second-page-match" });
     expect(fake.calls.map((call) => body(call))).toEqual([
       { query: { paging: { limit: 100, offset: 0 } } },
@@ -149,7 +155,7 @@ describe("Wix coupon HTTP gateway", () => {
       queryResponse([{ id: "last-other", specification: { code: "LASTOTHER" } }], 101),
       response({ id: "created-id" }),
     );
-    const gateway = new WixCouponGateway({ apiKey: "test-secret-key", fetchImpl: fake.fetchImpl });
+    const gateway = new WixCouponGateway({ accessTokens: accessTokens(), fetchImpl: fake.fetchImpl });
     await expect(gateway.provision(request())).resolves.toEqual({ providerCouponId: "created-id" });
     expect(fake.calls.filter((call) => call.url === "https://www.wixapis.com/stores/v2/coupons")).toHaveLength(1);
   });
@@ -163,7 +169,7 @@ describe("Wix coupon HTTP gateway", () => {
       queryResponse(firstPage, 101),
       queryResponse([{ id: "second-match", specification: { code: "CZ95F70BA56FDCF99B" } }], 101),
     );
-    const gateway = new WixCouponGateway({ apiKey: "test-secret-key", fetchImpl: fake.fetchImpl });
+    const gateway = new WixCouponGateway({ accessTokens: accessTokens(), fetchImpl: fake.fetchImpl });
     await expect(gateway.provision(request())).rejects.toMatchObject({ code: "WIX_COUPON_RECOVERY_AMBIGUOUS" });
     expect(fake.calls).toHaveLength(2);
   });
@@ -175,14 +181,14 @@ describe("Wix coupon HTTP gateway", () => {
     { coupons: "not-an-array", totalResults: 0 },
   ])("rejects malformed pagination responses safely", async (malformed) => {
     const fake = fetchSequence(response(malformed));
-    const gateway = new WixCouponGateway({ apiKey: "test-secret-key", fetchImpl: fake.fetchImpl });
+    const gateway = new WixCouponGateway({ accessTokens: accessTokens(), fetchImpl: fake.fetchImpl });
     await expect(gateway.provision(request())).rejects.toMatchObject({ code: "WIX_COUPON_RESPONSE_INVALID" });
     expect(fake.calls).toHaveLength(1);
   });
 
   it.each([undefined, " "])("rejects an exact query match with a missing or blank id", async (id) => {
     const fake = fetchSequence(queryResponse([{ id, specification: { code: "CZ95F70BA56FDCF99B" } }]));
-    const gateway = new WixCouponGateway({ apiKey: "test-secret-key", fetchImpl: fake.fetchImpl });
+    const gateway = new WixCouponGateway({ accessTokens: accessTokens(), fetchImpl: fake.fetchImpl });
     await expect(gateway.provision(request())).rejects.toMatchObject({ code: "WIX_COUPON_RESPONSE_INVALID" });
     expect(fake.calls).toHaveLength(1);
   });
@@ -196,7 +202,7 @@ describe("Wix coupon HTTP gateway", () => {
       created = true;
       return response({ id: "stable-id" });
     };
-    const gateway = new WixCouponGateway({ apiKey: "test-secret-key", fetchImpl });
+    const gateway = new WixCouponGateway({ accessTokens: accessTokens(), fetchImpl });
     await gateway.provision(request());
     await gateway.provision(request());
     expect(calls.filter((call) => call.url === "https://www.wixapis.com/stores/v2/coupons")).toHaveLength(1);
@@ -205,48 +211,43 @@ describe("Wix coupon HTTP gateway", () => {
   it("rejects blank or missing create ids", async () => {
     for (const malformed of [{}, { id: " " }]) {
       const fake = fetchSequence(queryResponse([]), response(malformed));
-      const gateway = new WixCouponGateway({ apiKey: "test-secret-key", fetchImpl: fake.fetchImpl });
+      const gateway = new WixCouponGateway({ accessTokens: accessTokens(), fetchImpl: fake.fetchImpl });
       await expect(gateway.provision(request())).rejects.toMatchObject({ code: "WIX_COUPON_RESPONSE_INVALID" });
     }
   });
 
   it("disables the exact provider coupon using the required field mask", async () => {
     const fake = fetchSequence(response({}));
-    const gateway = new WixCouponGateway({ apiKey: "test-secret-key", fetchImpl: fake.fetchImpl });
+    const gateway = new WixCouponGateway({ accessTokens: accessTokens(), fetchImpl: fake.fetchImpl });
     await gateway.disable({ storefrontTarget: "WIX_COGZART_COM", providerCouponId: "wix/id", couponCode: "CZ95F70BA56FDCF99B" });
     expect(fake.calls[0].url).toBe("https://www.wixapis.com/stores/v2/coupons/wix%2Fid");
     expect(fake.calls[0].init.method).toBe("PATCH");
-    expect(headers(fake.calls[0]).get("wix-site-id")).toBe("35afe62f-b860-4e10-b033-918b8577a870");
+    expect(headers(fake.calls[0]).has("wix-site-id")).toBe(false);
     expect(body(fake.calls[0])).toEqual({ fieldMask: { paths: ["active"] }, specification: { active: false } });
   });
 
-  it("loads WIX_API_KEY only when an operation is attempted", async () => {
-    const gateway = new WixCouponGateway({ getApiKey: () => undefined, fetchImpl: async () => { throw new Error("must not call fetch"); } });
-    await expect(gateway.provision(request())).rejects.toMatchObject({ code: "WIX_API_KEY_MISSING" });
-  });
-
-  it.each([401, 403, 409, 429, 500])("handles Wix HTTP %s without leaking the API key", async (status) => {
-    const apiKey = "do-not-leak-this-key";
-    const fake = fetchSequence(response({ message: apiKey }, status));
-    const gateway = new WixCouponGateway({ apiKey, fetchImpl: fake.fetchImpl });
+  it.each([401, 403, 409, 429, 500])("handles Wix HTTP %s without leaking the OAuth token", async (status) => {
+    const accessToken = "do-not-leak-this-token";
+    const fake = fetchSequence(response({ message: accessToken }, status));
+    const gateway = new WixCouponGateway({ accessTokens: accessTokens(accessToken), fetchImpl: fake.fetchImpl });
     const error = await gateway.provision(request()).catch((caught: unknown) => caught);
     expect(error).toMatchObject({ code: "WIX_COUPON_HTTP_ERROR", details: { operation: "QUERY", httpStatus: status, storefront: "WIX_CIRCZLES_IN" } });
-    expect(JSON.stringify(error)).not.toContain(apiKey);
-    expect(String(error)).not.toContain(apiKey);
+    expect(JSON.stringify(error)).not.toContain(accessToken);
+    expect(String(error)).not.toContain(accessToken);
   });
 
-  it("does not leak the API key from an ambiguous transport failure", async () => {
-    const apiKey = "do-not-leak-this-key";
-    const fake = fetchSequence(new Error(`network failed with ${apiKey}`));
-    const gateway = new WixCouponGateway({ apiKey, fetchImpl: fake.fetchImpl });
+  it("does not leak the OAuth token from an ambiguous transport failure", async () => {
+    const accessToken = "do-not-leak-this-token";
+    const fake = fetchSequence(new Error(`network failed with ${accessToken}`));
+    const gateway = new WixCouponGateway({ accessTokens: accessTokens(accessToken), fetchImpl: fake.fetchImpl });
     const error = await gateway.provision(request()).catch((caught: unknown) => caught);
     expect(error).toMatchObject({ code: "WIX_COUPON_REQUEST_FAILED" });
-    expect(JSON.stringify(error)).not.toContain(apiKey);
+    expect(JSON.stringify(error)).not.toContain(accessToken);
   });
 
   it("rejects Shopify before making an HTTP request", async () => {
     const calls: CouponStorefrontTarget[] = [];
-    const gateway = new WixCouponGateway({ apiKey: "test-secret-key", fetchImpl: async () => { calls.push("SHOPIFY_COGZART"); return response({}); } });
+    const gateway = new WixCouponGateway({ accessTokens: { getAccessToken: async () => { calls.push("SHOPIFY_COGZART"); return "unused"; } }, fetchImpl: async () => response({}) });
     await expect(gateway.provision(request({ storefrontTarget: "SHOPIFY_COGZART", provider: "SHOPIFY" }))).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
     expect(calls).toHaveLength(0);
   });
