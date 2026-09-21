@@ -217,6 +217,16 @@ Provisioning queries the target Wix app instance for an exact canonical coupon-c
 
 Provider projections remain secondary to CircZles ownership. Independent external checkouts can still race before provider redemption reports reach the backend; authenticated inbound redemption synchronization is deferred to B4.
 
+## Phase 3I-B3 Shopify Coupon Adapter
+
+`ShopifyCouponGateway` implements the B1 provider port only for `SHOPIFY_COGZART`. The backend requires an environment-configured canonical `*.myshopify.com` hostname and never guesses the store's permanent Shopify domain from the public `shop.cogzart.com` host. `ShopifyAppOAuthClient` exchanges the backend-only client ID and secret through Shopify's client-credentials grant, caches the expiring token using the returned `expires_in`, refreshes conservatively before expiry, and coalesces concurrent acquisition. The GraphQL Admin API boundary is pinned to `2026-07`, uses `X-Shopify-Access-Token`, and requires the app's `write_discounts` scope. Secrets, tokens, and raw provider responses are excluded from errors.
+
+Provisioning first calls `codeDiscountNodeByCode`, verifies that the case-insensitive result is a compatible `DiscountCodeBasic`, and requires the returned code to equal the canonical CircZles code exactly. No match proceeds to one `discountCodeBasicCreate` call. Percentage values are converted from whole percentages to Shopify fractions, so 20 becomes `0.20`; fixed USD values use `discountAmount` with `appliesOnEachItem: false`. New discounts target all buyers and all items, apply once per customer, have a total usage limit of one, and preserve the authoritative start and optional expiry times.
+
+Transport failures, retryable HTTP/GraphQL outcomes, malformed ambiguous create responses, and duplicate-code user errors never trigger a second create in the same provisioning call. Instead, bounded injectable delays precede exact-code recovery lookups; a later compatible match is reused and exhaustion fails closed. Deterministic validation errors are not retried. Disable uses `discountCodeDeactivate` with the stored DiscountCodeNode GID and never deletes a provider discount.
+
+`ShopifyCouponSyncService` uses the existing B1 mapping transition helper. Successful provisioning stores the provider GID and advances `PENDING_CREATE -> ACTIVE`; successful deactivation advances `PENDING_DISABLE -> DISABLED`; safe failures advance to `ERROR` while preserving an existing provider ID and authoritative ownership. Wix mappings are skipped in batch operations and rejected by direct Shopify operations. B3 adds no public/admin endpoint, background worker, webhook, migration, or live provider call. Authenticated inbound redemption synchronization remains deferred to B4.
+
 ## Phase 3G-D Rename Card Boundary
 
 `PlayerIdentityActionService` is the authenticated display-name mutation boundary. It normalizes one client-supplied name, while the session supplies player identity and the database supplies Inventory ownership, quantity, and reward type. It never accepts or mutates public player identity, user identity, session identity, or Wix identity.
