@@ -14,6 +14,8 @@ const envSchema = z.object({
   WIX_CLIENT_ID: z.string().optional(),
   WIX_APP_ID: z.string().optional(),
   WIX_APP_SECRET: z.string().optional(),
+  WIX_CIRCZLES_IN_APP_ID: z.string().optional(),
+  WIX_CIRCZLES_IN_APP_SECRET: z.string().optional(),
   WIX_CIRCZLES_IN_INSTANCE_ID: z.string().optional(),
   WIX_CIRCZLES_COM_INSTANCE_ID: z.string().optional(),
   WIX_COGZART_IN_INSTANCE_ID: z.string().optional(),

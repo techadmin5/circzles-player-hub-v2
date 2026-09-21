@@ -11,9 +11,14 @@ export interface WixAccessTokenProvider {
 }
 
 export interface WixAppOAuthConfig {
+  sharedApp?: WixAppOAuthCredentialConfig;
+  storefrontApps?: Partial<Record<CouponStorefrontTarget, WixAppOAuthCredentialConfig>>;
+  instanceIds?: Partial<Record<CouponStorefrontTarget, string>>;
+}
+
+export interface WixAppOAuthCredentialConfig {
   appId?: string;
   appSecret?: string;
-  instanceIds?: Partial<Record<CouponStorefrontTarget, string>>;
 }
 
 export class WixAppOAuthError extends AppError {
@@ -97,8 +102,16 @@ export class WixAppOAuthClient implements WixAccessTokenProvider {
 
 function readWixAppOAuthConfig(): WixAppOAuthConfig {
   return {
-    appId: process.env.WIX_APP_ID,
-    appSecret: process.env.WIX_APP_SECRET,
+    sharedApp: {
+      appId: process.env.WIX_APP_ID,
+      appSecret: process.env.WIX_APP_SECRET,
+    },
+    storefrontApps: {
+      WIX_CIRCZLES_IN: {
+        appId: process.env.WIX_CIRCZLES_IN_APP_ID,
+        appSecret: process.env.WIX_CIRCZLES_IN_APP_SECRET,
+      },
+    },
     instanceIds: {
       WIX_CIRCZLES_IN: process.env.WIX_CIRCZLES_IN_INSTANCE_ID,
       WIX_CIRCZLES_COM: process.env.WIX_CIRCZLES_COM_INSTANCE_ID,
@@ -118,9 +131,12 @@ function resolveCredentials(config: WixAppOAuthConfig, storefrontTarget: CouponS
   if (storefrontTarget === "SHOPIFY_COGZART") {
     throw validationFailed("Wix app OAuth cannot operate on a Shopify storefront.", { storefront: storefrontTarget });
   }
-  const appId = config.appId?.trim();
+  const app = storefrontTarget === "WIX_CIRCZLES_IN"
+    ? config.storefrontApps?.WIX_CIRCZLES_IN
+    : config.sharedApp;
+  const appId = app?.appId?.trim();
   if (!appId) throw new WixAppOAuthError("WIX_APP_ID_MISSING", "Wix app ID is not configured.", { storefront: storefrontTarget, operation: "TOKEN" });
-  const appSecret = config.appSecret?.trim();
+  const appSecret = app?.appSecret?.trim();
   if (!appSecret) throw new WixAppOAuthError("WIX_APP_SECRET_MISSING", "Wix app secret is not configured.", { storefront: storefrontTarget, operation: "TOKEN" });
   const instanceId = config.instanceIds?.[storefrontTarget]?.trim();
   if (!instanceId) throw new WixAppOAuthError("WIX_APP_INSTANCE_ID_MISSING", "Wix app instance ID is not configured for this storefront.", { storefront: storefrontTarget, operation: "TOKEN" });

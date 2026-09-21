@@ -33,11 +33,11 @@ The adapter uses these Wix Coupons API methods:
 - `GET https://www.wixapis.com/stores/v2/coupons/{id}` to verify a successful create directly.
 - `PATCH https://www.wixapis.com/stores/v2/coupons/{id}` with field mask `active` to disable a provider coupon.
 
-Authentication uses the self-managed Wix app OAuth `client_credentials` flow. The app has the Manage Coupons scope `SCOPE.DC-COUPONS.MANAGE-COUPONS`. The backend posts `WIX_APP_ID`, `WIX_APP_SECRET`, and the target storefront's app-instance ID to `POST https://www.wixapis.com/oauth2/token`, then uses the returned access token as the coupon request `Authorization` value. The app secret and tokens remain backend-only, and coupon calls do not send the API-key-only `wix-site-id` header.
+Authentication uses the self-managed Wix app OAuth `client_credentials` flow. The apps have the Manage Coupons scope `SCOPE.DC-COUPONS.MANAGE-COUPONS`. The backend posts the app ID, app secret, and target storefront's app-instance ID to `POST https://www.wixapis.com/oauth2/token`, then uses the returned access token as the coupon request `Authorization` value. App secrets and tokens remain backend-only, and coupon calls do not send the API-key-only `wix-site-id` header.
 
-App ID `d24ad742-958c-47eb-896b-a267753fe404` is non-secret configuration. All four storefront app-instance IDs are now configured; the app secret remains external backend-only configuration.
+`WIX_CIRCZLES_COM`, `WIX_COGZART_IN`, and `WIX_COGZART_COM` use the original self-managed app configured by `WIX_APP_ID` and `WIX_APP_SECRET`. Its app ID is `d24ad742-958c-47eb-896b-a267753fe404`. `WIX_CIRCZLES_IN` is hosted in another Wix workspace and is installed from a separate self-managed app, so it uses `WIX_CIRCZLES_IN_APP_ID`, `WIX_CIRCZLES_IN_APP_SECRET`, and its own instance ID. Its app ID is `b984c368-a4e7-4ccf-8d5e-d598fb3707c8`. Both app IDs and all four instance IDs are non-secret configuration; both app secrets remain external backend-only configuration.
 
-Access tokens are cached in memory per storefront/app instance and refreshed with a conservative pre-expiry window. Concurrent token requests for the same storefront share one in-flight exchange. Token responses and provider errors are validated without exposing the app secret, access token, or raw credential request. HTTP dependencies are injectable so automated tests make no network requests.
+Credentials are resolved only when a storefront is used. Missing `circzles.in`-specific credentials do not break the three shared-app storefronts, and missing shared credentials do not break `circzles.in`. Access tokens are cached in memory by storefront, app ID, and instance ID and refreshed with a conservative pre-expiry window. Concurrent token requests for the same credential identity share one in-flight exchange. Token responses and provider errors are validated without exposing either app secret, access tokens, or raw credential requests. HTTP dependencies are injectable so automated tests make no network requests.
 
 Create mapping preserves the canonical CircZles coupon code, uses a PII-free `CircZles Reward <couponCode>` name, maps percentage benefits to `percentOffRate`, maps B1-selected INR/USD fixed benefits to `moneyOffAmount`, and sends millisecond timestamps as strings. Scope is Wix Stores, total usage and per-customer usage are each one, `limitedToOneItem` and `appliesToSubscriptions` are explicitly `false`, and expiration is omitted when absent.
 
@@ -51,7 +51,7 @@ After a successful create returns an ID, Get Coupon verifies that the returned e
 
 ## Validation Scope
 
-Automated tests use injected fake HTTP and repository boundaries. They cover all four site mappings, Shopify rejection, OAuth request/configuration validation, safe token errors, per-storefront caching and refresh, concurrent token coalescing, percentage and fixed-amount request mapping, timestamps and expiration, headers/endpoints, response validation, disable requests, exact-code recovery and retry behavior, safe provider failures, state transitions, and Shopify isolation.
+Automated tests use injected fake HTTP and repository boundaries. They cover all four site mappings, the separate `circzles.in` app, shared-app credential selection, missing-credential isolation, cross-app cache separation, Shopify rejection, OAuth request/configuration validation, safe token errors, refresh, concurrent token coalescing, percentage and fixed-amount request mapping, timestamps and expiration, headers/endpoints, response validation, disable requests, exact-code recovery and retry behavior, safe provider failures, state transitions, and Shopify isolation.
 
 ## Manual Wix Smoke Verification
 
