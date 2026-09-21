@@ -11,6 +11,9 @@ export const adminRole = pgEnum("admin_role", ["SUPER_ADMIN", "REVIEWER"]);
 export const submissionReviewDecision = pgEnum("submission_review_decision", ["APPROVED", "REJECTED", "RESUBMISSION_REQUIRED"]);
 export const rewardDefinitionType = pgEnum("reward_definition_type", ["FRAME", "BADGE", "AVATAR", "RENAME_CARD", "COUPON", "SYNAPSE_POINTS", "XP", "COSMETIC"]);
 export const couponOwnershipStatus = pgEnum("coupon_ownership_status", ["ACTIVE", "REDEEMED", "REVOKED"]);
+export const couponStorefrontTarget = pgEnum("coupon_storefront_target", ["WIX_CIRCZLES_IN", "WIX_CIRCZLES_COM", "WIX_COGZART_IN", "WIX_COGZART_COM", "SHOPIFY_COGZART"]);
+export const couponProvider = pgEnum("coupon_provider", ["WIX", "SHOPIFY"]);
+export const couponProviderSyncStatus = pgEnum("coupon_provider_sync_status", ["PENDING_CREATE", "ACTIVE", "PENDING_DISABLE", "DISABLED", "ERROR"]);
 export const equipmentSlot = pgEnum("equipment_slot", ["FRAME", "AVATAR", "BADGE_1", "BADGE_2", "BADGE_3"]);
 
 export const users = pgTable("users", {
@@ -547,6 +550,7 @@ export const inventoryGrants = pgTable("inventory_grants", {
 
 export const couponOwnerships = pgTable("coupon_ownerships", {
   couponOwnershipId: uuid("coupon_ownership_id").primaryKey().defaultRandom(),
+  couponCode: text("coupon_code").notNull(),
   playerId: uuid("player_id").notNull().references(() => players.playerId, { onDelete: "restrict" }),
   rewardDefinitionId: uuid("reward_definition_id").notNull().references(() => rewardDefinitions.rewardDefinitionId, { onDelete: "restrict" }),
   sourceType: text("source_type").notNull(),
@@ -561,15 +565,61 @@ export const couponOwnerships = pgTable("coupon_ownerships", {
 }, (table) => ({
   playerIdempotencyOrdinalUnique: uniqueIndex("coupon_ownerships_player_id_idempotency_key_ordinal_unique").on(table.playerId, table.idempotencyKey, table.issuanceOrdinal),
   playerSourceOrdinalUnique: uniqueIndex("coupon_ownerships_player_source_ordinal_unique").on(table.playerId, table.sourceType, table.sourceId, table.issuanceOrdinal),
+  couponCodeUnique: uniqueIndex("coupon_ownerships_coupon_code_unique").on(table.couponCode),
   playerIssuedAtIndex: index("coupon_ownerships_player_id_issued_at_idx").on(table.playerId, table.issuedAt),
   playerStatusIndex: index("coupon_ownerships_player_id_status_idx").on(table.playerId, table.status),
   sourceIndex: index("coupon_ownerships_source_idx").on(table.sourceType, table.sourceId),
   rewardDefinitionIndex: index("coupon_ownerships_reward_definition_id_idx").on(table.rewardDefinitionId),
+  couponCodeCheck: check("coupon_ownerships_coupon_code_check", sql`char_length(${table.couponCode}) between 1 and 20 and ${table.couponCode} ~ '^[A-Z0-9]+$'`),
   issuanceOrdinalCheck: check("coupon_ownerships_issuance_ordinal_check", sql`${table.issuanceOrdinal} > 0`),
   expiryCheck: check("coupon_ownerships_expiry_check", sql`${table.expiresAt} is null or ${table.expiresAt} > ${table.issuedAt}`),
   redeemedAtCheck: check("coupon_ownerships_redeemed_at_check", sql`${table.redeemedAt} is null or ${table.redeemedAt} >= ${table.issuedAt}`),
   revokedAtCheck: check("coupon_ownerships_revoked_at_check", sql`${table.revokedAt} is null or ${table.revokedAt} >= ${table.issuedAt}`),
   lifecycleCheck: check("coupon_ownerships_lifecycle_check", sql`(${table.status} = 'ACTIVE' and ${table.redeemedAt} is null and ${table.revokedAt} is null) or (${table.status} = 'REDEEMED' and ${table.redeemedAt} is not null and ${table.revokedAt} is null) or (${table.status} = 'REVOKED' and ${table.redeemedAt} is null and ${table.revokedAt} is not null)`),
+}));
+
+export const couponProviderMappings = pgTable("coupon_provider_mappings", {
+  couponProviderMappingId: uuid("coupon_provider_mapping_id").primaryKey().defaultRandom(),
+  couponOwnershipId: uuid("coupon_ownership_id").notNull().references(() => couponOwnerships.couponOwnershipId, { onDelete: "restrict" }),
+  storefrontTarget: couponStorefrontTarget("storefront_target").notNull(),
+  provider: couponProvider("provider").notNull(),
+  providerCouponId: text("provider_coupon_id"),
+  syncStatus: couponProviderSyncStatus("sync_status").notNull().default("PENDING_CREATE"),
+  lastSyncAttemptAt: timestamp("last_sync_attempt_at", { withTimezone: true }),
+  lastSyncSucceededAt: timestamp("last_sync_succeeded_at", { withTimezone: true }),
+  lastErrorCode: text("last_error_code"),
+  lastErrorMessage: text("last_error_message"),
+  disabledAt: timestamp("disabled_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  ownershipStorefrontUnique: uniqueIndex("coupon_provider_mappings_ownership_storefront_unique").on(table.couponOwnershipId, table.storefrontTarget),
+  providerCouponIdUnique: uniqueIndex("coupon_provider_mappings_storefront_provider_coupon_id_unique").on(table.storefrontTarget, table.providerCouponId).where(sql`${table.providerCouponId} is not null`),
+  ownershipIndex: index("coupon_provider_mappings_coupon_ownership_id_idx").on(table.couponOwnershipId),
+  providerSyncIndex: index("coupon_provider_mappings_provider_sync_status_idx").on(table.provider, table.syncStatus),
+  storefrontSyncIndex: index("coupon_provider_mappings_storefront_sync_status_idx").on(table.storefrontTarget, table.syncStatus),
+  providerPairCheck: check("coupon_provider_mappings_provider_pair_check", sql`(${table.storefrontTarget} in ('WIX_CIRCZLES_IN', 'WIX_CIRCZLES_COM', 'WIX_COGZART_IN', 'WIX_COGZART_COM') and ${table.provider} = 'WIX') or (${table.storefrontTarget} = 'SHOPIFY_COGZART' and ${table.provider} = 'SHOPIFY')`),
+  providerCouponIdCheck: check("coupon_provider_mappings_provider_coupon_id_check", sql`${table.providerCouponId} is null or btrim(${table.providerCouponId}) <> ''`),
+  syncTimestampCheck: check("coupon_provider_mappings_sync_timestamp_check", sql`(${table.lastSyncAttemptAt} is null or (${table.lastSyncAttemptAt} >= ${table.createdAt} and ${table.lastSyncAttemptAt} <= ${table.updatedAt})) and (${table.lastSyncSucceededAt} is null or (${table.lastSyncSucceededAt} >= ${table.createdAt} and ${table.lastSyncSucceededAt} <= ${table.updatedAt})) and (${table.disabledAt} is null or (${table.disabledAt} >= ${table.createdAt} and ${table.disabledAt} <= ${table.updatedAt}))`),
+  disabledStateCheck: check("coupon_provider_mappings_disabled_state_check", sql`(${table.syncStatus} = 'DISABLED' and ${table.disabledAt} is not null) or (${table.syncStatus} <> 'DISABLED' and ${table.disabledAt} is null)`),
+  updatedAtCheck: check("coupon_provider_mappings_updated_at_check", sql`${table.updatedAt} >= ${table.createdAt}`),
+}));
+
+export const couponRedemptions = pgTable("coupon_redemptions", {
+  couponRedemptionId: uuid("coupon_redemption_id").primaryKey().defaultRandom(),
+  couponOwnershipId: uuid("coupon_ownership_id").notNull().references(() => couponOwnerships.couponOwnershipId, { onDelete: "restrict" }),
+  storefrontTarget: couponStorefrontTarget("storefront_target").notNull(),
+  sourceRedemptionId: text("source_redemption_id").notNull(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  redeemedAt: timestamp("redeemed_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  ownershipUnique: uniqueIndex("coupon_redemptions_coupon_ownership_id_unique").on(table.couponOwnershipId),
+  ownershipIdempotencyUnique: uniqueIndex("coupon_redemptions_ownership_idempotency_key_unique").on(table.couponOwnershipId, table.idempotencyKey),
+  sourceUnique: uniqueIndex("coupon_redemptions_storefront_source_unique").on(table.storefrontTarget, table.sourceRedemptionId),
+  storefrontRedeemedAtIndex: index("coupon_redemptions_storefront_redeemed_at_idx").on(table.storefrontTarget, table.redeemedAt),
+  sourceRedemptionIdCheck: check("coupon_redemptions_source_redemption_id_check", sql`btrim(${table.sourceRedemptionId}) <> ''`),
+  idempotencyKeyCheck: check("coupon_redemptions_idempotency_key_check", sql`btrim(${table.idempotencyKey}) <> ''`),
 }));
 
 export const playerInventoryItems = pgTable("player_inventory_items", {

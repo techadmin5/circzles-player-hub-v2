@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from "node:crypto";
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { Database } from "../db/client.js";
 import { couponOwnerships, rewardDefinitions } from "../db/schema.js";
@@ -23,6 +24,7 @@ export interface CouponGrantInput {
 
 export interface CouponDto {
   couponOwnershipId: string;
+  couponCode: string;
   rewardDefinitionId: string;
   rewardCode: string;
   name: string;
@@ -59,16 +61,21 @@ export async function grantCouponOwnershipInTransaction(tx: GameStateTransaction
   if (!reward || reward.rewardType !== "COUPON") throw new AppError("COUPON_REWARD_REQUIRED", "Coupon ownership requires a COUPON reward definition.", 409);
 
   const issuedAt = input.issuedAt ?? new Date();
-  const ownerships = await tx.insert(couponOwnerships).values(Array.from({ length: input.quantity }, (_, index) => ({
-    playerId: input.playerId,
-    rewardDefinitionId: input.rewardDefinitionId,
-    sourceType: input.sourceType,
-    sourceId: input.sourceId,
-    issuanceOrdinal: index + 1,
-    idempotencyKey: input.idempotencyKey,
-    issuedAt,
-    expiresAt: input.expiresAt ?? null,
-  }))).returning();
+  const ownerships = await tx.insert(couponOwnerships).values(Array.from({ length: input.quantity }, (_, index) => {
+    const couponOwnershipId = randomUUID();
+    return {
+      couponOwnershipId,
+      couponCode: couponCodeForOwnershipId(couponOwnershipId),
+      playerId: input.playerId,
+      rewardDefinitionId: input.rewardDefinitionId,
+      sourceType: input.sourceType,
+      sourceId: input.sourceId,
+      issuanceOrdinal: index + 1,
+      idempotencyKey: input.idempotencyKey,
+      issuedAt,
+      expiresAt: input.expiresAt ?? null,
+    };
+  })).returning();
   if (ownerships.length !== input.quantity) throw new AppError("COUPON_ISSUANCE_FAILED", "Could not record coupon ownership.", 500);
 
   await insertGameEventInTransaction(tx, {
@@ -102,6 +109,7 @@ export class DrizzleCouponRepository implements CouponRepository {
       .orderBy(asc(couponOwnerships.issuedAt), asc(couponOwnerships.couponOwnershipId));
     return rows.map(({ ownership, reward }) => ({
       couponOwnershipId: ownership.couponOwnershipId,
+      couponCode: ownership.couponCode,
       rewardDefinitionId: ownership.rewardDefinitionId,
       rewardCode: reward.code,
       name: reward.name,
@@ -118,6 +126,10 @@ export class DrizzleCouponRepository implements CouponRepository {
 
 export function effectiveCouponStatus(status: CouponStoredStatus, expiresAt: Date | null, now: Date): CouponEffectiveStatus {
   return status === "ACTIVE" && expiresAt && now >= expiresAt ? "EXPIRED" : status;
+}
+
+export function couponCodeForOwnershipId(couponOwnershipId: string) {
+  return `CZ${createHash("md5").update(couponOwnershipId).digest("hex").slice(0, 16).toUpperCase()}`;
 }
 
 export function validateCouponGrant(input: CouponGrantInput) {

@@ -193,9 +193,17 @@ API-mode frontend code loads the configured layout/status and waits for the auth
 
 `coupon_ownerships` is provider-independent authority. Each issued unit has a stable UUID, canonical reward-definition link, player, issuance source, ordinal, idempotency key, issue/optional expiry times, and lifecycle state. A player advisory lock plus database uniqueness protects exact replay and makes `(player, source type, source ID, ordinal)` independent of reward definition. A separate source index supports audit lookup without first knowing the player. `CouponService` exposes only session-scoped safe DTOs through `GET /api/me/coupons`; effective expiration is derived during reads without a scheduler.
 
-Historical `COUPON` Inventory ownership is not silently projected or double-counted. Before migration, the read-only Development preflight must establish whether any such rows exist. Zero permits a schema-only migration; a non-zero result requires a separately reviewed deterministic backfill before migration.
+Historical `COUPON` Inventory ownership is not silently projected or double-counted. The read-only Development preflight found zero historical coupon Inventory rows and permitted the schema-only Phase 3I-A migration, which was applied and verified on Neon Development only.
 
 No Wix client, provider identifier, external coupon code, redemption endpoint, or credential is part of Phase 3I-A. A future bridge must map from internal ownership without replacing it as source of truth.
+
+## Phase 3I-B1 Provider-Neutral Coupon Bridge
+
+`coupon_ownerships` remains authoritative. Each ownership now has one stable, globally unique customer-facing `coupon_code`; provider copies are projections represented by `coupon_provider_mappings`, never replacements for the ownership lifecycle. The five supported storefront targets are `WIX_CIRCZLES_IN`, `WIX_CIRCZLES_COM`, `WIX_COGZART_IN`, `WIX_COGZART_COM`, and `SHOPIFY_COGZART`, with database and domain validation enforcing the corresponding Wix/Shopify provider pairing.
+
+`createCouponProvisioningPlanInTransaction` creates or safely reuses one pending mapping per ownership/storefront and produces provider-neutral requests. `CouponProviderGateway` defines future provision/disable ports, but B1 contains no Wix or Shopify HTTP adapter, credentials, site/shop IDs, or external calls. Coupon benefit metadata is validated as either a percentage or explicit positive INR/USD fixed amounts; no live currency conversion occurs. Provider requests always carry total and per-customer usage limits of one.
+
+`recordCouponRedemptionInTransaction` locks the ownership, replays an exact source/idempotency identity, rejects conflicting, revoked, or effectively expired use, writes one immutable `coupon_redemptions` row, marks the ownership `REDEEMED`, moves every non-disabled projection to `PENDING_DISABLE`, and emits `coupon.redeemed` atomically. Later provider phases will authenticate inbound provider events and perform/retry external disable calls. Independent external checkouts can still race before providers report redemption, so B1 cannot guarantee cross-store prevention by itself; internal first-confirmed redemption remains final and provider failures never reactivate it.
 
 ## Phase 3G-D Rename Card Boundary
 

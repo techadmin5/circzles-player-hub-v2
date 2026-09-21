@@ -364,6 +364,6 @@ Authentication: required player session cookie. Removes the authenticated player
 
 ### `GET /api/me/coupons`
 
-Authentication: required player session cookie. Returns `{ coupons }` scoped to the authenticated player. Each coupon contains `couponOwnershipId`, `rewardDefinitionId`, `rewardCode`, display name and description, nullable image and rarity, effective `status`, `issuedAt`, nullable `expiresAt`, and a safe display-metadata subset.
+Authentication: required player session cookie. Returns `{ coupons }` scoped to the authenticated player. Each coupon contains `couponOwnershipId`, stable customer-facing `couponCode`, `rewardDefinitionId`, `rewardCode`, display name and description, nullable image and rarity, effective `status`, `issuedAt`, nullable `expiresAt`, and a safe display-metadata subset.
 
-Expiration is derived at read time: a stored active coupon whose expiry has passed is returned as `EXPIRED`. Grant idempotency keys, issuance source identifiers, internal lifecycle timestamps, provider data, and credentials are not exposed. Phase 3I-A adds no redemption endpoint and no Wix operation.
+Expiration is derived at read time: a stored active coupon whose expiry has passed is returned as `EXPIRED`. Grant idempotency keys, issuance source identifiers, internal lifecycle timestamps, provider mappings/IDs, sync errors, redemption source identities, and credentials are not exposed. Phase 3I-B1 adds no provider or redemption mutation endpoint and performs no Wix or Shopify operation.

@@ -71,7 +71,7 @@ async function appWithFakes(overrides: Partial<Env> = {}) {
   const inventoryCalls: string[] = [];
   const inventory = new InventoryService({ list: async (playerId) => { inventoryCalls.push(`list:${playerId}`); return emptyInventory; }, equip: async (playerId, itemId, slot) => { inventoryCalls.push(`equip:${playerId}:${itemId}:${slot}`); return emptyInventory; }, unequip: async (playerId, slot) => { inventoryCalls.push(`unequip:${playerId}:${slot}`); return emptyInventory; } });
   const couponCalls: string[] = [];
-  const couponRows: CouponDto[] = [{ couponOwnershipId: "70000000-0000-4000-8000-000000000001", rewardDefinitionId: "20000000-0000-4000-8000-000000000002", rewardCode: "COUPON_TEST", name: "Test Coupon", description: "A test coupon.", imageUrl: null, rarity: "RARE", status: "ACTIVE", issuedAt: "2026-09-17T00:00:00.000Z", expiresAt: null, displayMetadata: { discountLabel: "10% off" } }];
+  const couponRows: CouponDto[] = [{ couponOwnershipId: "70000000-0000-4000-8000-000000000001", couponCode: "CZ1234567890ABCDEF", rewardDefinitionId: "20000000-0000-4000-8000-000000000002", rewardCode: "COUPON_TEST", name: "Test Coupon", description: "A test coupon.", imageUrl: null, rarity: "RARE", status: "ACTIVE", issuedAt: "2026-09-17T00:00:00.000Z", expiresAt: null, displayMetadata: { discountLabel: "10% off" } }];
   const coupons = new CouponService({ list: async (playerId) => { couponCalls.push(playerId); return couponRows; } });
   const renameCalls: RenameDisplayNameInput[] = [];
   const playerIdentityActions = new PlayerIdentityActionService({ renameDisplayName: async (input) => {
@@ -294,7 +294,7 @@ describe("http auth poc", () => {
     const response = await app.inject({ method: "GET", url: "/api/me/coupons", headers: { cookie } });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ coupons: [expect.objectContaining({ rewardCode: "COUPON_TEST", status: "ACTIVE" })] });
+    expect(response.json()).toEqual({ coupons: [expect.objectContaining({ couponCode: "CZ1234567890ABCDEF", rewardCode: "COUPON_TEST", status: "ACTIVE" })] });
     expect(response.json().coupons[0]).not.toHaveProperty("idempotencyKey");
     expect(response.json().coupons[0]).not.toHaveProperty("sourceId");
     expect(couponCalls).toEqual(["player-1"]);

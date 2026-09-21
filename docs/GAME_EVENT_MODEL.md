@@ -42,6 +42,7 @@ Dashboard events:
 - `wheel.spun`
 - `store.purchase`
 - `coupon.issued`
+- `coupon.redeemed`
 - `coupon.expiring`
 - `badge.unlocked`
 - `frame.equipped`
@@ -189,3 +190,9 @@ The payload includes wheel identity/code, configured segment position, immutable
 `coupon.issued` is emitted once in the same transaction as coupon ownership and its authoritative source operation. The event source retains the Store purchase, Reward Wheel spin, or future grant source; its deterministic event key derives from the first stable ownership UUID. Payload contains reward-definition identity, quantity, source type, and optional expiry only.
 
 Exact issuance replay returns existing ownership and emits no duplicate event. The payload excludes coupon grant keys, provider identifiers, external codes, Wix data, credentials, and player-private identity.
+
+## Phase 3I-B1 Coupon Redemption Event
+
+`coupon.redeemed` is emitted once in the same transaction that inserts immutable redemption history, changes the authoritative ownership from `ACTIVE` to `REDEEMED`, and moves non-disabled provider mappings to `PENDING_DISABLE`. Its payload contains the internal ownership ID, storefront target, and canonical redemption time. Exact redemption replay returns the existing result and emits no duplicate event; a conflicting second redemption is rejected.
+
+No public provider webhook endpoint exists in B1. Provider-specific event authentication, external disable calls, and reconciliation workers are deferred; provider failures cannot reverse the internal redeemed state.
