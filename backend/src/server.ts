@@ -29,7 +29,7 @@ import { ProviderCouponRedemptionWebhookHandler } from "./integrations/couponRed
 
 const env = loadEnv();
 const { pool, db } = createDb(env.DATABASE_URL, (error) => {
-  console.error("Unexpected PostgreSQL idle client error; broken client removed from pool", error);
+  console.error("Unexpected PostgreSQL client error; broken client removed from pool", error);
 });
 const identity = new IdentityService(new DrizzleIdentityRepository(db), env.SESSION_SECRET);
 const gameState = new GameStateService(new DrizzleGameStateRepository(db));
