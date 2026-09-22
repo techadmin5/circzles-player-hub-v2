@@ -371,3 +371,15 @@ Expiration is derived at read time: a stored active coupon whose expiry has pass
 Phase 3I-B2 adds an internal Wix outbound adapter and sync service only. It adds no browser, player, admin, or provider callback endpoint. Wix app OAuth credentials/tokens, app-instance and site IDs, provider coupon IDs, query responses, and synchronization errors remain backend-internal and are not added to `GET /api/me/coupons`.
 
 Phase 3I-B3 adds an internal Shopify outbound adapter and sync service for `SHOPIFY_COGZART` only. It adds no browser, player, admin, or provider callback endpoint. The canonical `*.myshopify.com` domain, client credentials, access tokens, DiscountCodeNode IDs, GraphQL responses, and synchronization errors remain backend-internal and are not added to `GET /api/me/coupons`. Wix mappings are rejected or skipped by the Shopify boundary. The internal lookup, create, exact-code replay, and deactivate path has been live-verified without changing this public API boundary.
+
+## Phase 3I-B4 Provider Webhooks
+
+### `POST /api/webhooks/wix/coupon-redemption`
+
+Provider-authenticated endpoint for the Wix Coupons V2 `Coupon Applied` event. The request body is the exact Wix-signed JWT. The backend verifies its RS256 signature with the appropriate app webhook public key, maps the authenticated app instance to one configured Wix storefront, validates the event shape, and passes the canonical coupon code, Wix event ID, Wix app order ID, and event time to the authoritative redemption service.
+
+### `POST /api/webhooks/shopify/orders-paid`
+
+Provider-authenticated Shopify `orders/paid` endpoint. The backend verifies `X-Shopify-Hmac-SHA256` over the exact raw body, validates `X-Shopify-Shop-Domain` against the configured canonical shop, requires `X-Shopify-Topic: orders/paid`, and uses `X-Shopify-Event-Id` or `X-Shopify-Webhook-Id` as stable delivery identity. Candidate discount codes are resolved exactly against CircZles ownership; a `CZ` prefix alone grants no authority.
+
+Both endpoints return only `{ ok, status }`. Processed and exact duplicate events return 2xx; irrelevant/no-owned-coupon events also return 2xx; malformed payloads return 400; failed provider authentication returns 401; and retryable processing or sibling-disable failure returns 5xx. They do not use player cookies and do not expose ownership, player, provider mapping, or credential details.

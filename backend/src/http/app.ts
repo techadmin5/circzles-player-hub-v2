@@ -22,6 +22,8 @@ import { equipmentSlots, type InventoryService } from "../domain/inventory.js";
 import type { PlayerIdentityActionService } from "../domain/playerIdentityActions.js";
 import type { RewardWheelService } from "../domain/rewardWheel.js";
 import type { CouponService } from "../domain/coupons.js";
+import type { CouponRedemptionWebhookHandler } from "../integrations/couponRedemptionWebhooks.js";
+import { couponWebhookRoutes } from "./couponWebhookRoutes.js";
 
 export interface AppDeps {
   env: Env;
@@ -42,6 +44,7 @@ export interface AppDeps {
   coupons: CouponService;
   playerIdentityActions: PlayerIdentityActionService;
   rewardWheel: RewardWheelService;
+  couponRedemptionWebhooks?: CouponRedemptionWebhookHandler;
   checkDb: () => Promise<void>;
 }
 
@@ -89,7 +92,7 @@ const equipmentParamsSchema = z.object({ slot: z.enum(equipmentSlots) }).strict(
 const equipBodySchema = z.object({ slot: z.enum(equipmentSlots) }).strict();
 const renameDisplayNameBodySchema = z.object({ inventoryItemId: z.string().uuid(), displayName: z.string() }).strict();
 
-export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, coupons, playerIdentityActions, rewardWheel, checkDb }: AppDeps) {
+export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, coupons, playerIdentityActions, rewardWheel, couponRedemptionWebhooks, checkDb }: AppDeps) {
   const app = Fastify({
     logger: env.NODE_ENV === "test" ? false : {
       level: "info",
@@ -103,6 +106,7 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
     credentials: true,
   });
   app.register(cookie, { secret: env.SESSION_SECRET });
+  app.register(couponWebhookRoutes, { handler: couponRedemptionWebhooks });
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof AppError) {

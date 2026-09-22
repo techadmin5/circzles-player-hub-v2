@@ -18,6 +18,14 @@ import { DrizzleInventoryRepository, InventoryService } from "./domain/inventory
 import { DrizzlePlayerIdentityActionRepository, PlayerIdentityActionService } from "./domain/playerIdentityActions.js";
 import { DrizzleRewardWheelRepository, RewardWheelService } from "./domain/rewardWheel.js";
 import { CouponService, DrizzleCouponRepository } from "./domain/coupons.js";
+import { CouponRedemptionSyncService, DrizzleCouponRedemptionSyncRepository } from "./domain/couponRedemptionSync.js";
+import { DrizzleCouponMappingSyncRepository, WixCouponSyncService } from "./domain/wixCouponSync.js";
+import { DrizzleShopifyCouponMappingSyncRepository, ShopifyCouponSyncService } from "./domain/shopifyCouponSync.js";
+import { WixCouponGateway } from "./integrations/wix/wixCouponGateway.js";
+import { ShopifyCouponGateway } from "./integrations/shopify/shopifyCouponGateway.js";
+import { WixCouponAppliedWebhook } from "./integrations/wix/wixWebhook.js";
+import { ShopifyOrdersPaidWebhook } from "./integrations/shopify/shopifyWebhook.js";
+import { ProviderCouponRedemptionWebhookHandler } from "./integrations/couponRedemptionWebhooks.js";
 
 const env = loadEnv();
 const { pool, db } = createDb(env.DATABASE_URL, (error) => {
@@ -43,6 +51,23 @@ const inventory = new InventoryService(new DrizzleInventoryRepository(db));
 const coupons = new CouponService(new DrizzleCouponRepository(db));
 const playerIdentityActions = new PlayerIdentityActionService(new DrizzlePlayerIdentityActionRepository(db));
 const rewardWheel = new RewardWheelService(new DrizzleRewardWheelRepository(db));
+const wixCouponSync = new WixCouponSyncService(new WixCouponGateway(), new DrizzleCouponMappingSyncRepository(db));
+const shopifyCouponSync = new ShopifyCouponSyncService(new ShopifyCouponGateway(), new DrizzleShopifyCouponMappingSyncRepository(db));
+const couponRedemptionSync = new CouponRedemptionSyncService(
+  new DrizzleCouponRedemptionSyncRepository(db),
+  wixCouponSync,
+  shopifyCouponSync,
+);
+const couponRedemptionWebhooks = new ProviderCouponRedemptionWebhookHandler(
+  new WixCouponAppliedWebhook([
+    { appId: env.WIX_CIRCZLES_IN_APP_ID ?? "", publicKey: env.WIX_CIRCZLES_IN_WEBHOOK_PUBLIC_KEY, instanceId: env.WIX_CIRCZLES_IN_INSTANCE_ID, storefrontTarget: "WIX_CIRCZLES_IN" },
+    { appId: env.WIX_APP_ID ?? "", publicKey: env.WIX_WEBHOOK_PUBLIC_KEY, instanceId: env.WIX_CIRCZLES_COM_INSTANCE_ID, storefrontTarget: "WIX_CIRCZLES_COM" },
+    { appId: env.WIX_APP_ID ?? "", publicKey: env.WIX_WEBHOOK_PUBLIC_KEY, instanceId: env.WIX_COGZART_IN_INSTANCE_ID, storefrontTarget: "WIX_COGZART_IN" },
+    { appId: env.WIX_APP_ID ?? "", publicKey: env.WIX_WEBHOOK_PUBLIC_KEY, instanceId: env.WIX_COGZART_COM_INSTANCE_ID, storefrontTarget: "WIX_COGZART_COM" },
+  ]),
+  new ShopifyOrdersPaidWebhook({ clientSecret: env.SHOPIFY_CLIENT_SECRET, shopDomain: env.SHOPIFY_SHOP_DOMAIN }),
+  couponRedemptionSync,
+);
 const app = buildApp({
   env,
   identity,
@@ -62,6 +87,7 @@ const app = buildApp({
   coupons,
   playerIdentityActions,
   rewardWheel,
+  couponRedemptionWebhooks,
   checkDb: async () => {
     await pool.query("select 1");
   },

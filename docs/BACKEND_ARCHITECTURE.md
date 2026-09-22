@@ -229,6 +229,16 @@ Transport failures, retryable HTTP/GraphQL outcomes, malformed ambiguous create 
 
 A controlled live diagnostic established that Shopify OAuth and the `read_discounts` exact-code lookup succeeded. The first create request reached Shopify but returned HTTP 200 with mutation user errors because the request explicitly supplied `appliesOnOneTimePurchase` and `appliesOnSubscription` for a store without subscriptions; Shopify created no coupon. After the adapter omitted both optional fields, a controlled smoke successfully created `CZB3SMOKE260922`, recovered the same `gid://shopify/DiscountCodeNode/2392741249190` through exact-code replay, and deactivated it. The B3 lookup/create/recovery/deactivate path is therefore live-verified. B4 authenticated inbound redemption synchronization remains deferred.
 
+## Phase 3I-B4 Inbound Redemption Synchronization
+
+B4 exposes two provider-authenticated callbacks: Wix Coupons V2 `Coupon Applied` and Shopify `orders/paid`. The Wix event is selected because Wix defines it as firing when a coupon-backed order completes or is marked paid. The raw JWT body is verified with the applicable self-managed app's RS256 webhook public key, then its authenticated app instance is mapped to one of the four known Wix storefronts. The separate `circzles.in` app and the original shared app use separate public-key configuration. Shopify authenticates the exact raw body using `X-Shopify-Hmac-SHA256`, `SHOPIFY_CLIENT_SECRET`, and constant-time comparison, then requires the configured canonical shop domain and `SHOPIFY_COGZART` storefront.
+
+Fastify raw-body handling is encapsulated to the two webhook routes, so ordinary JSON parsing remains unchanged. Routes authenticate and normalize only; `CouponRedemptionSyncService` resolves exact database-owned coupon codes and delegates to the existing locked B1 redemption transaction. Provider event ID is the storefront-scoped source identity, while a deterministic hash binds provider, storefront, event, order, redemption time, and coupon candidates. Exact retries converge; conflicting event reuse and later distinct redemptions fail closed.
+
+After commit, existing Wix and Shopify sync services process sibling `PENDING_DISABLE` mappings. Already disabled mappings are skipped. Disable failures cannot roll back or reactivate the authoritative redemption; they retain retryable mapping state and return 5xx for provider retry. No schema change is required because migration `0018` already provides ownership authority, storefront/source uniqueness, and idempotency fields.
+
+CircZles PostgreSQL remains authoritative: the first authenticated webhook transaction accepted by CircZles wins and later distinct events are rejected internally. This cannot make independent Wix and Shopify checkouts globally atomic. A narrow race remains before sibling disables reach every provider storefront. B4 is automated-tested only; live webhook verification remains pending.
+
 ## Phase 3G-D Rename Card Boundary
 
 `PlayerIdentityActionService` is the authenticated display-name mutation boundary. It normalizes one client-supplied name, while the session supplies player identity and the database supplies Inventory ownership, quantity, and reward type. It never accepts or mutates public player identity, user identity, session identity, or Wix identity.
