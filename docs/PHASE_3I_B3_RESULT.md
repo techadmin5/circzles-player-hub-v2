@@ -2,9 +2,9 @@
 
 ## Status
 
-IMPLEMENTED AND AUTOMATED-TESTED. LIVE DIAGNOSTIC COMPLETED; SUCCESSFUL CREATE/DEACTIVATE VERIFICATION REMAINS PENDING.
+IMPLEMENTED, AUTOMATED-TESTED, AND LIVE-VERIFIED.
 
-No database migration was generated or run. No Shopify, Wix, Neon, Production, or other database call occurred during implementation or automated validation.
+No database migration was generated or run. No CircZles database, Neon, Production database, or Wix change occurred during live verification.
 
 ## Scope
 
@@ -20,7 +20,7 @@ Backend configuration adds:
 - `SHOPIFY_CLIENT_ID`
 - `SHOPIFY_CLIENT_SECRET`
 
-The shop domain must be a canonical single-store `*.myshopify.com` hostname. A safe accidental `https://` prefix or trailing slash is normalized, while HTTP, paths, credentials, ports, query strings, fragments, nested hostnames, and unrelated domains are rejected. The canonical domain has not yet been manually verified and is intentionally not hardcoded or guessed from `shop.cogzart.com`.
+The shop domain must be a canonical single-store `*.myshopify.com` hostname. A safe accidental `https://` prefix or trailing slash is normalized, while HTTP, paths, credentials, ports, query strings, fragments, nested hostnames, and unrelated domains are rejected. Live verification confirmed `rsgybz-wx.myshopify.com` as the canonical Shopify API domain. The primary customer-facing domain remains `shop.cogzart.com`.
 
 `ShopifyAppOAuthClient` uses:
 
@@ -30,7 +30,7 @@ The shop domain must be a canonical single-store `*.myshopify.com` hostname. A s
 
 The client ID is non-secret configuration. The client secret remains environment-only. Returned access tokens are cached using `expires_in`, refreshed with a conservative pre-expiry window, and coalesced when concurrent callers request the same shop/app token. Errors exclude credentials, access tokens, and raw provider responses.
 
-The app requires Shopify Admin API scope `write_discounts`.
+The app requires Shopify Admin API scopes `read_discounts` and `write_discounts`.
 
 ## GraphQL Boundary
 
@@ -80,9 +80,9 @@ Existing provider IDs are preserved when appropriate. Authoritative coupon owner
 
 Tests use injected fake HTTP, clocks, delays, token providers, gateways, and repositories. They make no external calls. Coverage includes domain validation, exact OAuth endpoint and form body, missing configuration, token validation/caching/refresh/coalescing, secret isolation, exact-code lookup, incompatible types, percentage and fixed-amount mapping, GraphQL and user errors, GID/code validation, bounded recovery with no second create, duplicate-code recovery, deactivation, mapping state transitions, and Wix isolation.
 
-## Live Diagnostic
+## Live Verification
 
-A controlled live diagnostic confirmed:
+The initial controlled diagnostic confirmed:
 
 - Shopify client-credentials OAuth succeeded.
 - The `read_discounts` exact-code lookup succeeded.
@@ -92,6 +92,21 @@ A controlled live diagnostic confirmed:
 
 `DiscountCustomerGetsInput` exposes both purchase-type fields as optional. The B3 mapping now omits them entirely rather than sending `true`, `false`, or `null` values.
 
-## Deferred Verification
+A subsequent controlled smoke test using the corrected mapping completed successfully:
 
-The diagnostic verified token exchange and read access but did not verify successful coupon creation or deactivation. The corrected create mapping, create/recovery visibility, and deactivation behavior still require a separately approved controlled Shopify smoke test using environment-only credentials.
+- Canonical Shopify API domain: `rsgybz-wx.myshopify.com`
+- Primary customer domain: `shop.cogzart.com`
+- Required scopes: `read_discounts` and `write_discounts`
+- Client-credentials OAuth succeeded.
+- `codeDiscountNodeByCode` lookup succeeded.
+- `discountCodeBasicCreate` succeeded for canonical coupon code `CZB3SMOKE260922`.
+- Shopify returned DiscountCodeNode ID `gid://shopify/DiscountCodeNode/2392741249190`.
+- Exact-code replay recovered the same DiscountCodeNode ID without creating another discount.
+- `discountCodeDeactivate` succeeded and the smoke coupon was deactivated.
+- No CircZles database, Neon, Production database, or Wix change occurred.
+
+The earlier rejected create remains documented because it identified the purchase-type compatibility requirement. The corrected request was then successfully created, recovered by exact code, and deactivated.
+
+## Deferred Work
+
+Phase 3I-B4 authenticated inbound redemption synchronization remains deferred. Phase 3I-B3 verification does not add a public endpoint, provider callback, webhook, or automatic synchronization worker.
