@@ -492,13 +492,15 @@ Migration status: **APPLIED AND VERIFIED ON NEON DEVELOPMENT ONLY**. The Develop
 
 ## Phase 3I-B1 Coupon Provider Bridge
 
-Migration `0018_brave_wild_child.sql` adds the `coupon_storefront_target`, `coupon_provider`, and `coupon_provider_sync_status` enums; canonical `coupon_ownerships.coupon_code`; `coupon_provider_mappings`; and immutable `coupon_redemptions`. It is generated and not applied.
+Migration `0018_brave_wild_child.sql` adds the `coupon_storefront_target`, `coupon_provider`, and `coupon_provider_sync_status` enums; canonical `coupon_ownerships.coupon_code`; `coupon_provider_mappings`; and immutable `coupon_redemptions`. It is applied and verified on Neon Development only; it has not been applied to Production.
 
 `coupon_provider_mappings` has a restrictive ownership FK, one-row-per-ownership/storefront uniqueness, storefront-scoped non-null provider-coupon-ID uniqueness, provider/storefront pairing checks, sync-state/timestamp checks, and indexes for ownership and reconciliation queues. Sync states are `PENDING_CREATE`, `ACTIVE`, `PENDING_DISABLE`, `DISABLED`, and `ERROR`.
 
 `coupon_redemptions` has a restrictive ownership FK, one authoritative redemption per ownership, ownership-scoped idempotency, storefront/source uniqueness, nonblank identity checks, and a storefront/time audit index. It does not cascade away with an ownership.
 
 Existing Phase 3I-A ownership rows are handled inside `0018` by adding `coupon_code` as nullable, deterministically setting `CZ` plus the first 16 uppercase hexadecimal characters of the ownership UUID's MD5 digest, then setting `NOT NULL`. The database format check requires 1-20 uppercase ASCII alphanumeric characters and the unique index makes any collision fail the migration rather than pass silently. New ownerships use the same deterministic algorithm in application code. The migration contains no drops, provider seed rows, credentials, or mapping/redemption fabrication.
+
+Phase 3I-B2 reuses this schema and adds no migration or database object. Wix provisioning and disable results are persisted through the existing mapping transition rules; authoritative coupon ownership and immutable redemption records remain unchanged.
 
 ## Phase 3D Implemented Tables
 
