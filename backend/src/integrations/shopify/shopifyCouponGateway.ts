@@ -219,8 +219,6 @@ export function buildShopifyCreateVariables(request: CouponProvisionRequest) {
       customerGets: {
         items: { all: true },
         value,
-        appliesOnOneTimePurchase: true,
-        appliesOnSubscription: false,
       },
       usageLimit: 1,
       appliesOncePerCustomer: true,

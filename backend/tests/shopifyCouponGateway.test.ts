@@ -90,13 +90,14 @@ describe("Shopify coupon request mapping", () => {
         customerGets: {
           items: { all: true },
           value: { percentage: 0.2 },
-          appliesOnOneTimePurchase: true,
-          appliesOnSubscription: false,
         },
         usageLimit: 1,
         appliesOncePerCustomer: true,
       },
     });
+    const customerGets = buildShopifyCreateVariables(request()).input.customerGets;
+    expect(customerGets).not.toHaveProperty("appliesOnOneTimePurchase");
+    expect(customerGets).not.toHaveProperty("appliesOnSubscription");
   });
 
   it("maps a fixed USD amount once across all entitled items", () => {

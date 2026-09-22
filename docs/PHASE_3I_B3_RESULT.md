@@ -2,7 +2,7 @@
 
 ## Status
 
-IMPLEMENTED AND AUTOMATED-TESTED ONLY. NOT LIVE-VERIFIED.
+IMPLEMENTED AND AUTOMATED-TESTED. LIVE DIAGNOSTIC COMPLETED; SUCCESSFUL CREATE/DEACTIVATE VERIFICATION REMAINS PENDING.
 
 No database migration was generated or run. No Shopify, Wix, Neon, Production, or other database call occurred during implementation or automated validation.
 
@@ -51,7 +51,7 @@ Before creating, the gateway uses current `codeDiscountNodeByCode(code: ...)`. S
 - authoritative `startsAt` and nullable `endsAt`
 - `context: { all: ALL }` for all buyers
 - all items eligible
-- one-time purchases enabled and subscriptions disabled
+- purchase-type flags intentionally omitted for compatibility with stores that do not use Shopify subscriptions
 - `usageLimit: 1`
 - `appliesOncePerCustomer: true`
 - no enabled discount combinations
@@ -80,6 +80,18 @@ Existing provider IDs are preserved when appropriate. Authoritative coupon owner
 
 Tests use injected fake HTTP, clocks, delays, token providers, gateways, and repositories. They make no external calls. Coverage includes domain validation, exact OAuth endpoint and form body, missing configuration, token validation/caching/refresh/coalescing, secret isolation, exact-code lookup, incompatible types, percentage and fixed-amount mapping, GraphQL and user errors, GID/code validation, bounded recovery with no second create, duplicate-code recovery, deactivation, mapping state transitions, and Wix isolation.
 
+## Live Diagnostic
+
+A controlled live diagnostic confirmed:
+
+- Shopify client-credentials OAuth succeeded.
+- The `read_discounts` exact-code lookup succeeded.
+- The first `discountCodeBasicCreate` request reached Shopify and returned HTTP 200.
+- Shopify returned `INVALID` mutation user errors for both `customerGets.appliesOnSubscription` and `customerGets.appliesOnOneTimePurchase` because explicit purchase-type fields are not permitted for this non-subscription store.
+- No coupon was created.
+
+`DiscountCustomerGetsInput` exposes both purchase-type fields as optional. The B3 mapping now omits them entirely rather than sending `true`, `false`, or `null` values.
+
 ## Deferred Verification
 
-No live Shopify token exchange or discount operation has been performed. The canonical `*.myshopify.com` domain, installed app access, `write_discounts` scope, live GraphQL schema behavior, create/recovery visibility, and deactivation behavior still require a separately approved controlled Shopify smoke test using environment-only credentials.
+The diagnostic verified token exchange and read access but did not verify successful coupon creation or deactivation. The corrected create mapping, create/recovery visibility, and deactivation behavior still require a separately approved controlled Shopify smoke test using environment-only credentials.
