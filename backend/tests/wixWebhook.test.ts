@@ -1,4 +1,4 @@
-import { generateKeyPairSync, sign } from "node:crypto";
+import { generateKeyPairSync, sign, type KeyObject } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { WixCouponAppliedWebhook, type WixWebhookIdentity } from "../src/integrations/wix/wixWebhook.js";
 
@@ -17,7 +17,7 @@ function identity(storefrontTarget: WixWebhookIdentity["storefrontTarget"], inst
   return { storefrontTarget, instanceId, publicKey, appId };
 }
 
-function event(overrides: Record<string, unknown> = {}) {
+function couponAppliedEvent(overrides: Record<string, unknown> = {}) {
   return {
     id: "wix-event-1",
     entityFqdn: "wix.ecommerce.coupons.v2.coupon",
@@ -32,16 +32,25 @@ function event(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function jwt(instanceId: string, privateKey = shared.privateKey, data: unknown = event()) {
-  const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
-  const payload = Buffer.from(JSON.stringify({
+function wixEnvelope(instanceId: unknown, innerEvent: unknown = couponAppliedEvent(), overrides: Record<string, unknown> = {}) {
+  return {
     instanceId,
     eventType: "wix.ecommerce.coupons.v2.coupon_applied",
-    data: JSON.stringify(data),
-  })).toString("base64url");
-  const signingInput = `${header}.${payload}`;
+    data: JSON.stringify(innerEvent),
+    ...overrides,
+  };
+}
+
+function signedJwt(payload: unknown, privateKey: KeyObject = shared.privateKey) {
+  const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
+  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signingInput = `${header}.${encodedPayload}`;
   const signature = sign("RSA-SHA256", Buffer.from(signingInput), privateKey).toString("base64url");
   return Buffer.from(`${signingInput}.${signature}`);
+}
+
+function wixJwt(instanceId: unknown, privateKey = shared.privateKey, innerEvent: unknown = couponAppliedEvent(), envelopeOverrides: Record<string, unknown> = {}) {
+  return signedJwt({ data: JSON.stringify(wixEnvelope(instanceId, innerEvent, envelopeOverrides)) }, privateKey);
 }
 
 describe("Wix Coupon Applied webhook", () => {
@@ -50,25 +59,55 @@ describe("Wix Coupon Applied webhook", () => {
     ["WIX_CIRCZLES_COM", "instance-circzles-com", shared.privateKey],
     ["WIX_COGZART_IN", "instance-cogzart-in", shared.privateKey],
     ["WIX_COGZART_COM", "instance-cogzart-com", shared.privateKey],
-  ] as const)("verifies and maps %s", (storefront, instanceId, privateKey) => {
-    const parsed = new WixCouponAppliedWebhook(identities).verifyAndParse(jwt(instanceId, privateKey));
-    expect(parsed).toMatchObject({
-      provider: "WIX",
-      storefrontTarget: storefront,
-      providerEventId: "wix-event-1",
-      providerOrderId: "wix-order-1",
-      couponCodes: ["CZB3SMOKE260922"],
-    });
+  ] as const)("verifies the two-stage envelope and maps %s", (storefront, instanceId, privateKey) => {
+    const parsed = new WixCouponAppliedWebhook(identities).verifyAndParse(wixJwt(instanceId, privateKey));
+    expect(parsed).toMatchObject({ provider: "WIX", storefrontTarget: storefront, providerEventId: "wix-event-1", providerOrderId: "wix-order-1", couponCodes: ["CZB3SMOKE260922"] });
+    expect(parsed.redeemedAt.toISOString()).toBe("2026-09-22T10:00:00.000Z");
   });
 
   it("rejects an invalid signature and malformed JWT", () => {
     const webhook = new WixCouponAppliedWebhook(identities);
-    expect(() => webhook.verifyAndParse(jwt("instance-circzles-com", unrelated.privateKey))).toThrowError(expect.objectContaining({ code: "WIX_WEBHOOK_UNAUTHORIZED" }));
+    expect(() => webhook.verifyAndParse(wixJwt("instance-circzles-com", unrelated.privateKey))).toThrowError(expect.objectContaining({ code: "WIX_WEBHOOK_UNAUTHORIZED" }));
     expect(() => webhook.verifyAndParse(Buffer.from("not-a-jwt"))).toThrowError(expect.objectContaining({ code: "WIX_WEBHOOK_UNAUTHORIZED" }));
   });
 
+  it("requires JWT payload.data to contain valid outer-envelope JSON", () => {
+    const webhook = new WixCouponAppliedWebhook(identities);
+    expect(() => webhook.verifyAndParse(signedJwt({}))).toThrowError(expect.objectContaining({ code: "VALIDATION_FAILED" }));
+    expect(() => webhook.verifyAndParse(signedJwt({ data: "{" }))).toThrowError(expect.objectContaining({ code: "VALIDATION_FAILED" }));
+  });
+
+  it("rejects missing or malformed outer instance identity", () => {
+    const webhook = new WixCouponAppliedWebhook(identities);
+    expect(() => webhook.verifyAndParse(wixJwt(undefined))).toThrowError(expect.objectContaining({ code: "VALIDATION_FAILED" }));
+    expect(() => webhook.verifyAndParse(wixJwt({ bad: true }))).toThrowError(expect.objectContaining({ code: "VALIDATION_FAILED" }));
+  });
+
+  it("requires the exact outer event type and JSON-string inner data", () => {
+    const webhook = new WixCouponAppliedWebhook(identities);
+    expect(() => webhook.verifyAndParse(wixJwt("instance-circzles-com", shared.privateKey, couponAppliedEvent(), { eventType: "wrong.event" }))).toThrowError(expect.objectContaining({ code: "VALIDATION_FAILED" }));
+    expect(() => webhook.verifyAndParse(wixJwt("instance-circzles-com", shared.privateKey, couponAppliedEvent(), { data: "{" }))).toThrowError(expect.objectContaining({ code: "VALIDATION_FAILED" }));
+    expect(() => webhook.verifyAndParse(wixJwt("instance-circzles-com", shared.privateKey, couponAppliedEvent(), { data: { not: "a string" } }))).toThrowError(expect.objectContaining({ code: "VALIDATION_FAILED" }));
+  });
+
+  it("rejects the wrong entity FQDN or slug", () => {
+    const webhook = new WixCouponAppliedWebhook(identities);
+    expect(() => webhook.verifyAndParse(wixJwt("instance-circzles-com", shared.privateKey, couponAppliedEvent({ entityFqdn: "wrong.entity" })))).toThrowError(expect.objectContaining({ code: "VALIDATION_FAILED" }));
+    expect(() => webhook.verifyAndParse(wixJwt("instance-circzles-com", shared.privateKey, couponAppliedEvent({ slug: "updated" })))).toThrowError(expect.objectContaining({ code: "VALIDATION_FAILED" }));
+  });
+
+  it("fails closed for an unknown instance even when the shared app signature is valid", () => {
+    expect(() => new WixCouponAppliedWebhook(identities).verifyAndParse(wixJwt("unknown-instance"))).toThrowError(expect.objectContaining({ code: "WIX_WEBHOOK_STOREFRONT_UNKNOWN" }));
+  });
+
+  it("does not allow either Wix app key to authenticate the other app's instance", () => {
+    const webhook = new WixCouponAppliedWebhook(identities);
+    expect(() => webhook.verifyAndParse(wixJwt("instance-circzles-com", separate.privateKey))).toThrowError(expect.objectContaining({ code: "WIX_WEBHOOK_STOREFRONT_UNKNOWN" }));
+    expect(() => webhook.verifyAndParse(wixJwt("instance-circzles-in", shared.privateKey))).toThrowError(expect.objectContaining({ code: "WIX_WEBHOOK_STOREFRONT_UNKNOWN" }));
+  });
+
   it("does not expose the signed token or public key in verification errors", () => {
-    const token = jwt("instance-circzles-com", unrelated.privateKey);
+    const token = wixJwt("instance-circzles-com", unrelated.privateKey);
     try {
       new WixCouponAppliedWebhook(identities).verifyAndParse(token);
       throw new Error("expected rejection");
@@ -79,26 +118,9 @@ describe("Wix Coupon Applied webhook", () => {
     }
   });
 
-  it("fails closed for an unknown instance even when the shared app signature is valid", () => {
-    expect(() => new WixCouponAppliedWebhook(identities).verifyAndParse(jwt("unknown-instance")))
-      .toThrowError(expect.objectContaining({ code: "WIX_WEBHOOK_STOREFRONT_UNKNOWN" }));
-  });
-
-  it("rejects malformed or wrong event payloads", () => {
-    const webhook = new WixCouponAppliedWebhook(identities);
-    expect(() => webhook.verifyAndParse(jwt("instance-circzles-com", shared.privateKey, "bad")))
-      .toThrowError(expect.objectContaining({ code: "VALIDATION_FAILED" }));
-    expect(() => webhook.verifyAndParse(jwt("instance-circzles-com", shared.privateKey, event({ slug: "updated" }))))
-      .toThrowError(expect.objectContaining({ code: "VALIDATION_FAILED" }));
-  });
-
-  it("accepts the documented bodyAsJson action envelope", () => {
-    const body = JSON.stringify((event().actionEvent as { body: unknown }).body);
-    const parsed = new WixCouponAppliedWebhook(identities).verifyAndParse(jwt(
-      "instance-circzles-com",
-      shared.privateKey,
-      event({ actionEvent: { bodyAsJson: body } }),
-    ));
+  it("retains bodyAsJson compatibility inside the parsed entity event", () => {
+    const body = JSON.stringify((couponAppliedEvent().actionEvent as { body: unknown }).body);
+    const parsed = new WixCouponAppliedWebhook(identities).verifyAndParse(wixJwt("instance-circzles-com", shared.privateKey, couponAppliedEvent({ actionEvent: { bodyAsJson: body } })));
     expect(parsed.providerOrderId).toBe("wix-order-1");
   });
 });

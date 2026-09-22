@@ -19,17 +19,19 @@ export class WixCouponAppliedWebhook {
   verifyAndParse(rawBody: Buffer): ProviderCouponRedemptionEvent {
     const token = rawBody.toString("utf8").trim();
     const verified = verifyWixJwt(token, this.identities);
-    const envelope = verified.payload;
+    const envelope = parseJsonStringRecord(verified.payload.data, "Wix webhook envelope is malformed.");
     const instanceId = nonblank(envelope.instanceId);
-    if (!instanceId || instanceId !== verified.identity.instanceId?.trim()) {
+    if (!instanceId) throw validationFailed("Wix webhook instance id is invalid.");
+    const identity = verified.identities.find((candidate) => candidate.instanceId?.trim() === instanceId);
+    if (!identity) {
       throw new AppError("WIX_WEBHOOK_STOREFRONT_UNKNOWN", "Wix webhook storefront is not recognized.", 401);
     }
     const eventType = nonblank(envelope.eventType);
-    if (eventType && eventType !== WIX_COUPON_APPLIED_EVENT) {
+    if (eventType !== WIX_COUPON_APPLIED_EVENT) {
       throw validationFailed("Wix webhook event type is not Coupon Applied.");
     }
 
-    const event = parseWixEvent(envelope.data);
+    const event = parseJsonStringRecord(envelope.data, "Wix Coupon Applied event is malformed.");
     if (event.entityFqdn !== WIX_COUPON_ENTITY || event.slug !== "applied") {
       throw validationFailed("Wix webhook event is not Coupon Applied.");
     }
@@ -47,7 +49,7 @@ export class WixCouponAppliedWebhook {
 
     return {
       provider: "WIX",
-      storefrontTarget: verified.identity.storefrontTarget,
+      storefrontTarget: identity.storefrontTarget,
       providerEventId: eventId,
       providerOrderId: orderId,
       couponCodes: [couponCode],
@@ -75,23 +77,17 @@ export function verifyWixJwt(token: string, identities: WixWebhookIdentity[]) {
     }
   });
   if (verified.length === 0) throw unauthorizedWix();
-  const payload = parseBase64UrlObject(parts[1]);
-  const instanceId = nonblank(payload.instanceId);
-  const identity = verified.find((candidate) => candidate.instanceId?.trim() === instanceId);
-  if (!identity) throw new AppError("WIX_WEBHOOK_STOREFRONT_UNKNOWN", "Wix webhook storefront is not recognized.", 401);
-  return { identity, payload };
+  return { identities: verified, payload: parseBase64UrlObject(parts[1]) };
 }
 
-function parseWixEvent(value: unknown) {
-  if (typeof value === "string") {
-    try {
-      return requireRecord(JSON.parse(value) as unknown, "Wix webhook payload is malformed.");
-    } catch (error) {
-      if (error instanceof AppError) throw error;
-      throw validationFailed("Wix webhook payload is malformed.");
-    }
+function parseJsonStringRecord(value: unknown, message: string) {
+  if (typeof value !== "string") throw validationFailed(message);
+  try {
+    return requireRecord(JSON.parse(value) as unknown, message);
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    throw validationFailed(message);
   }
-  return requireRecord(value, "Wix webhook payload is malformed.");
 }
 
 function readActionBody(value: unknown) {

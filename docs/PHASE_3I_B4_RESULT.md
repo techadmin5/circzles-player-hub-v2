@@ -19,9 +19,9 @@ Both routes are registered in an encapsulated Fastify plugin. Only that plugin r
 
 B4 uses the official Wix Coupons V2 **Coupon Applied** event, event type `wix.ecommerce.coupons.v2.coupon_applied`. Wix documents this event as occurring when an order using the coupon is completed or manually marked paid, so it represents completed/paid coupon use rather than a checkout button click or deprecated Velo `onOrderPaid` behavior.
 
-The signed JWT is read from the raw request body. Its RS256 signature is verified with the Wix app webhook public key before any event data is trusted. The verified envelope must identify a configured app instance and the expected event/entity/slug. The canonical code comes from `actionEvent.body.coupon.specification.code.value`, the provider order identity from `actionEvent.body.wixAppOrderId`, the stable delivery identity from event `id`, and the redemption time from `eventTime`.
+The signed JWT is read from the raw request body. Its RS256 signature is verified with the Wix app webhook public key before any event data is trusted. Parsing then follows the official self-hosted envelope exactly: signed JWT -> verified JWT `payload.data` JSON string -> Wix event envelope -> envelope `data` JSON string -> Coupons V2 Coupon Applied entity event. The outer Wix envelope supplies `instanceId` and `eventType`; the inner entity event supplies the expected entity/slug, canonical code at `actionEvent.body.coupon.specification.code.value`, provider order identity at `actionEvent.body.wixAppOrderId`, stable event `id`, and `eventTime`.
 
-The separate `circzles.in` Wix app uses `WIX_CIRCZLES_IN_WEBHOOK_PUBLIC_KEY`. The original shared app uses `WIX_WEBHOOK_PUBLIC_KEY` for the other three Wix storefronts. A valid signature alone is insufficient: the verified JWT `instanceId` must map to exactly one storefront assigned to that app key. Unknown or cross-app instances fail closed. Secrets, public-key material, and raw signed tokens are never logged or returned.
+The separate `circzles.in` Wix app uses `WIX_CIRCZLES_IN_WEBHOOK_PUBLIC_KEY`. The original shared app uses `WIX_WEBHOOK_PUBLIC_KEY` for the other three Wix storefronts. A valid signature alone is insufficient: `instanceId` from the parsed, signature-protected Wix event envelope must map to exactly one storefront assigned to the same verified app key. Unknown or cross-app instances fail closed. Secrets, public-key material, and raw signed tokens are never logged or returned.
 
 ## Shopify Orders Paid
 
@@ -54,7 +54,7 @@ No migration was required or generated. B4 reuses the existing `coupon_ownership
 Tests use generated test RSA keys, fake HMAC secrets, injected handlers, repositories, gateways, and sync services. They make no external calls. Coverage includes:
 
 - Shopify valid/invalid/missing/malformed HMAC, constant-time length guard, configured-shop validation, paid order parsing, no discount, unrelated candidates, and malformed payloads.
-- Wix valid signed JWTs for all four storefront mappings, separate/shared app-key isolation, invalid signatures, malformed payloads, unknown instances, exact Coupon Applied parsing, and `bodyAsJson` compatibility.
+- Wix valid nested self-hosted JWT/envelope/entity fixtures for all four storefront mappings, separate/shared app-key isolation, invalid signatures, missing or malformed outer/inner JSON, wrong event/entity/slug, unknown instances, exact field extraction, and inner `bodyAsJson` compatibility.
 - First authoritative redemption, one redemption/event, exact replay, conflicting replay, DB-owned-code resolution, Wix/Shopify disable delegation, disabled-mapping exclusion, and post-commit disable failure.
 - Encapsulated raw-body preservation, 2xx duplicate/irrelevant responses, authentication rejection, and retryable 5xx behavior.
 
