@@ -376,10 +376,12 @@ Phase 3I-B3 adds an internal Shopify outbound adapter and sync service for `SHOP
 
 ### `POST /api/webhooks/wix/coupon-redemption`
 
-Provider-authenticated endpoint for the Wix Coupons V2 `Coupon Applied` event. The request body is the exact Wix-signed JWT. The backend verifies its RS256 signature with the appropriate app webhook public key, maps the authenticated app instance to one configured Wix storefront, validates the event shape, and passes the canonical coupon code, Wix event ID, Wix app order ID, and event time to the authoritative redemption service.
+Provider-authenticated endpoint for the Wix Coupons V2 `Coupon Applied` event. The request body is the exact Wix-signed JWT. The backend verifies its RS256 signature with the appropriate app webhook public key, maps the authenticated app instance to one configured Wix storefront, validates the event shape, accepts the coupon code as either a raw string or wrapped `{ value }`, normalizes it to uppercase, and applies the unchanged 1-20 uppercase ASCII alphanumeric canonical constraint before passing it with the Wix event ID, Wix app order ID, and event time to the authoritative redemption service. Wix dashboard Test events from an unconfigured development/test instance correctly return `WIX_WEBHOOK_STOREFRONT_UNKNOWN` with HTTP 401.
 
 ### `POST /api/webhooks/shopify/orders-paid`
 
 Provider-authenticated Shopify `orders/paid` endpoint. The backend verifies `X-Shopify-Hmac-SHA256` over the exact raw body, validates `X-Shopify-Shop-Domain` against the configured canonical shop, requires `X-Shopify-Topic: orders/paid`, and uses `X-Shopify-Event-Id` or `X-Shopify-Webhook-Id` as stable delivery identity. Candidate discount codes are resolved exactly against CircZles ownership; a `CZ` prefix alone grants no authority.
 
 Both endpoints return only `{ ok, status }`. Processed and exact duplicate events return 2xx; irrelevant/no-owned-coupon events also return 2xx; malformed payloads return 400; failed provider authentication returns 401; and retryable processing or sibling-disable failure returns 5xx. They do not use player cookies and do not expose ownership, player, provider mapping, or credential details.
+
+Provider transport verification confirmed a real `circzles.in` Wix Coupon Applied callback returned HTTP 200. Shopify `ORDERS_PAID` is registered and a correctly signed synthetic event returned HTTP 200 with `IGNORED`. No real paid-order test was performed for Shopify or the three shared-app Wix storefronts. These transport results do not change the authoritative backend redemption boundary or eliminate the documented cross-provider simultaneous-redemption race.
