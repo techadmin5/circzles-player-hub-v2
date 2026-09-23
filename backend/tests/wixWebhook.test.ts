@@ -32,6 +32,15 @@ function couponAppliedEvent(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function couponAppliedEventWithCode(code: unknown) {
+  return couponAppliedEvent({
+    actionEvent: { body: {
+      coupon: { specification: { code } },
+      wixAppOrderId: "wix-order-1",
+    } },
+  });
+}
+
 function wixEnvelope(instanceId: unknown, innerEvent: unknown = couponAppliedEvent(), overrides: Record<string, unknown> = {}) {
   return {
     instanceId,
@@ -122,5 +131,28 @@ describe("Wix Coupon Applied webhook", () => {
     const body = JSON.stringify((couponAppliedEvent().actionEvent as { body: unknown }).body);
     const parsed = new WixCouponAppliedWebhook(identities).verifyAndParse(wixJwt("instance-circzles-com", shared.privateKey, couponAppliedEvent({ actionEvent: { bodyAsJson: body } })));
     expect(parsed.providerOrderId).toBe("wix-order-1");
+  });
+
+  it("normalizes a lowercase raw coupon code to its uppercase canonical form", () => {
+    const parsed = new WixCouponAppliedWebhook(identities).verifyAndParse(
+      wixJwt("instance-circzles-com", shared.privateKey, couponAppliedEventWithCode("testing")),
+    );
+
+    expect(parsed.couponCodes).toEqual(["TESTING"]);
+  });
+
+  it("normalizes a lowercase wrapped coupon code to its uppercase canonical form", () => {
+    const parsed = new WixCouponAppliedWebhook(identities).verifyAndParse(
+      wixJwt("instance-circzles-com", shared.privateKey, couponAppliedEventWithCode({ value: "testing" })),
+    );
+
+    expect(parsed.couponCodes).toEqual(["TESTING"]);
+  });
+
+  it("rejects coupon-code symbols after case normalization", () => {
+    const webhook = new WixCouponAppliedWebhook(identities);
+    const token = wixJwt("instance-circzles-com", shared.privateKey, couponAppliedEventWithCode("test-ing"));
+
+    expect(() => webhook.verifyAndParse(token)).toThrowError(expect.objectContaining({ code: "VALIDATION_FAILED" }));
   });
 });

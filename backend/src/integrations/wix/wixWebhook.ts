@@ -38,7 +38,7 @@ export class WixCouponAppliedWebhook {
     const body = readActionBody(event.actionEvent);
     const coupon = requireRecord(body.coupon, "Wix Coupon Applied payload is malformed.");
     const specification = requireRecord(coupon.specification, "Wix Coupon Applied payload is malformed.");
-    const couponCode = readWrappedString(specification.code);
+    const couponCode = readWrappedString(specification.code)?.toUpperCase() ?? null;
     const orderId = nonblank(body.wixAppOrderId);
     const eventId = nonblank(event.id);
     const redeemedAt = readDate(event.eventTime);
