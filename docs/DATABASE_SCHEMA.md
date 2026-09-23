@@ -502,6 +502,8 @@ Existing Phase 3I-A ownership rows are handled inside `0018` by adding `coupon_c
 
 Phase 3I-B2 reuses this schema and adds no migration or database object. Wix provisioning and disable results are persisted through the existing mapping transition rules; authoritative coupon ownership and immutable redemption records remain unchanged.
 
+Phase 3I-B4 also reuses this schema without a migration. Authenticated inbound provider event IDs occupy `source_redemption_id`, preserving storefront-scoped delivery uniqueness, while a deterministic digest of provider/storefront/event/order/redemption-time/coupon-candidates occupies the existing idempotency key. Exact retries therefore converge on one immutable redemption, conflicting payload reuse fails closed, and the existing ownership lock remains the authority for first accepted redemption.
+
 ## Phase 3D Implemented Tables
 
 Migration `0003_phase_3d_submissions.sql` adds schema only.
