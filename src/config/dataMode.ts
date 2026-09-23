@@ -4,7 +4,11 @@ const configuredDataMode = process.env.NEXT_PUBLIC_DATA_MODE;
 const configuredApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
 const configuredDevAutoLogin = process.env.NEXT_PUBLIC_DEV_AUTO_LOGIN;
 
-export const dataMode: DataMode = configuredDataMode?.trim().toLowerCase() === "api" ? "api" : "mock";
+const requestedDataMode: DataMode = configuredDataMode?.trim().toLowerCase() === "api" ? "api" : "mock";
+if (process.env.NODE_ENV === "production" && requestedDataMode !== "api") {
+  throw new Error("Production Player Hub requires NEXT_PUBLIC_DATA_MODE=api; mock identity is forbidden.");
+}
+export const dataMode: DataMode = requestedDataMode;
 export const apiBaseUrl = configuredApiBaseUrl?.trim() || undefined;
 const devAutoLoginRequested = ["true", "1", "yes"].includes(configuredDevAutoLogin?.trim().toLowerCase() ?? "");
 export const devAutoLoginEnabled = process.env.NODE_ENV === "development"

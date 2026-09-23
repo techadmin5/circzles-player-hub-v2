@@ -535,3 +535,9 @@ Progress is unique on `(player_id, mission_id, period_key)`. Historical foreign 
 `mission_claims` records one immutable reward snapshot per progress row and player/mission/period. Claim processing locks current progress, validates active persisted rewards, writes deterministic XP/SP ledgers, changes progress to `CLAIMED`, and appends `mission.claimed` in one transaction. The player-scoped idempotency key supports exact replay without duplicate grants; uniqueness also prevents concurrent different-key claims from rewarding the same period twice.
 
 Migration `0010_medical_gideon.sql` contains schema only, with no drops or seed data. It was generated and audited but was not applied.
+
+## Phase Auth A Identity Changes
+
+Migration `0019_glossy_polaris.sql` is generated and not applied. It adds normalized verified email and safe profile/login fields to `users`; changes `wix_identity_links` from one-link-per-user/global-member uniqueness to source-scoped identity uniqueness; adds sliding-session timestamps; and adds `auth_handoff_exchanges` for one-time handoff consumption.
+
+No gameplay ownership foreign key changes. XP, wallets, puzzles, submissions, missions, rewards, inventory, wheel, leaderboard, and coupon state continue referencing `players.player_id`.

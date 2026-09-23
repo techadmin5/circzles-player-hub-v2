@@ -157,3 +157,13 @@ Append-only/no hard deletion:
 - game events
 
 Hard delete only for short-lived technical artifacts where policy allows it, such as expired sessions or unused upload placeholders after retention.
+
+## Production Authentication Controls
+
+- Website handoffs are signed by the source site's server, expire within five minutes, have an audience and unique token ID, and are consumed once.
+- Browser-supplied Wix member IDs, emails, user IDs, and player IDs are not authentication evidence.
+- Verified-email linking is allowed only from a successfully verified server-side identity; conflicts fail closed.
+- Direct assertions must originate from the canonical `circzles.com` adapter and match the requested authentication method.
+- Player Hub stores no password, Google/Facebook credential, or OTP.
+- Session cookies are opaque, HttpOnly, persistent, revocable, and backed by hashed database rows.
+- Production frontend configuration cannot select mock data mode.

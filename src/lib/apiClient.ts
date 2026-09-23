@@ -97,6 +97,13 @@ function missionTimeRemaining(endsAt: string | null, now: Date) {
 
 export const apiClient = {
   getMe: async () => adaptPhase3aPlayer(await request<Partial<PlayerProfile> & Pick<PlayerProfile, "internalId" | "publicPlayerId" | "displayName">>("/api/me")),
+  getSession: async () => adaptPhase3aPlayer(await request<Partial<PlayerProfile> & Pick<PlayerProfile, "internalId" | "publicPlayerId" | "displayName">>("/api/auth/session")),
+  exchangeAuthHandoff: async (token: string) => adaptPhase3aPlayer(await request<Partial<PlayerProfile> & Pick<PlayerProfile, "internalId" | "publicPlayerId" | "displayName">>("/api/auth/handoff/exchange", { method: "POST", body: JSON.stringify({ token }) })),
+  loginWithEmail: async (email: string, password: string) => adaptPhase3aPlayer(await request<Partial<PlayerProfile> & Pick<PlayerProfile, "internalId" | "publicPlayerId" | "displayName">>("/api/auth/direct/email/login", { method: "POST", body: JSON.stringify({ email, password }) })),
+  startEmailSignup: async (displayName: string, email: string, password: string) => request<{ challengeId: string; expiresAt?: string }>("/api/auth/direct/email/signup", { method: "POST", body: JSON.stringify({ displayName, email, password }) }),
+  verifyEmailSignup: async (challengeId: string, code: string) => adaptPhase3aPlayer(await request<Partial<PlayerProfile> & Pick<PlayerProfile, "internalId" | "publicPlayerId" | "displayName">>("/api/auth/direct/email/verify", { method: "POST", body: JSON.stringify({ challengeId, code }) })),
+  getGoogleAuthorization: async (returnTo = "/hub") => request<{ authorizationUrl: string }>(`/api/auth/direct/google/start?returnTo=${encodeURIComponent(returnTo)}`),
+  logout: async () => request<{ ok: true }>("/api/auth/logout", { method: "POST", body: JSON.stringify({}) }),
   devLogin: async () => adaptPhase3aPlayer(await request<Partial<PlayerProfile> & Pick<PlayerProfile, "internalId" | "publicPlayerId" | "displayName">>("/api/dev/login", {
     method: "POST",
     body: JSON.stringify({}),

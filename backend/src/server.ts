@@ -26,12 +26,19 @@ import { ShopifyCouponGateway } from "./integrations/shopify/shopifyCouponGatewa
 import { WixCouponAppliedWebhook } from "./integrations/wix/wixWebhook.js";
 import { ShopifyOrdersPaidWebhook } from "./integrations/shopify/shopifyWebhook.js";
 import { ProviderCouponRedemptionWebhookHandler } from "./integrations/couponRedemptionWebhooks.js";
+import { AuthHandoffVerifier } from "./domain/authHandoff.js";
+import { UnconfiguredDirectAuthProvider } from "./domain/directAuth.js";
 
 const env = loadEnv();
 const { pool, db } = createDb(env.DATABASE_URL, (error) => {
   console.error("Unexpected PostgreSQL client error; broken client removed from pool", error);
 });
 const identity = new IdentityService(new DrizzleIdentityRepository(db), env.SESSION_SECRET);
+const authHandoff = new AuthHandoffVerifier({
+  circzlesCom: env.AUTH_HANDOFF_CIRCZLES_COM_SECRET,
+  circzlesIn: env.AUTH_HANDOFF_CIRCZLES_IN_SECRET,
+});
+const directAuth = new UnconfiguredDirectAuthProvider();
 const gameState = new GameStateService(new DrizzleGameStateRepository(db));
 const puzzles = new PuzzleOwnershipService(new DrizzlePuzzleRepository(db));
 const videoStorage = new CloudinaryVideoStorage({ cloudName: env.CLOUDINARY_CLOUD_NAME, apiKey: env.CLOUDINARY_API_KEY, apiSecret: env.CLOUDINARY_API_SECRET });
@@ -88,6 +95,8 @@ const app = buildApp({
   playerIdentityActions,
   rewardWheel,
   couponRedemptionWebhooks,
+  authHandoff,
+  directAuth,
   checkDb: async () => {
     await pool.query("select 1");
   },

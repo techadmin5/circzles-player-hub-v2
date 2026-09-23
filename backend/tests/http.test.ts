@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createHmac } from "crypto";
 import { buildApp } from "../src/http/app.js";
 import { GameStateService, temporaryDevelopmentProgressionLevels } from "../src/domain/gameState.js";
 import { IdentityService } from "../src/domain/identity.js";
@@ -18,6 +19,7 @@ import { RewardWheelService, type RewardWheelRepository, type RewardWheelSpinInp
 import { CouponService, type CouponDto } from "../src/domain/coupons.js";
 import { FakeAdminAuthorizationRepository, FakeAdminSubmissionRepository, FakeGameStateRepository, FakeIdentityRepository, FakeLeaderboardRepository, FakeMissionClaimRepository, FakePlayerMissionRepository, FakePublicProfileRepository, FakePuzzleRepository, FakeSubmissionRepository, FakeSubmissionReviewRepository, FakeVideoStorage } from "./fakes.js";
 import type { Env } from "../src/config/env.js";
+import type { DirectAuthProvider } from "../src/domain/directAuth.js";
 
 function env(overrides: Partial<Env> = {}): Env {
   return {
@@ -27,13 +29,14 @@ function env(overrides: Partial<Env> = {}): Env {
     FRONTEND_ORIGIN: "http://localhost:3000",
     SESSION_SECRET: "test-session-secret-with-at-least-32-chars",
     COOKIE_SECURE: false,
+    SESSION_COOKIE_SAME_SITE: "lax",
     MISSION_PROCESSOR_INTERVAL_MS: 5000,
     MISSION_PROCESSOR_BATCH_SIZE: 50,
     ...overrides,
   };
 }
 
-async function appWithFakes(overrides: Partial<Env> = {}) {
+async function appWithFakes(overrides: Partial<Env> = {}, directAuth?: DirectAuthProvider) {
   const testEnv = env(overrides);
   const gameRepo = new FakeGameStateRepository();
   const gameState = new GameStateService(gameRepo);
@@ -88,8 +91,8 @@ async function appWithFakes(overrides: Partial<Env> = {}) {
     getStatus: async () => ({ available: true, wheel: { code: "DEV_WHEEL", name: "Development Wheel", cycleSeconds: 86400, cycleStartedAt: null, cycleEndsAt: null, spinsUsed: 0, maxSpinsPerCycle: 4, spinsRemaining: 4, nextSpinNumber: 1, nextSpinCostSynapsePoints: 0, nextSpinIsFree: true, canAffordNextSpin: true, canSpin: true, unavailableReason: null, segments: [{ wheelSegmentIndex: 4, label: "100 SP", rewardType: "SYNAPSE_POINTS", rewardValue: 100, imageUrl: null, rarity: null, displayMetadata: { tone: "aqua" } }] } }),
     spin: async (input) => { wheelSpinCalls.push(input); return { spinId: "60000000-0000-4000-8000-000000000001", rewardId: "20000000-0000-4000-8000-000000000001", rewardDefinitionId: "20000000-0000-4000-8000-000000000001", rewardType: "SYNAPSE_POINTS", rewardLabel: "100 SP", rewardValue: 100, resultingBalance: 1050, wheelSegmentIndex: 4, spunAt: "2026-09-16T12:00:00.000Z", spinNumber: 1, chargedSynapsePoints: 0, cycleStartedAt: "2026-09-16T12:00:00.000Z", cycleEndsAt: "2026-09-17T12:00:00.000Z", idempotent: false }; },
   } satisfies RewardWheelRepository);
-  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, coupons, playerIdentityActions, rewardWheel, checkDb: async () => {} });
-  return { app, gameRepo, puzzleRepo, submissionRepo, videoStorage, adminAuthRepo, adminSubmissionRepo, leaderboardRepo, reviewRepo, publicProfileRepo, missionRepo, missionClaimRepo, purchaseCalls, inventoryCalls, couponCalls, renameCalls, wheelSpinCalls, testEnv };
+  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, coupons, playerIdentityActions, rewardWheel, directAuth, checkDb: async () => {} });
+  return { app, identityRepo, gameRepo, puzzleRepo, submissionRepo, videoStorage, adminAuthRepo, adminSubmissionRepo, leaderboardRepo, reviewRepo, publicProfileRepo, missionRepo, missionClaimRepo, purchaseCalls, inventoryCalls, couponCalls, renameCalls, wheelSpinCalls, testEnv };
 }
 
 async function login(app: Awaited<ReturnType<typeof appWithFakes>>["app"]) {
@@ -153,6 +156,66 @@ describe("http auth poc", () => {
     const res = await app.inject({ method: "POST", url: "/api/dev/login" });
     expect(res.statusCode).toBe(403);
     expect(res.json().code).toBe("FORBIDDEN");
+  });
+
+  it("exchanges signed Wix-site handoffs, links verified email, and rejects client impersonation fields", async () => {
+    const comSecret = "com-handoff-secret-with-at-least-32-characters";
+    const inSecret = "in-handoff-secret-with-at-least-32-characters";
+    const { app, identityRepo } = await appWithFakes({ AUTH_HANDOFF_CIRCZLES_COM_SECRET: comSecret, AUTH_HANDOFF_CIRCZLES_IN_SECRET: inSecret });
+    const comToken = signHandoff({ iss: "circzles.com", sub: "com-member", email: "player@example.com", jti: "http-handoff-com-001" }, comSecret);
+    const first = await app.inject({ method: "POST", url: "/api/auth/handoff/exchange", payload: { token: comToken } });
+    expect(first.statusCode).toBe(200);
+    const inToken = signHandoff({ iss: "circzles.in", sub: "in-member", email: "player@example.com", jti: "http-handoff-in-0001" }, inSecret);
+    const second = await app.inject({ method: "POST", url: "/api/auth/handoff/exchange", payload: { token: inToken } });
+    expect(second.statusCode).toBe(200);
+    expect(second.json().internalId).toBe(first.json().internalId);
+    expect(identityRepo.accounts).toHaveLength(1);
+
+    const rejected = await app.inject({ method: "POST", url: "/api/auth/handoff/exchange", payload: { token: signHandoff({ iss: "circzles.com", sub: "attacker", email: "attacker@example.com", jti: "http-handoff-fake-01" }, comSecret), wixMemberId: "com-member", playerId: first.json().internalId } });
+    expect(rejected.statusCode).toBe(400);
+    expect(identityRepo.accounts).toHaveLength(1);
+  });
+
+  it("bootstraps a persistent session and logout invalidates it", async () => {
+    const { app } = await appWithFakes({ NODE_ENV: "development" });
+    const cookie = await login(app);
+    const session = await app.inject({ method: "GET", url: "/api/auth/session", headers: { cookie } });
+    expect(session.statusCode).toBe(200);
+    expect(session.headers["set-cookie"]).toBeDefined();
+    const logout = await app.inject({ method: "POST", url: "/api/auth/logout", headers: { cookie } });
+    expect(logout.statusCode).toBe(200);
+    expect(logout.headers["set-cookie"]).toContain("cz_session=;");
+    const after = await app.inject({ method: "GET", url: "/api/me", headers: { cookie } });
+    expect(after.statusCode).toBe(401);
+  });
+
+  it("keeps direct authentication fail-closed until a real provider adapter is configured", async () => {
+    const { app } = await appWithFakes();
+    const response = await app.inject({ method: "POST", url: "/api/auth/direct/email/login", payload: { email: "player@example.com", password: "strong-password" } });
+    expect(response.statusCode).toBe(503);
+    expect(response.json().code).toBe("DIRECT_AUTH_PROVIDER_NOT_CONFIGURED");
+  });
+
+  it("accepts direct login only from a verified canonical provider identity", async () => {
+    const verified = { sourceSite: "CIRCZLES_COM" as const, provider: "EMAIL" as const, externalIdentityId: "canonical-member", verifiedEmail: "player@example.com", emailVerified: true as const, displayName: "Verified Player" };
+    const directAuth: DirectAuthProvider = {
+      loginWithEmail: async () => verified,
+      startEmailSignup: async () => ({ challengeId: "challenge" }),
+      verifyEmailSignup: async () => verified,
+      getGoogleAuthorizationUrl: async () => ({ authorizationUrl: "https://identity.example.test/start" }),
+      completeGoogleAuthorization: async () => ({ ...verified, provider: "GOOGLE" }),
+    };
+    const { app } = await appWithFakes({}, directAuth);
+    const response = await app.inject({ method: "POST", url: "/api/auth/direct/email/login", payload: { email: "player@example.com", password: "strong-password" } });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ displayName: "Verified Player" });
+    expect(response.headers["set-cookie"]).toContain("HttpOnly");
+
+    const wrongSite = { ...directAuth, loginWithEmail: async () => ({ ...verified, sourceSite: "CIRCZLES_IN" as const }) };
+    const other = await appWithFakes({}, wrongSite);
+    const rejected = await other.app.inject({ method: "POST", url: "/api/auth/direct/email/login", payload: { email: "player@example.com", password: "strong-password" } });
+    expect(rejected.statusCode).toBe(502);
+    expect(rejected.json().code).toBe("DIRECT_AUTH_IDENTITY_INVALID");
   });
 
   it("preserves known Fastify 4xx errors", async () => {
@@ -526,6 +589,13 @@ describe("http auth poc", () => {
     expect(created.json()).toMatchObject({ puzzleId: "DEV-PUZZLE-METAMORPHOSIS-R1", levelId: 18, status: "PENDING_REVIEW" });
   });
 });
+
+function signHandoff(input: { iss: "circzles.com" | "circzles.in"; sub: string; email: string; jti: string }, secret: string) {
+  const now = Math.floor(Date.now() / 1000);
+  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "CZ-HANDOFF" })).toString("base64url");
+  const payload = Buffer.from(JSON.stringify({ v: 1, aud: "circzles-player-hub", emailVerified: true, provider: "WIX", iat: now, exp: now + 120, ...input })).toString("base64url");
+  return `${header}.${payload}.${createHmac("sha256", secret).update(`${header}.${payload}`).digest("base64url")}`;
+}
 
 describe("admin review authorization and read API", () => {
   it("maps admin roles to server-side permissions", () => {

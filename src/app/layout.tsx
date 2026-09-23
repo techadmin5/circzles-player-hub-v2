@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, Manrope, Rajdhani } from "next/font/google";
-import { DevAuthBootstrap } from "@/components/auth/DevAuthBootstrap";
+import { AuthProvider } from "@/components/auth/AuthProvider";
 import { ClientRuntimeProvider } from "@/components/providers/ClientRuntimeProvider";
 import { GameFeedbackProvider } from "@/components/feedback/GameFeedbackProvider";
 import { InteractionSoundProvider } from "@/components/providers/InteractionSoundProvider";
@@ -16,5 +16,5 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en"><body className={`${inter.variable} ${manrope.variable} ${rajdhani.variable}`}><ClientRuntimeProvider><InteractionSoundProvider><DevAuthBootstrap><GameFeedbackProvider>{children}</GameFeedbackProvider></DevAuthBootstrap></InteractionSoundProvider></ClientRuntimeProvider></body></html>;
+  return <html lang="en"><body className={`${inter.variable} ${manrope.variable} ${rajdhani.variable}`}><ClientRuntimeProvider><InteractionSoundProvider><AuthProvider><GameFeedbackProvider>{children}</GameFeedbackProvider></AuthProvider></InteractionSoundProvider></ClientRuntimeProvider></body></html>;
 }

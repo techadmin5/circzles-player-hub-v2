@@ -385,3 +385,13 @@ Provider-authenticated Shopify `orders/paid` endpoint. The backend verifies `X-S
 Both endpoints return only `{ ok, status }`. Processed and exact duplicate events return 2xx; irrelevant/no-owned-coupon events also return 2xx; malformed payloads return 400; failed provider authentication returns 401; and retryable processing or sibling-disable failure returns 5xx. They do not use player cookies and do not expose ownership, player, provider mapping, or credential details.
 
 Provider transport verification confirmed a real `circzles.in` Wix Coupon Applied callback returned HTTP 200. Shopify `ORDERS_PAID` is registered and a correctly signed synthetic event returned HTTP 200 with `IGNORED`. No real paid-order test was performed for Shopify or the three shared-app Wix storefronts. These transport results do not change the authoritative backend redemption boundary or eliminate the documented cross-provider simultaneous-redemption race.
+
+## Production Authentication Foundation
+
+- `POST /api/auth/handoff/exchange` accepts only `{ "token": "..." }`. The backend verifies source-specific signature and claims, consumes the handoff once, resolves the verified identity, creates a session, and returns the safe player DTO.
+- `GET /api/auth/session` validates the HttpOnly session, performs bounded sliding renewal when due, refreshes cookie expiry, and returns the safe player DTO.
+- `POST /api/auth/logout` revokes the current session if present, clears the cookie, and returns `{ "ok": true }`.
+- `POST /api/auth/direct/email/login`, `/email/signup`, and `/email/verify` form the provider-neutral email/OTP seam. Player Hub never stores password or OTP values.
+- `GET /api/auth/direct/google/start` and `/google/callback` form the Google seam. The default adapter returns `DIRECT_AUTH_PROVIDER_NOT_CONFIGURED` until verified Wix integration is supplied.
+
+No auth endpoint accepts `userId`, `playerId`, `publicPlayerId`, or a free-standing Wix member ID. Direct auth is restricted to `CIRCZLES_COM`; handoff source comes from the signed issuer. `/api/dev/login` remains development-only.

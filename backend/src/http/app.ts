@@ -2,9 +2,10 @@ import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import Fastify from "fastify";
 import type { FastifyError } from "fastify";
+import type { FastifyReply } from "fastify";
 import { z } from "zod";
 import type { Env } from "../config/env.js";
-import type { IdentityService, PlayerDto } from "../domain/identity.js";
+import type { IdentityProvider, IdentityService, PlayerDto, VerifiedExternalIdentity } from "../domain/identity.js";
 import { AppError, forbidden, unauthorized, validationFailed } from "../domain/errors.js";
 import type { GameStateService } from "../domain/gameState.js";
 import type { PuzzleOwnershipService } from "../domain/puzzles.js";
@@ -24,6 +25,8 @@ import type { RewardWheelService } from "../domain/rewardWheel.js";
 import type { CouponService } from "../domain/coupons.js";
 import type { CouponRedemptionWebhookHandler } from "../integrations/couponRedemptionWebhooks.js";
 import { couponWebhookRoutes } from "./couponWebhookRoutes.js";
+import { AuthHandoffVerifier } from "../domain/authHandoff.js";
+import { UnconfiguredDirectAuthProvider, type DirectAuthProvider } from "../domain/directAuth.js";
 
 export interface AppDeps {
   env: Env;
@@ -45,8 +48,17 @@ export interface AppDeps {
   playerIdentityActions: PlayerIdentityActionService;
   rewardWheel: RewardWheelService;
   couponRedemptionWebhooks?: CouponRedemptionWebhookHandler;
+  authHandoff?: AuthHandoffVerifier;
+  directAuth?: DirectAuthProvider;
   checkDb: () => Promise<void>;
 }
+
+const handoffExchangeBodySchema = z.object({ token: z.string().min(1).max(8192) }).strict();
+const emailLoginBodySchema = z.object({ email: z.string().email().max(320), password: z.string().min(8).max(256) }).strict();
+const emailSignupBodySchema = z.object({ displayName: z.string().trim().min(2).max(80), email: z.string().email().max(320), password: z.string().min(8).max(256) }).strict();
+const emailVerificationBodySchema = z.object({ challengeId: z.string().min(1).max(512), code: z.string().trim().min(4).max(12) }).strict();
+const googleStartQuerySchema = z.object({ returnTo: z.string().optional() }).strict();
+const googleCallbackQuerySchema = z.object({ code: z.string().min(1).max(4096), state: z.string().min(1).max(4096) }).strict();
 
 const devGrantBodySchema = z.object({
   amount: z.number().int().positive().max(1_000_000),
@@ -92,7 +104,9 @@ const equipmentParamsSchema = z.object({ slot: z.enum(equipmentSlots) }).strict(
 const equipBodySchema = z.object({ slot: z.enum(equipmentSlots) }).strict();
 const renameDisplayNameBodySchema = z.object({ inventoryItemId: z.string().uuid(), displayName: z.string() }).strict();
 
-export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, coupons, playerIdentityActions, rewardWheel, couponRedemptionWebhooks, checkDb }: AppDeps) {
+export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, coupons, playerIdentityActions, rewardWheel, couponRedemptionWebhooks, authHandoff, directAuth, checkDb }: AppDeps) {
+  const handoffVerifier = authHandoff ?? new AuthHandoffVerifier({ circzlesCom: env.AUTH_HANDOFF_CIRCZLES_COM_SECRET, circzlesIn: env.AUTH_HANDOFF_CIRCZLES_IN_SECRET });
+  const directAuthProvider = directAuth ?? new UnconfiguredDirectAuthProvider();
   const app = Fastify({
     logger: env.NODE_ENV === "test" ? false : {
       level: "info",
@@ -125,6 +139,71 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
   app.get("/health", async () => {
     await checkDb();
     return { ok: true };
+  });
+
+  app.get("/api/auth/session", async (request, reply) => {
+    const session = await identity.refreshSession(request.cookies[SESSION_COOKIE_NAME]);
+    if (!session) throw unauthorized();
+    setSessionCookie(reply, env, request.cookies[SESSION_COOKIE_NAME]!, session.expiresAt);
+    await gameState.ensurePlayerGameState(session.player.internalId);
+    return reply.send(await withGameState(session.player, gameState));
+  });
+
+  app.post("/api/auth/logout", async (request, reply) => {
+    await identity.logout(request.cookies[SESSION_COOKIE_NAME]);
+    clearSessionCookie(reply, env);
+    return reply.send({ ok: true });
+  });
+
+  app.post("/api/auth/handoff/exchange", async (request, reply) => {
+    const body = handoffExchangeBodySchema.safeParse(request.body);
+    if (!body.success) throw validationFailed("Invalid authentication handoff.", body.error.flatten());
+    const verified = handoffVerifier.verify(body.data.token);
+    const account = await identity.resolveVerifiedIdentity({
+      ...verified,
+      handoff: { tokenIdHash: identity.hashHandoffTokenId(verified.tokenId), expiresAt: verified.expiresAt },
+    });
+    return finishAuthentication(account, identity, gameState, reply, env);
+  });
+
+  app.post("/api/auth/direct/email/login", async (request, reply) => {
+    const body = emailLoginBodySchema.safeParse(request.body);
+    if (!body.success) throw validationFailed("Invalid login request.", body.error.flatten());
+    const verified = requireCanonicalDirectIdentity(await directAuthProvider.loginWithEmail(body.data), "EMAIL");
+    const account = await identity.resolveVerifiedIdentity(verified);
+    return finishAuthentication(account, identity, gameState, reply, env);
+  });
+
+  app.post("/api/auth/direct/email/signup", async (request, reply) => {
+    const body = emailSignupBodySchema.safeParse(request.body);
+    if (!body.success) throw validationFailed("Invalid signup request.", body.error.flatten());
+    return reply.status(202).send(await directAuthProvider.startEmailSignup(body.data));
+  });
+
+  app.post("/api/auth/direct/email/verify", async (request, reply) => {
+    const body = emailVerificationBodySchema.safeParse(request.body);
+    if (!body.success) throw validationFailed("Invalid verification request.", body.error.flatten());
+    const verified = requireCanonicalDirectIdentity(await directAuthProvider.verifyEmailSignup(body.data), "EMAIL");
+    const account = await identity.resolveVerifiedIdentity(verified);
+    return finishAuthentication(account, identity, gameState, reply, env);
+  });
+
+  app.get("/api/auth/direct/google/start", async (request, reply) => {
+    const query = googleStartQuerySchema.safeParse(request.query);
+    if (!query.success) throw validationFailed("Invalid Google login request.", query.error.flatten());
+    const returnTo = safeReturnTo(query.data.returnTo);
+    return reply.send(await directAuthProvider.getGoogleAuthorizationUrl({ returnTo }));
+  });
+
+  app.get("/api/auth/direct/google/callback", async (request, reply) => {
+    const query = googleCallbackQuerySchema.safeParse(request.query);
+    if (!query.success) throw validationFailed("Invalid Google callback.", query.error.flatten());
+    const verified = requireCanonicalDirectIdentity(await directAuthProvider.completeGoogleAuthorization(query.data), "GOOGLE");
+    const account = await identity.resolveVerifiedIdentity(verified);
+    const session = await identity.createSession(account.userId);
+    setSessionCookie(reply, env, session.token, session.expiresAt);
+    await gameState.ensurePlayerGameState(account.player.internalId);
+    return reply.redirect(`${env.FRONTEND_ORIGIN}/hub`);
   });
 
   app.get("/api/me", async (request, reply) => {
@@ -326,13 +405,7 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
     });
     await gameState.ensurePlayerGameState(account.player.internalId);
     const session = await identity.createSession(account.userId);
-    reply.setCookie(SESSION_COOKIE_NAME, session.token, {
-      httpOnly: true,
-      secure: env.COOKIE_SECURE,
-      sameSite: "lax",
-      path: "/",
-      expires: session.expiresAt,
-    });
+    setSessionCookie(reply, env, session.token, session.expiresAt);
     return reply.send(await withGameState(account.player, gameState));
   });
 
@@ -385,6 +458,46 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
   });
 
   return app;
+}
+
+async function finishAuthentication(account: { userId: string; player: PlayerDto }, identity: IdentityService, gameState: GameStateService, reply: FastifyReply, env: Env) {
+  await gameState.ensurePlayerGameState(account.player.internalId);
+  const session = await identity.createSession(account.userId);
+  setSessionCookie(reply, env, session.token, session.expiresAt);
+  return reply.send(await withGameState(account.player, gameState));
+}
+
+function setSessionCookie(reply: FastifyReply, env: Env, token: string, expiresAt: Date) {
+  reply.setCookie(SESSION_COOKIE_NAME, token, {
+    httpOnly: true,
+    secure: env.COOKIE_SECURE,
+    sameSite: env.SESSION_COOKIE_SAME_SITE,
+    domain: env.SESSION_COOKIE_DOMAIN,
+    path: "/",
+    expires: expiresAt,
+  });
+}
+
+function clearSessionCookie(reply: FastifyReply, env: Env) {
+  reply.clearCookie(SESSION_COOKIE_NAME, {
+    httpOnly: true,
+    secure: env.COOKIE_SECURE,
+    sameSite: env.SESSION_COOKIE_SAME_SITE,
+    domain: env.SESSION_COOKIE_DOMAIN,
+    path: "/",
+  });
+}
+
+function safeReturnTo(value: string | undefined) {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) return "/hub";
+  return value.slice(0, 512);
+}
+
+function requireCanonicalDirectIdentity(identity: VerifiedExternalIdentity, provider: IdentityProvider) {
+  if (identity.sourceSite !== "CIRCZLES_COM" || identity.provider !== provider || identity.emailVerified !== true) {
+    throw new AppError("DIRECT_AUTH_IDENTITY_INVALID", "The identity provider returned an invalid verified identity.", 502);
+  }
+  return identity;
 }
 
 async function requireCurrentPlayer(identity: IdentityService, token: string | undefined) {

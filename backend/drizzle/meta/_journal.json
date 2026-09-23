@@ -134,6 +134,13 @@
       "when": 1789649418141,
       "tag": "0018_brave_wild_child",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1790165838743,
+      "tag": "0019_glossy_polaris",
+      "breakpoints": true
     }
   ]
 }
