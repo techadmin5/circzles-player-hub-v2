@@ -19,9 +19,17 @@ export const equipmentSlot = pgEnum("equipment_slot", ["FRAME", "AVATAR", "BADGE
 export const users = pgTable("users", {
   userId: uuid("user_id").primaryKey().defaultRandom(),
   status: userStatus("status").notNull().default("ACTIVE"),
+  verifiedEmail: text("verified_email"),
+  firstName: text("first_name"),
+  lastName: text("last_name"),
+  avatarUrl: text("avatar_url"),
+  emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
+  lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => ({
+  verifiedEmailUnique: uniqueIndex("users_verified_email_unique").on(table.verifiedEmail),
+}));
 
 export const players = pgTable("players", {
   playerId: uuid("player_id").primaryKey().defaultRandom(),
@@ -41,12 +49,24 @@ export const players = pgTable("players", {
 export const wixIdentityLinks = pgTable("wix_identity_links", {
   wixIdentityLinkId: uuid("wix_identity_link_id").primaryKey().defaultRandom(),
   userId: uuid("user_id").notNull().references(() => users.userId, { onDelete: "restrict" }),
+  sourceSite: text("source_site").notNull().default("CIRCZLES_COM"),
+  identityProvider: text("identity_provider").notNull().default("WIX"),
   wixMemberId: text("wix_member_id").notNull(),
+  verifiedEmail: text("verified_email"),
+  displayName: text("display_name"),
+  firstName: text("first_name"),
+  lastName: text("last_name"),
+  avatarUrl: text("avatar_url"),
+  emailVerified: boolean("email_verified").notNull().default(false),
+  lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
-  userIdUnique: uniqueIndex("wix_identity_links_user_id_unique").on(table.userId),
-  wixMemberIdUnique: uniqueIndex("wix_identity_links_wix_member_id_unique").on(table.wixMemberId),
+  sourceMemberUnique: uniqueIndex("wix_identity_links_source_member_unique").on(table.sourceSite, table.wixMemberId),
+  userIndex: index("wix_identity_links_user_id_idx").on(table.userId),
+  verifiedEmailIndex: index("wix_identity_links_verified_email_idx").on(table.verifiedEmail),
+  sourceSiteCheck: check("wix_identity_links_source_site_check", sql`${table.sourceSite} in ('CIRCZLES_COM', 'CIRCZLES_IN')`),
+  providerCheck: check("wix_identity_links_provider_check", sql`${table.identityProvider} in ('WIX', 'EMAIL', 'GOOGLE', 'FACEBOOK')`),
 }));
 
 export const authSessions = pgTable("auth_sessions", {
@@ -55,11 +75,27 @@ export const authSessions = pgTable("auth_sessions", {
   tokenHash: text("token_hash").notNull(),
   status: sessionStatus("status").notNull().default("ACTIVE"),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
   tokenHashUnique: uniqueIndex("auth_sessions_token_hash_unique").on(table.tokenHash),
   userIndex: index("auth_sessions_user_id_idx").on(table.userId),
+}));
+
+export const authHandoffExchanges = pgTable("auth_handoff_exchanges", {
+  authHandoffExchangeId: uuid("auth_handoff_exchange_id").primaryKey().defaultRandom(),
+  tokenIdHash: text("token_id_hash").notNull(),
+  sourceSite: text("source_site").notNull(),
+  userId: uuid("user_id").references(() => users.userId, { onDelete: "restrict" }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  tokenIdHashUnique: uniqueIndex("auth_handoff_exchanges_token_id_hash_unique").on(table.tokenIdHash),
+  expiresAtIndex: index("auth_handoff_exchanges_expires_at_idx").on(table.expiresAt),
+  sourceSiteCheck: check("auth_handoff_exchanges_source_site_check", sql`${table.sourceSite} in ('CIRCZLES_COM', 'CIRCZLES_IN')`),
 }));
 
 export const progressionLevels = pgTable("progression_levels", {

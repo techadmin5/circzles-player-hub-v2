@@ -1,102 +1,93 @@
-# Authentication Design Blueprint
+# Authentication Design
 
-## Goal
+## Authority Model
 
-Existing Wix members should move from `circzles.in` to `dashboard.circzles.in` and become securely known to the V2 backend.
+CircZles has one Player Hub identity system. `circzles.com`, `circzles.in`, direct email login, and Google login resolve a server-verified external identity to one internal `users` row and one immutable `players.player_id`. All game state remains owned by `player_id`; email, Wix member IDs, public player IDs, and browser input are never gameplay authority.
 
-V2 identity is ecosystem-wide. The same V2 player must be recognizable across:
+`circzles.com` is the canonical authority for direct Player Hub signup and login. A user may also have a separate `circzles.in` Wix member identity linked to the same user. Links are unique by `(source_site, wix_member_id)`, not globally by member ID and not one-per-user.
 
-- `circzles.in`
-- `dashboard.circzles.in`
-- future commerce flows
-- reviews/forms
-- website quests and CTAs
+## Website Handoff
 
-Target journey:
+The two Wix sites must create a server-side signed, short-lived, one-time handoff. The browser receives only the signed handoff and posts it to `POST /api/auth/handoff/exchange`; it cannot select a member, user, or player ID.
 
-1. User logs into `circzles.in`.
-2. User clicks Player Hub.
-3. User lands on `dashboard.circzles.in`.
-4. V2 backend establishes identity.
-5. V2 backend maps the identity to `users` and `players`.
+The compact handoff format is `base64url(header).base64url(payload).base64url(HMAC-SHA256 signature)`.
 
-## Important Constraint
+Header:
 
-Do not assume silent cross-subdomain SSO is guaranteed. A proof of concept is required before backend implementation locks the flow.
+```json
+{ "alg": "HS256", "typ": "CZ-HANDOFF" }
+```
 
-## Proposed Flow
+Required payload claims:
 
-### Existing Wix Member Bridge
+- `v`: `1`
+- `iss`: `circzles.com` or `circzles.in`
+- `aud`: `circzles-player-hub`
+- `sub`: server-verified Wix member ID
+- `jti`: unpredictable unique token ID
+- `iat` and `exp`: integer Unix timestamps; lifetime cannot exceed five minutes
+- `email`: server-verified email
+- `emailVerified`: `true`
+- `provider`: `WIX`, `EMAIL`, `GOOGLE`, or `FACEBOOK`
+- optional safe profile fields: `displayName`, `firstName`, `lastName`, `avatarUrl`
 
-1. Wix page requests a short-lived signed handoff token from a Velo backend module for the logged-in member.
-2. Wix redirects to `https://dashboard.circzles.in/auth/wix/callback?handoff=...`.
-3. V2 backend verifies token signature, expiry, audience, nonce, and Wix member ID.
-4. V2 backend finds or creates `users` row with `wix_member_id`.
-5. V2 backend finds or initializes linked `players` row.
-6. V2 backend sets a secure V2 session cookie scoped to `dashboard.circzles.in`.
-7. User is redirected to `/hub`.
+Each site uses its own handoff secret. The frontend landing URL should place the handoff in the URL fragment so it is not sent in HTTP requests or referrers:
 
-## Session Handling
+```text
+https://PLAYER_HUB_HOST/auth/handoff#handoff=SIGNED_VALUE
+```
 
-- Use opaque server-side session tokens or signed encrypted cookies.
-- Cookie flags: `HttpOnly`, `Secure`, `SameSite=Lax`, host-only for `dashboard.circzles.in`.
-- Session rows should store `session_id`, `user_id`, `created_at`, `expires_at`, `revoked_at`, last IP/user agent hash.
-- Session expiry should be short enough for safety, with refresh if product requires it.
+The landing component removes the fragment before exchange. The backend validates signature, issuer, audience, lifetime, verified-email assertion, and one-time `jti` use before resolving identity.
 
-## Token Handling
+## Account Linking
 
-Wix handoff token must include:
+1. An existing `(source_site, external identity)` always resolves its current user.
+2. Its verified email must continue to agree with that user.
+3. A new external identity may link to an existing user only through the same normalized, provider-verified email.
+4. Unverified email is rejected.
+5. Conflicting identity or email ownership returns a controlled conflict; accounts are never silently merged.
+6. Concurrent first entry is constrained by unique verified-email and source/member indexes.
 
-- `wixMemberId`
-- optional email
-- issued at
-- expiry, preferably under 2 minutes
-- nonce
-- audience `dashboard.circzles.in`
-- issuer `circzles.in`
+Existing pre-migration Wix links default to `CIRCZLES_COM`. Development must inspect any historical links before applying migration `0019_glossy_polaris.sql` and correct the migration plan if that assumption is false.
 
-The token must be single-use. Store consumed nonces or token IDs until expiry.
+## Direct Authentication
 
-## New Account Initialization
+The production `WixDirectAuthProvider` uses the canonical `circzles.com` Wix Headless OAuth client for:
 
-When `wixMemberId` has no V2 user:
+- Email login through Authentication API Login V2.
+- Email signup through Register V2 followed by Verify During Authentication. Player Hub requires Wix to return the email-verification state; an immediate registration success is rejected so signup cannot bypass the requested OTP.
+- Google login through a Wix Redirect Session using Wix's Google connection ID.
+- A common OAuth 2.0 authorization-code callback with PKCE, followed by `GET /members/v1/members/my`.
 
-1. Create `users`.
-2. Create `players`.
-3. Preserve existing public player ID if migration already mapped the Wix member.
-4. Otherwise generate unique `publicPlayerId`.
-5. Initialize wallet/progression from migrated records or defaults.
+Login, registration, verification, redirect, token, and member calls use Wix visitor/member OAuth tokens. Passwords and OTP values are sent only to Wix and are never persisted. Wix state tokens, PKCE verifiers, expected email, flow, expiry, and local return path are carried only inside short-lived AES-GCM authenticated opaque values. Provider access/refresh tokens remain request-local and are never returned to the browser or stored by Player Hub.
 
-This identity mapping must become the anchor for dashboard events, website events, future commerce events, review/form events, and migration reconciliation. Browser-provided player identifiers are never sufficient authentication proof.
+The callback accepts only unexpired authenticated state, exchanges the code with the configured Headless client and exact callback URI, and requires a canonical member ID, `loginEmail`, and `loginEmailVerified: true`. Email flows additionally require the returned normalized email to match the email Wix authenticated. Only then does the existing identity service create or link the Player Hub user/player and issue its own HttpOnly session.
 
-## Existing Account Linking
+Optional request fields `captchaToken` and `captchaType` (`RECAPTCHA` or `INVISIBLE_RECAPTCHA`) map to Wix's documented CAPTCHA token contract. Wix CAPTCHA failures return `WIX_CAPTCHA_REQUIRED`; Player Hub never bypasses the challenge. The unconfigured adapter remains the safe fallback whenever `WIX_CLIENT_ID` or `WIX_DIRECT_AUTH_CALLBACK_URL` is absent. Facebook remains deferred.
 
-During migration, imported Wix member IDs should pre-create or stage mappings. First login confirms linkage.
+`returnTo` is restricted to a relative local path. Wix state validation and the backend-owned frontend origin prevent open redirects.
 
-Duplicate prevention:
+## Sessions
 
-- unique `users.wix_member_id`
-- unique `players.public_player_id`
-- linking flow refuses to attach one Wix member to multiple active users
-- manual admin merge path is required for conflicts
+- Opaque random token in the `cz_session` HttpOnly cookie
+- Only a keyed hash is stored in `auth_sessions`
+- 30-day inactivity expiry
+- Renewal after at least 24 hours through `GET /api/auth/session`
+- Persistent cookie expiry follows the authoritative database expiry
+- `POST /api/auth/logout` revokes the row immediately and clears the cookie
+- Production cookie security is controlled by `COOKIE_SECURE`, `SESSION_COOKIE_SAME_SITE`, and optional `SESSION_COOKIE_DOMAIN`
+- `SameSite=None` is rejected unless `Secure=true`
 
-## Logout
+All private APIs continue deriving `player_id` from the session. Client-selected player identity remains invalid.
 
-- `POST /api/auth/logout` revokes V2 session.
-- Redirect user to a safe location.
-- Wix logout is separate unless a confirmed Wix API/logout integration is added.
+## Frontend
 
-## Expired Sessions
+`AuthProvider` checks `/api/auth/session` at startup. `GameShell` routes render through `AuthenticatedRoute`; unauthenticated users are sent to `/login` with a safe local return path. `/login`, `/signup`, and `/auth/handoff` are the small public authentication surface. Production builds reject mock data mode.
 
-- API returns `401 UNAUTHORIZED`.
-- Frontend routes should redirect to `/login` or show a re-auth action.
-- Preserve intended redirect target where safe.
+Development auto-login remains limited to development, API mode, explicit opt-in, and localhost/127.0.0.1 APIs. `/api/dev/login` remains forbidden in production.
 
-## POC Questions
+## Migration Status
 
-- Can Wix Velo mint a secure short-lived token using a secret unavailable to the browser?
-- Can the hub launch link reliably include the token without exposing it through logs/referrers beyond acceptable limits?
-- Should callback exchange happen through POST or one-time URL token?
-- What Wix member fields are reliably available?
-- How will mobile browsers handle the redirect and cookies?
-- Can website quest/review/commerce events be associated with the same V2 player identity without trusting browser-only claims?
+`0019_glossy_polaris.sql`: **APPLIED AND VERIFIED ON NEON DEVELOPMENT ONLY**.
+
+Production migration remains a separate controlled deployment action.

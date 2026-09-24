@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Bell, ChevronRight, Gem, LayoutGrid, Menu, Shield, X } from "lucide-react";
+import { Bell, ChevronRight, Gem, LayoutGrid, LogOut, Menu, Shield, X } from "lucide-react";
 import type { ReactNode } from "react";
 import type { PlayerProfile } from "@/types";
 import { MOBILE_PRIMARY, MORE_NAV, PRIMARY_NAV, SETTINGS_ITEM, type NavItem } from "./navConfig";
@@ -15,6 +15,7 @@ import { formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { dataMode } from "@/config/dataMode";
 import { usePlayerUiState } from "@/stores/playerUiState";
+import { AuthenticatedRoute, useAuth } from "@/components/auth/AuthProvider";
 
 function isActive(pathname: string, href: string) {
   return pathname === href || (href !== "/hub" && pathname.startsWith(`${href}/`));
@@ -42,7 +43,7 @@ function NavLink({ item, pathname, onClick }: { item: NavItem; pathname: string;
   );
 }
 
-function Sidebar({ pathname }: { pathname: string }) {
+function Sidebar({ pathname, onLogout }: { pathname: string; onLogout: () => void }) {
   return (
     <aside className="sticky top-0 hidden h-dvh w-[236px] shrink-0 flex-col border-r border-[var(--cz-hairline)] bg-[var(--cz-surface)] px-3 py-5 lg:flex">
       <Link href="/hub" data-sound="navigation" className="mb-6 flex items-center gap-2.5 px-2">
@@ -57,6 +58,9 @@ function Sidebar({ pathname }: { pathname: string }) {
         <Link href="/admin" data-sound="navigation" data-testid="nav-admin" className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-[var(--cz-text-tertiary)] transition-colors hover:bg-[var(--cz-gold-dim)] hover:text-[var(--cz-gold)]">
           <Shield size={18} />Admin Area
         </Link>
+        <button type="button" onClick={onLogout} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-[var(--cz-text-tertiary)] transition-colors hover:bg-white/[0.03] hover:text-[var(--cz-text-primary)]">
+          <LogOut size={18} />Log out
+        </button>
       </div>
     </aside>
   );
@@ -92,7 +96,7 @@ function TopBar({ player, onOpenMenu }: { player?: PlayerProfile; onOpenMenu: ()
   );
 }
 
-function MoreSheet({ open, onClose, pathname }: { open: boolean; onClose: () => void; pathname: string }) {
+function MoreSheet({ open, onClose, pathname, onLogout }: { open: boolean; onClose: () => void; pathname: string; onLogout: () => void }) {
   return (
     <AnimatePresence>
       {open && (
@@ -123,6 +127,7 @@ function MoreSheet({ open, onClose, pathname }: { open: boolean; onClose: () => 
                 <span className="flex items-center gap-2.5"><Shield size={17} />Admin Area</span>
                 <ChevronRight size={15} />
               </Link>
+              <button type="button" onClick={onLogout} className="col-span-2 flex items-center justify-center gap-2 rounded-xl border border-[var(--cz-hairline)] px-3 py-3 text-sm font-medium text-[var(--cz-text-secondary)]"><LogOut size={17} />Log out</button>
             </div>
           </motion.div>
         </motion.div>
@@ -153,21 +158,27 @@ function MobileNav({ pathname, onOpenMore }: { pathname: string; onOpenMore: () 
 
 export function GameShell({ player, children }: { player?: PlayerProfile; children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { logout } = useAuth();
   const [moreOpen, setMoreOpen] = useState(false);
 
   useEffect(() => {
     if (player && dataMode === "mock") usePlayerUiState.getState().hydrate(player);
   }, [player]);
 
-  return (
+  const handleLogout = () => {
+    logout().then(() => router.replace("/login")).catch(() => undefined);
+  };
+
+  return <AuthenticatedRoute>
     <div className="min-h-dvh lg:flex">
-      <Sidebar pathname={pathname} />
+      <Sidebar pathname={pathname} onLogout={handleLogout} />
       <div className="flex min-h-dvh w-full min-w-0 flex-col">
         <TopBar player={player} onOpenMenu={() => setMoreOpen(true)} />
         <main className="mx-auto w-full max-w-[1240px] flex-1 px-4 pb-28 pt-6 lg:px-8 lg:pb-12">{children}</main>
       </div>
       <MobileNav pathname={pathname} onOpenMore={() => setMoreOpen(true)} />
-      <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} pathname={pathname} />
+      <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} pathname={pathname} onLogout={handleLogout} />
     </div>
-  );
+  </AuthenticatedRoute>;
 }

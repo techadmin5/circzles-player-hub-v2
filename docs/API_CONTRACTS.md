@@ -385,3 +385,18 @@ Provider-authenticated Shopify `orders/paid` endpoint. The backend verifies `X-S
 Both endpoints return only `{ ok, status }`. Processed and exact duplicate events return 2xx; irrelevant/no-owned-coupon events also return 2xx; malformed payloads return 400; failed provider authentication returns 401; and retryable processing or sibling-disable failure returns 5xx. They do not use player cookies and do not expose ownership, player, provider mapping, or credential details.
 
 Provider transport verification confirmed a real `circzles.in` Wix Coupon Applied callback returned HTTP 200. Shopify `ORDERS_PAID` is registered and a correctly signed synthetic event returned HTTP 200 with `IGNORED`. No real paid-order test was performed for Shopify or the three shared-app Wix storefronts. These transport results do not change the authoritative backend redemption boundary or eliminate the documented cross-provider simultaneous-redemption race.
+
+## Production Authentication Foundation
+
+- `POST /api/auth/handoff/exchange` accepts only `{ "token": "..." }`. The backend verifies source-specific signature and claims, consumes the handoff once, resolves the verified identity, creates a session, and returns the safe player DTO.
+- `GET /api/auth/session` validates the HttpOnly session, performs bounded sliding renewal when due, refreshes cookie expiry, and returns the safe player DTO.
+- `POST /api/auth/logout` revokes the current session if present, clears the cookie, and returns `{ "ok": true }`.
+- `POST /api/auth/direct/email/login` accepts strict `{ email, password, returnTo?, captchaToken?, captchaType? }`. Wix Login V2 success returns `{ authorizationUrl }`; the frontend performs the required PKCE redirect before Player Hub creates a session.
+- `POST /api/auth/direct/email/signup` accepts strict `{ displayName, email, password, captchaToken?, captchaType? }`. Wix Register V2 must return an email-verification state. The response is `{ challengeId, expiresAt }`; `challengeId` is authenticated ciphertext containing provider state, not an OTP or browser-selected identity.
+- `POST /api/auth/direct/email/verify` accepts strict `{ challengeId, code, returnTo? }`. Wix Verify During Authentication success returns `{ authorizationUrl }` for the same PKCE completion path.
+- `GET /api/auth/direct/google/start?returnTo=/local/path` creates a Wix redirect session targeting Wix's Google connection and returns `{ authorizationUrl }`.
+- `GET /api/auth/direct/google/callback?code=...&state=...` is the configured Wix Headless callback for both direct email and Google flows. It authenticates/opens the state, exchanges the authorization code, calls `GET /members/v1/members/my`, requires `loginEmailVerified: true`, resolves the existing Player Hub identity, issues the HttpOnly Player Hub cookie, and redirects to the validated local `returnTo` path.
+
+`captchaType` is `RECAPTCHA` or `INVISIBLE_RECAPTCHA`; it is valid only with a provider-issued CAPTCHA token. Wix-required CAPTCHA returns `WIX_CAPTCHA_REQUIRED` without exposing provider payloads. Missing direct-auth configuration returns `DIRECT_AUTH_PROVIDER_NOT_CONFIGURED`. Passwords, OTPs, Wix state/session tokens, access/refresh tokens, provider secrets, and raw provider failures never appear in successful responses or controlled error bodies.
+
+No auth endpoint accepts `userId`, `playerId`, `publicPlayerId`, or a free-standing Wix member ID. Direct auth is restricted to `CIRCZLES_COM`; handoff source comes from the signed issuer. `/api/dev/login` remains development-only.

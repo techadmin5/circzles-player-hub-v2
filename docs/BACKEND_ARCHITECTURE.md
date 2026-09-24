@@ -45,7 +45,7 @@ These boundaries are good. The backend should replace service implementations wi
 - Backend: Node.js + TypeScript HTTP API.
 - Database: PostgreSQL as authoritative game-state database.
 - Object storage: Cloudinary is suitable for submission videos. Keep the storage boundary abstract enough that PostgreSQL stores only media references and metadata.
-- Auth: V2 session established through a secure Wix member bridge proof of concept.
+- Auth: one internal Player Hub identity resolved from server-verified, site-scoped external identities and persisted opaque sessions.
 - Realtime: future-ready event and notification model, no realtime requirement for first backend release.
 - Wix: retained for main website, existing member identity bridge, commerce integration, reviews/forms where useful, and optional coupon integration. Wix CMS must not remain authoritative for game state.
 
@@ -326,3 +326,11 @@ First-completion rewards and PBs remain independent. The first approved solve ma
 Catalog visibility uses active, leaderboard-enabled persisted competition settings joined to active, non-deleted puzzles. It never infers category from fractional `levelId`. Ranking reads exact milliseconds and orders by time, approval, submission timestamp, and submission UUID. The API returns only the top 10 plus the authenticated player's real rank when outside that set.
 
 The secure admin review POST route now derives reviewer identity from `SUBMISSIONS_REVIEW` authorization, requires strict input and idempotency, and invokes the atomic review engine. Seasons, regional/friend boards, cosmetics, and frontend leaderboard UI remain deferred.
+
+## Production Authentication Foundation
+
+Phase Auth A extends identity without changing game ownership. `users.verified_email` is the unique normalized anchor for safe linking, while `wix_identity_links` permits multiple `(source_site, wix_member_id)` links per user. Signed handoffs are verified with per-site secrets, consumed once, and resolved transactionally.
+
+Phase Auth B supplies the canonical `circzles.com` Wix Headless adapter. Email login uses Login V2; signup uses Register V2 plus Wix email verification; Google uses the Wix-managed Google connection. All successful paths finish through a query-mode PKCE redirect, authorization-code exchange, and authenticated `Get My Member` lookup. The adapter requires Wix's read-only `loginEmailVerified` assertion and never persists or returns Wix passwords, OTPs, state/session tokens, access tokens, or refresh tokens. Short-lived signup and OAuth state is AES-GCM authenticated with the server session secret. Missing `WIX_CLIENT_ID` or `WIX_DIRECT_AUTH_CALLBACK_URL` keeps the unconfigured fail-closed provider active.
+
+`auth_sessions` remains the only Player Hub browser credential authority. Sessions use opaque HttpOnly cookies, a 30-day inactivity expiry, renewal no more frequently than once per day, and immediate revocation on logout. Private repositories continue receiving `player_id` only after session resolution.

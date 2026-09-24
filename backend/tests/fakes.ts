@@ -1,4 +1,4 @@
-import type { IdentityRepository, PlayerDto } from "../src/domain/identity.js";
+import type { IdentityRepository, PlayerDto, VerifiedExternalIdentity } from "../src/domain/identity.js";
 import { AppError, insufficientPoints } from "../src/domain/errors.js";
 import type { GameStateRepository, PlayerGameState, PointChangeInput, ProgressionLevelConfig, XpGrantInput } from "../src/domain/gameState.js";
 import { parseClaimCode, type DevelopmentPuzzleFixture, type PlayerPuzzleDto, type PuzzleDto, type PuzzleRepository } from "../src/domain/puzzles.js";
@@ -14,7 +14,8 @@ import type { MissionClaimInput, MissionClaimRepository, MissionClaimResult, Mis
 
 interface StoredAccount {
   userId: string;
-  wixMemberId: string;
+  verifiedEmail: string;
+  identities: Array<{ sourceSite: string; externalIdentityId: string }>;
   player: PlayerDto;
 }
 
@@ -120,27 +121,38 @@ interface StoredSession {
   userId: string;
   tokenHash: string;
   expiresAt: Date;
+  lastSeenAt: Date;
+  revokedAt?: Date;
 }
 
 export class FakeIdentityRepository implements IdentityRepository {
   public accounts: StoredAccount[] = [];
   public sessions: StoredSession[] = [];
+  public consumedHandoffs = new Set<string>();
   private next = 1;
 
-  async findByWixMemberId(wixMemberId: string) {
-    const account = this.accounts.find((item) => item.wixMemberId === wixMemberId);
-    return account ? { userId: account.userId, player: account.player } : null;
-  }
-
-  async createUserPlayerAndWixLink(input: { wixMemberId: string; displayName: string; publicPlayerId?: string }) {
-    const existing = await this.findByWixMemberId(input.wixMemberId);
-    if (existing) return existing;
+  async resolveVerifiedIdentity(input: VerifiedExternalIdentity) {
+    if (input.handoff) {
+      if (this.consumedHandoffs.has(input.handoff.tokenIdHash)) throw new AppError("AUTH_HANDOFF_ALREADY_USED", "This authentication handoff has already been used.", 409);
+      this.consumedHandoffs.add(input.handoff.tokenIdHash);
+    }
+    const verifiedEmail = input.verifiedEmail.toLowerCase();
+    const existingIdentity = this.accounts.find((item) => item.identities.some((identity) => identity.sourceSite === input.sourceSite && identity.externalIdentityId === input.externalIdentityId));
+    if (existingIdentity) {
+      if (existingIdentity.verifiedEmail !== verifiedEmail) throw new AppError("IDENTITY_LINK_CONFLICT", "The verified identity does not match the existing account.", 409);
+      return { userId: existingIdentity.userId, player: existingIdentity.player };
+    }
+    let account = this.accounts.find((item) => item.verifiedEmail === verifiedEmail);
+    if (account) {
+      account.identities.push({ sourceSite: input.sourceSite, externalIdentityId: input.externalIdentityId });
+      return { userId: account.userId, player: account.player };
+    }
     const userId = `user-${this.next}`;
     const player: PlayerDto = {
       internalId: `player-${this.next}`,
       publicPlayerId: input.publicPlayerId ?? `CZ-TEST${this.next}`,
-      displayName: input.displayName,
-      avatar: "/brand/avatar.svg",
+      displayName: input.displayName ?? "CircZles Player",
+      avatar: input.avatarUrl ?? "/brand/avatar.svg",
       country: "",
       state: "",
       progressionLevel: 1,
@@ -156,18 +168,35 @@ export class FakeIdentityRepository implements IdentityRepository {
     if (this.accounts.some((account) => account.player.publicPlayerId === player.publicPlayerId)) {
       throw new Error("duplicate public player id");
     }
-    this.accounts.push({ userId, wixMemberId: input.wixMemberId, player });
+    account = { userId, verifiedEmail, identities: [{ sourceSite: input.sourceSite, externalIdentityId: input.externalIdentityId }], player };
+    this.accounts.push(account);
     return { userId, player };
   }
 
-  async createSession(userId: string, tokenHash: string, expiresAt: Date) {
-    this.sessions.push({ userId, tokenHash, expiresAt });
+  async createSession(userId: string, tokenHash: string, expiresAt: Date, now: Date) {
+    this.sessions.push({ userId, tokenHash, expiresAt, lastSeenAt: now });
   }
 
-  async findPlayerBySession(tokenHash: string, now: Date) {
-    const session = this.sessions.find((item) => item.tokenHash === tokenHash && item.expiresAt > now);
+  async findSession(tokenHash: string, now: Date) {
+    const session = this.sessions.find((item) => item.tokenHash === tokenHash && item.expiresAt > now && !item.revokedAt);
     if (!session) return null;
-    return this.accounts.find((item) => item.userId === session.userId)?.player ?? null;
+    const account = this.accounts.find((item) => item.userId === session.userId);
+    return account ? { userId: account.userId, player: account.player, expiresAt: session.expiresAt, lastSeenAt: session.lastSeenAt } : null;
+  }
+
+  async refreshSession(tokenHash: string, now: Date, expiresAt: Date) {
+    const session = this.sessions.find((item) => item.tokenHash === tokenHash && item.expiresAt > now && !item.revokedAt);
+    if (!session) return false;
+    session.lastSeenAt = now;
+    session.expiresAt = expiresAt;
+    return true;
+  }
+
+  async revokeSession(tokenHash: string, now: Date) {
+    const session = this.sessions.find((item) => item.tokenHash === tokenHash && !item.revokedAt);
+    if (!session) return false;
+    session.revokedAt = now;
+    return true;
   }
 }
 
@@ -176,7 +205,7 @@ export class FakeAdminAuthorizationRepository implements AdminAuthorizationRepos
   constructor(private identity: FakeIdentityRepository) {}
 
   async findValidSession(tokenHash: string, now: Date) {
-    const session = this.identity.sessions.find((item) => item.tokenHash === tokenHash && item.expiresAt > now);
+    const session = this.identity.sessions.find((item) => item.tokenHash === tokenHash && item.expiresAt > now && !item.revokedAt);
     if (!session) return null;
     const admin = this.admins.get(session.userId);
     return { userId: session.userId, adminUserId: admin?.adminUserId ?? null, role: admin?.role ?? null, adminActive: admin?.active ?? null };
