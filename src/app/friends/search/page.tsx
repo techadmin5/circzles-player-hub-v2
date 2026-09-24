@@ -2,8 +2,11 @@ import { GameShell } from "@/components/game-shell/GameShell";
 import { PageHeader } from "@/components/ui/kit";
 import { SearchResultCard } from "@/components/social/social";
 import { friendService, playerService } from "@/services";
+import { dataMode } from "@/config/dataMode";
+import { FeatureUnavailable } from "@/components/production/FeatureUnavailable";
 
 export default async function Page() {
+  if (dataMode === "api") return <GameShell><FeatureUnavailable title="Player Search" description="Production friend search is not available yet." /></GameShell>;
   const [player, results] = await Promise.all([playerService.getMockCurrentPlayer(), friendService.searchPlayers("cz")]);
   const others = results.filter((p) => p.publicPlayerId !== player.publicPlayerId);
   return (

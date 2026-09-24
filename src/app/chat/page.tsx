@@ -2,8 +2,11 @@ import { MessagesSquare } from "lucide-react";
 import { GameShell } from "@/components/game-shell/GameShell";
 import { PageHeader, EmptyState } from "@/components/ui/kit";
 import { playerService } from "@/services";
+import { dataMode } from "@/config/dataMode";
+import { FeatureUnavailable } from "@/components/production/FeatureUnavailable";
 
 export default async function Page() {
+  if (dataMode === "api") return <GameShell><FeatureUnavailable title="Chat" description="Realtime messaging has not been implemented." /></GameShell>;
   const player = await playerService.getMockCurrentPlayer();
   return (
     <GameShell player={player}>

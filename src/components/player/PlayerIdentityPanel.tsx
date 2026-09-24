@@ -30,8 +30,8 @@ function MiniStat({ icon, label, value }: { icon: ReactNode; label: string; valu
   );
 }
 
-export function PlayerHero({ player, placement = null, profileMode = false, onOpenCodex, onEditAvatar, header }: {
-  player: PlayerProfile; placement?: Placement; profileMode?: boolean; onOpenCodex: () => void; onEditAvatar: () => void; header?: ReactNode;
+export function PlayerHero({ player, placement = null, profileMode = false, onOpenCodex, onEditAvatar, header, productionData = false }: {
+  player: PlayerProfile; placement?: Placement; profileMode?: boolean; onOpenCodex: () => void; onEditAvatar?: () => void; header?: ReactNode; productionData?: boolean;
 }) {
   const rank = rankFor(player.progressionLevel);
   const next = progressionRanks.find((r) => r.order === rank.order + 1);
@@ -44,9 +44,9 @@ export function PlayerHero({ player, placement = null, profileMode = false, onOp
       <div className="relative flex min-w-0 flex-col gap-5 sm:flex-row sm:items-center sm:gap-7">
         <div className="shrink-0">
           <AvatarFrame avatar={player.avatar} displayName={player.displayName} frame={player.equippedFrame} size={profileMode ? 148 : 128} placement={placement} />
-          <button onClick={onEditAvatar} data-sound="silent" data-testid="edit-avatar-btn" className="mt-3 inline-flex items-center gap-2 rounded-lg border border-[var(--cz-hairline)] bg-white/[0.03] px-3 py-2 text-xs text-[var(--cz-text-secondary)] hover:text-[var(--cz-text-primary)]">
+          {onEditAvatar && <button onClick={onEditAvatar} data-sound="silent" data-testid="edit-avatar-btn" className="mt-3 inline-flex items-center gap-2 rounded-lg border border-[var(--cz-hairline)] bg-white/[0.03] px-3 py-2 text-xs text-[var(--cz-text-secondary)] hover:text-[var(--cz-text-primary)]">
             <Camera size={14} />Change Avatar
-          </button>
+          </button>}
         </div>
 
         <div className="min-w-0 flex-1">
@@ -73,9 +73,7 @@ export function PlayerHero({ player, placement = null, profileMode = false, onOp
 
       <div className="relative mt-6 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-[var(--cz-hairline)] pt-4 sm:flex sm:flex-wrap sm:gap-x-8">
         <MiniStat icon={<Gem size={15} />} label="Synapse Points" value={formatNumber(player.synapsePoints)} />
-        <MiniStat icon={<Flame size={15} />} label="Streak" value={`${player.streak} days`} />
-        <MiniStat icon={<Trophy size={15} />} label="Season Placement" value={`#${player.stats.seasonRank}`} />
-        <MiniStat icon={<Trophy size={15} />} label="Podiums" value={String(player.stats.podiums)} />
+        {!productionData && <><MiniStat icon={<Flame size={15} />} label="Streak" value={`${player.streak} days`} /><MiniStat icon={<Trophy size={15} />} label="Season Placement" value={`#${player.stats.seasonRank}`} /><MiniStat icon={<Trophy size={15} />} label="Podiums" value={String(player.stats.podiums)} /></>}
       </div>
     </section>
   );
@@ -125,7 +123,7 @@ export function PlayerIdentityPanel({ fallbackPlayer, mode = "mock", placement =
   }
 
   const shown = { ...player, displayName: mode === "api" ? authoritativeDisplayName ?? player.displayName : player.displayName, avatar: previewAvatar };
-  const devControls = mode === "api" ? (
+  const devControls = process.env.NODE_ENV === "development" && mode === "api" ? (
     <div className="mb-4 flex flex-col gap-2 rounded-xl border border-[var(--cz-hairline)] bg-[var(--cz-inset)] p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
       <div>
         <p className="font-semibold text-[var(--cz-aqua)]">{loading ? "Checking authenticated session…" : "Authenticated identity"}</p>
@@ -138,8 +136,8 @@ export function PlayerIdentityPanel({ fallbackPlayer, mode = "mock", placement =
 
   return (
     <>
-      <PlayerHero player={shown} placement={placement} profileMode={profileMode} onOpenCodex={() => { playSound("modalOpen"); setCodexOpen(true); }} onEditAvatar={() => { playSound("modalOpen"); setPickerOpen(true); }} header={devControls} />
-      <ProgressionCodex open={codexOpen} onClose={() => setCodexOpen(false)} player={shown} />
+      <PlayerHero player={shown} placement={placement} profileMode={profileMode} productionData={mode === "api"} onOpenCodex={() => { playSound("modalOpen"); setCodexOpen(true); }} onEditAvatar={mode === "mock" ? () => { playSound("modalOpen"); setPickerOpen(true); } : undefined} header={devControls} />
+      <ProgressionCodex open={codexOpen} onClose={() => setCodexOpen(false)} player={shown} showRewardPreview={mode === "mock"} />
       <AvatarPicker open={pickerOpen} currentAvatar={previewAvatar} onPreview={setPreviewAvatar} onClose={() => setPickerOpen(false)} />
     </>
   );

@@ -3,8 +3,11 @@ import { PageHeader } from "@/components/ui/kit";
 import { AchievementBadge } from "@/components/achievements/BadgeShowcase";
 import { ACHIEVEMENT_CATALOG } from "@/config/assets";
 import { playerService } from "@/services";
+import { dataMode } from "@/config/dataMode";
+import { FeatureUnavailable } from "@/components/production/FeatureUnavailable";
 
 export default async function Page() {
+  if (dataMode === "api") return <GameShell><FeatureUnavailable title="Achievements" description="Persistent achievement ownership is not available yet." /></GameShell>;
   const player = await playerService.getMockCurrentPlayer();
   const owned = new Set(player.badgeShowcase);
   const unlocked = ACHIEVEMENT_CATALOG.filter((a) => owned.has(a.name));

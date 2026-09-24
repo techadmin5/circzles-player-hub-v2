@@ -79,7 +79,7 @@ export function StoreBoard({ items, purchaseEnabled = true, onPurchase }: { item
   const grid = tab === "Featured" && featured ? list.filter((i) => i.id !== featured.id) : list;
 
   return (
-    <div className="grid gap-4">
+    <div className="grid min-h-[32rem] min-w-0 content-start gap-4">
       <div className="cz-scroll -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1" role="tablist" aria-label="Store categories">
         {TABS.map((t) => (
           <button key={t} type="button" role="tab" aria-selected={tab === t} data-sound="tab" onClick={() => setTab(t)} data-testid={`store-tab-${t}`}
@@ -88,7 +88,7 @@ export function StoreBoard({ items, purchaseEnabled = true, onPurchase }: { item
       </div>
       {featured && <StoreItemCard item={featured} featured purchaseEnabled={purchaseEnabled} onPurchase={onPurchase} />}
       {grid.length === 0
-        ? <p className="cz-surface flex items-center justify-center gap-2 p-8 text-sm text-[var(--cz-text-tertiary)]"><Package size={16} />No items in this category yet.</p>
+        ? <p className="cz-surface flex min-h-64 items-center justify-center gap-2 p-8 text-sm text-[var(--cz-text-tertiary)]"><Package size={16} />No items in this category yet.</p>
         : <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{grid.map((i) => <StoreItemCard key={i.id} item={i} purchaseEnabled={purchaseEnabled} onPurchase={onPurchase} />)}</div>}
     </div>
   );

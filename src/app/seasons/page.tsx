@@ -5,6 +5,8 @@ import { PageHeader, Chip, SectionHeader } from "@/components/ui/kit";
 import { MissionCard } from "@/components/missions/missions";
 import { playerService, seasonService } from "@/services";
 import { formatDate } from "@/lib/format";
+import { dataMode } from "@/config/dataMode";
+import { FeatureUnavailable } from "@/components/production/FeatureUnavailable";
 
 function daysLeft(endAt: string) {
   const d = Math.ceil((new Date(endAt).getTime() - Date.now()) / 86_400_000);
@@ -12,6 +14,7 @@ function daysLeft(endAt: string) {
 }
 
 export default async function Page() {
+  if (dataMode === "api") return <GameShell><FeatureUnavailable title="Seasons" description="A production season authority is not available yet." /></GameShell>;
   const [player, season] = await Promise.all([playerService.getMockCurrentPlayer(), seasonService.getCurrentSeason()]);
   return (
     <GameShell player={player}>

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { AlertCircle, Award, CircleUserRound, Puzzle, RefreshCw, Shield, X } from "lucide-react";
 import { ApiClientError } from "@/lib/apiClient";
+import { DEFAULT_AVATAR } from "@/config/assets";
 import { playerService } from "@/services";
 import type { PublicPlayerProfile } from "@/types";
 
@@ -106,12 +107,11 @@ function ProfileLoading({ publicPlayerId }: { publicPlayerId: string }) {
 }
 
 function ProfileContent({ profile }: { profile: PublicPlayerProfile }) {
-  const initials = profile.displayName.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "CZ";
   return (
     <div className="grid gap-4 sm:gap-5">
       <div className="flex items-center gap-3 pr-10 sm:gap-4">
         <div className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-full border border-[rgba(61,234,212,0.45)] bg-[var(--cz-aqua-dim)] text-lg font-bold text-[var(--cz-aqua)] sm:h-16 sm:w-16">
-          {profile.avatarUrl ? <Image unoptimized src={profile.avatarUrl} alt="" width={64} height={64} className="h-full w-full object-cover" /> : <span aria-hidden="true">{initials}</span>}
+          <Image unoptimized={Boolean(profile.avatarUrl)} src={profile.avatarUrl || DEFAULT_AVATAR} alt="" width={64} height={64} className="h-full w-full object-cover" />
         </div>
         <div className="min-w-0">
           <p className="text-[0.65rem] font-semibold uppercase tracking-wide text-[var(--cz-aqua)]">Player profile</p>

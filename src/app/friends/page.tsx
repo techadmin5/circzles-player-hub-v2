@@ -4,8 +4,11 @@ import { GameShell } from "@/components/game-shell/GameShell";
 import { PageHeader, EmptyState } from "@/components/ui/kit";
 import { FriendCard } from "@/components/social/social";
 import { friendService, playerService } from "@/services";
+import { dataMode } from "@/config/dataMode";
+import { FeatureUnavailable } from "@/components/production/FeatureUnavailable";
 
 export default async function Page() {
+  if (dataMode === "api") return <GameShell><FeatureUnavailable title="Friends" description="Persistent friendships are not available yet." /></GameShell>;
   const [player, friends] = await Promise.all([playerService.getMockCurrentPlayer(), friendService.getFriends()]);
   return (
     <GameShell player={player}>

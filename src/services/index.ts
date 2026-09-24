@@ -4,7 +4,15 @@ import { dataMode } from "@/config/dataMode";
 import { apiClient, ApiClientError } from "@/lib/apiClient";
 import { mockDelay } from "./mockRuntime";
 
-const canUseBrowserApi = () => dataMode === "api" && typeof window !== "undefined";
+function shouldUseBrowserApi() {
+  if (dataMode !== "api") return false;
+  if (typeof window === "undefined") throw new ApiClientError("BROWSER_API_REQUIRED", "Authenticated API data must be loaded from the browser session.", 500);
+  return true;
+}
+
+function requireMockMode(feature: string) {
+  if (dataMode === "api") throw new ApiClientError("FEATURE_NOT_AVAILABLE", `${feature} is not available in production yet.`, 501);
+}
 
 export const playerService = {
   async getCurrentPlayer() {
@@ -13,12 +21,13 @@ export const playerService = {
     return currentPlayer;
   },
   async getMockCurrentPlayer() {
+    requireMockMode("Mock player identity");
     await mockDelay();
     return currentPlayer;
   },
-  async getProfile(playerId: string) { await mockDelay(); return players.find((p) => p.publicPlayerId === playerId) ?? currentPlayer; },
+  async getProfile(playerId: string) { requireMockMode("Mock player profiles"); await mockDelay(); return players.find((p) => p.publicPlayerId === playerId) ?? currentPlayer; },
   async getPublicProfile(publicPlayerId: string, signal?: AbortSignal): Promise<PublicPlayerProfile> {
-    if (canUseBrowserApi()) return apiClient.getPublicPlayerProfile(publicPlayerId, signal);
+    if (shouldUseBrowserApi()) return apiClient.getPublicPlayerProfile(publicPlayerId, signal);
     await mockDelay();
     const player = players.find((item) => item.publicPlayerId === publicPlayerId) ?? (currentPlayer.publicPlayerId === publicPlayerId ? currentPlayer : null);
     if (!player) throw new ApiClientError("PLAYER_NOT_FOUND", "Player was not found.", 404);
@@ -37,26 +46,26 @@ export const playerService = {
 
 export const puzzleService = {
   async getOwnedPuzzles() {
-    if (canUseBrowserApi()) return apiClient.getOwnedPuzzles();
+    if (shouldUseBrowserApi()) return apiClient.getOwnedPuzzles();
     await mockDelay();
     return playerPuzzles;
   },
   async getPuzzle(id: string) {
-    if (canUseBrowserApi()) return apiClient.getPuzzle(id);
+    if (shouldUseBrowserApi()) return apiClient.getPuzzle(id);
     await mockDelay();
     return playerPuzzles.find((p) => p.id === id) ?? playerPuzzles[0];
   },
   async claimByCode(code: string) {
-    if (canUseBrowserApi()) return apiClient.claimPuzzleByCode(code);
+    if (shouldUseBrowserApi()) return apiClient.claimPuzzleByCode(code);
     await mockDelay();
     return { success: code.trim().length > 3, puzzle: playerPuzzles[0] };
   },
 };
 
 export const submissionService = {
-  async getSubmissions() { if (canUseBrowserApi()) return apiClient.getSubmissions(); await mockDelay(); return submissions; },
-  async getSubmission(id: string) { if (canUseBrowserApi()) return apiClient.getSubmission(id); await mockDelay(); return submissions.find((s) => s.id === id) ?? submissions[0]; },
-  async createSubmission(input: { playerPuzzleId: string; completionTimeMs: number; videoUploadId: string }, idempotencyKey: string) { if (canUseBrowserApi()) return apiClient.createSubmission(input, idempotencyKey); await mockDelay(); return { ...submissions[0], id: "sub-new", status: "PENDING_REVIEW" as const, ...input }; },
+  async getSubmissions() { if (shouldUseBrowserApi()) return apiClient.getSubmissions(); await mockDelay(); return submissions; },
+  async getSubmission(id: string) { if (shouldUseBrowserApi()) return apiClient.getSubmission(id); await mockDelay(); return submissions.find((s) => s.id === id) ?? submissions[0]; },
+  async createSubmission(input: { playerPuzzleId: string; completionTimeMs: number; videoUploadId: string }, idempotencyKey: string) { if (shouldUseBrowserApi()) return apiClient.createSubmission(input, idempotencyKey); await mockDelay(); return { ...submissions[0], id: "sub-new", status: "PENDING_REVIEW" as const, ...input }; },
 };
 
 const mockLeaderboardCatalog: LeaderboardCatalog = {
@@ -87,18 +96,18 @@ function mockLeaderboardResponse(puzzleId: string): LeaderboardResponse {
 }
 
 export const leaderboardService = {
-  async getLeaderboardCatalog(signal?: AbortSignal) { if (canUseBrowserApi()) return apiClient.getLeaderboardCatalog(signal); await mockDelay(); return mockLeaderboardCatalog; },
-  async getLeaderboard(puzzleId: string, signal?: AbortSignal) { if (canUseBrowserApi()) return apiClient.getLeaderboard(puzzleId, signal); await mockDelay(); return mockLeaderboardResponse(puzzleId); },
-  async getMockLeaderboard() { await mockDelay(); return { entries: leaderboard, yourRank: 18 }; },
+  async getLeaderboardCatalog(signal?: AbortSignal) { if (shouldUseBrowserApi()) return apiClient.getLeaderboardCatalog(signal); await mockDelay(); return mockLeaderboardCatalog; },
+  async getLeaderboard(puzzleId: string, signal?: AbortSignal) { if (shouldUseBrowserApi()) return apiClient.getLeaderboard(puzzleId, signal); await mockDelay(); return mockLeaderboardResponse(puzzleId); },
+  async getMockLeaderboard() { requireMockMode("Mock leaderboard"); await mockDelay(); return { entries: leaderboard, yourRank: 18 }; },
 };
 export const missionService = {
   async getMissions(signal?: AbortSignal) {
-    if (canUseBrowserApi()) return apiClient.getMissions(signal);
+    if (shouldUseBrowserApi()) return apiClient.getMissions(signal);
     await mockDelay();
     return missions;
   },
   async claimMission(missionId: string, idempotencyKey: string): Promise<MissionClaimResult> {
-    if (canUseBrowserApi()) return apiClient.claimMission(missionId, idempotencyKey);
+    if (shouldUseBrowserApi()) return apiClient.claimMission(missionId, idempotencyKey);
     await mockDelay();
     const mission = missions.find((item) => item.missionId === missionId);
     const synapsePoints = mission?.rewards.filter((reward) => reward.type === "Synapse Points").reduce((total, reward) => total + (reward.value ?? 0), 0) ?? 0;
@@ -117,11 +126,11 @@ export const missionService = {
 };
 export const storeService = {
   async getItems(signal?: AbortSignal) {
-    if (canUseBrowserApi()) return (await apiClient.getStoreCatalog(signal)).map(adaptStoreCatalogItem);
+    if (shouldUseBrowserApi()) return (await apiClient.getStoreCatalog(signal)).map(adaptStoreCatalogItem);
     await mockDelay();
     return storeItems;
   },
-  async purchaseItem(itemId: string, idempotencyKey?: string) { if (canUseBrowserApi()) return apiClient.purchaseStoreListing(itemId, idempotencyKey ?? crypto.randomUUID()); await mockDelay(); return { itemId, balanceAfter: currentPlayer.synapsePoints - 3000, state: "OWNED" as const }; },
+  async purchaseItem(itemId: string, idempotencyKey?: string) { if (shouldUseBrowserApi()) return apiClient.purchaseStoreListing(itemId, idempotencyKey ?? crypto.randomUUID()); await mockDelay(); return { itemId, balanceAfter: currentPlayer.synapsePoints - 3000, state: "OWNED" as const }; },
 };
 
 function adaptStoreCatalogItem(item: ApiStoreCatalogItem): StoreItem {
@@ -139,25 +148,25 @@ function adaptStoreCatalogItem(item: ApiStoreCatalogItem): StoreItem {
   };
 }
 export const inventoryService = {
-  async getInventory(signal?: AbortSignal): Promise<InventoryItem[]> { if (canUseBrowserApi()) return (await apiClient.getInventory(signal)).items.map(adaptInventoryItem); await mockDelay(); return inventory; },
-  async equipItem(itemId: string, slot: EquipmentSlot = "FRAME") { if (canUseBrowserApi()) return (await apiClient.equipInventoryItem(itemId, slot)).items.map(adaptInventoryItem); await mockDelay(); return inventory.map((item) => item.id === itemId ? { ...item, state: "Equipped" as const } : item); },
-  async unequip(slot: EquipmentSlot) { if (canUseBrowserApi()) return (await apiClient.unequipSlot(slot)).items.map(adaptInventoryItem); await mockDelay(); return inventory; },
-  async renameDisplayName(itemId: string, displayName: string, idempotencyKey: string) { if (!canUseBrowserApi()) throw new ApiClientError("API_MODE_REQUIRED", "Rename Cards require API mode.", 400); const result = await apiClient.renameDisplayName(itemId, displayName, idempotencyKey); return { ...result, items: result.inventory.items.map(adaptInventoryItem) }; },
+  async getInventory(signal?: AbortSignal): Promise<InventoryItem[]> { if (shouldUseBrowserApi()) return (await apiClient.getInventory(signal)).items.map(adaptInventoryItem); await mockDelay(); return inventory; },
+  async equipItem(itemId: string, slot: EquipmentSlot = "FRAME") { if (shouldUseBrowserApi()) return (await apiClient.equipInventoryItem(itemId, slot)).items.map(adaptInventoryItem); await mockDelay(); return inventory.map((item) => item.id === itemId ? { ...item, state: "Equipped" as const } : item); },
+  async unequip(slot: EquipmentSlot) { if (shouldUseBrowserApi()) return (await apiClient.unequipSlot(slot)).items.map(adaptInventoryItem); await mockDelay(); return inventory; },
+  async renameDisplayName(itemId: string, displayName: string, idempotencyKey: string) { if (!shouldUseBrowserApi()) throw new ApiClientError("API_MODE_REQUIRED", "Rename Cards require API mode.", 400); const result = await apiClient.renameDisplayName(itemId, displayName, idempotencyKey); return { ...result, items: result.inventory.items.map(adaptInventoryItem) }; },
 };
 function adaptInventoryItem(item: Awaited<ReturnType<typeof apiClient.getInventory>>["items"][number]): InventoryItem {
   const categories: Record<string, InventoryItem["category"]> = { FRAME: "Frames", BADGE: "Badges", AVATAR: "Avatars", RENAME_CARD: "Rename Cards", COUPON: "Coupons", COSMETIC: "Special" };
   const rarity = item.rarity?.toLowerCase();
   return { id: item.inventoryItemId, rewardDefinitionId: item.rewardDefinitionId, code: item.code, rewardType: item.rewardType, name: item.name, description: item.description, imageUrl: item.imageUrl, category: categories[item.rewardType] ?? "Special", state: item.equippedSlots.length ? "Equipped" : ["RENAME_CARD", "COUPON"].includes(item.rewardType) ? "Consumable" : "Owned", rarity: rarity === "rare" || rarity === "epic" || rarity === "legendary" ? rarity : "common", quantity: item.quantity, firstAcquiredAt: item.firstAcquiredAt, equippedSlots: item.equippedSlots };
 }
-export const couponService = { async getCoupons() { await mockDelay(); return coupons; } };
-export const activityService = { async getActivity() { await mockDelay(); return activity; } };
-export const friendService = { async getFriends() { await mockDelay(); return players.slice(1).map((player) => ({ player, since: "2026-08-01" })); }, async searchPlayers(query: string) { await mockDelay(); return players.filter((p) => `${p.publicPlayerId} ${p.displayName}`.toLowerCase().includes(query.toLowerCase())); }, async sendRequest(playerId: string) { await mockDelay(); return { playerId, status: "SENT" }; }, async getRequests() { await mockDelay(); return friendRequests; } };
-export const notificationService = { async getNotifications() { await mockDelay(); return notifications; }, async markAllRead() { await mockDelay(); return true; } };
-export const seasonService = { async getCurrentSeason() { await mockDelay(); return season; } };
+export const couponService = { async getCoupons() { requireMockMode("Coupons screen"); await mockDelay(); return coupons; } };
+export const activityService = { async getActivity() { requireMockMode("Activity feed"); await mockDelay(); return activity; } };
+export const friendService = { async getFriends() { requireMockMode("Friends"); await mockDelay(); return players.slice(1).map((player) => ({ player, since: "2026-08-01" })); }, async searchPlayers(query: string) { requireMockMode("Friend search"); await mockDelay(); return players.filter((p) => `${p.publicPlayerId} ${p.displayName}`.toLowerCase().includes(query.toLowerCase())); }, async sendRequest(playerId: string) { requireMockMode("Friend requests"); await mockDelay(); return { playerId, status: "SENT" }; }, async getRequests() { requireMockMode("Friend requests"); await mockDelay(); return friendRequests; } };
+export const notificationService = { async getNotifications() { requireMockMode("Notifications"); await mockDelay(); return notifications; }, async markAllRead() { requireMockMode("Notifications"); await mockDelay(); return true; } };
+export const seasonService = { async getCurrentSeason() { requireMockMode("Seasons"); await mockDelay(); return season; } };
 const mockWheelStatus: RewardWheelStatus = { available: true, wheel: { code: "MOCK_DAILY", name: "Reward Wheel", cycleSeconds: 86400, cycleStartedAt: null, cycleEndsAt: null, spinsUsed: 0, maxSpinsPerCycle: 4, spinsRemaining: 4, nextSpinNumber: 1, nextSpinCostSynapsePoints: 0, nextSpinIsFree: true, canAffordNextSpin: true, canSpin: true, unavailableReason: null, segments: [] } };
 export const rewardService = {
-  async getWheelStatus(signal?: AbortSignal): Promise<RewardWheelStatus> { if (canUseBrowserApi()) return apiClient.getRewardWheel(signal); await mockDelay(); return mockWheelStatus; },
-  async spinWheel(idempotencyKey?: string): Promise<RewardWheelResult> { if (canUseBrowserApi()) return apiClient.spinRewardWheel(idempotencyKey ?? crypto.randomUUID()); await mockDelay(); return { rewardId: "rw-coin-700", rewardType: "Synapse Points", rewardLabel: "700 Synapse Points", rewardValue: 700, resultingBalance: currentPlayer.synapsePoints + 700, wheelSegmentIndex: 3 }; },
+  async getWheelStatus(signal?: AbortSignal): Promise<RewardWheelStatus> { if (shouldUseBrowserApi()) return apiClient.getRewardWheel(signal); await mockDelay(); return mockWheelStatus; },
+  async spinWheel(idempotencyKey?: string): Promise<RewardWheelResult> { if (shouldUseBrowserApi()) return apiClient.spinRewardWheel(idempotencyKey ?? crypto.randomUUID()); await mockDelay(); return { rewardId: "rw-coin-700", rewardType: "Synapse Points", rewardLabel: "700 Synapse Points", rewardValue: 700, resultingBalance: currentPlayer.synapsePoints + 700, wheelSegmentIndex: 3 }; },
 };
 export const adminService = {
   async getOverview() { await mockDelay(); return { players: players.length, pendingSubmissions: 8, activeMissions: 12, rewardsDistributed: 18400, season: season.name }; },
