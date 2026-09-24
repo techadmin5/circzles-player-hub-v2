@@ -37,6 +37,7 @@
   ],
   "exclude": [
     "node_modules",
-    "_claude-ui-reference"
+    "_claude-ui-reference",
+    "backend"
   ]
 }
