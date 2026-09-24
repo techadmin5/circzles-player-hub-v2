@@ -178,7 +178,7 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
     }, "token exchange");
     const parsedTokens = tokenResponseSchema.safeParse(tokens);
     if (!parsedTokens.success) throw providerMalformed("token exchange");
-    const memberResult = await this.requestJson("/members/v1/members/my", {
+    const memberResult = await this.requestJson("/members/v1/members/my?fieldsets=FULL", {
       method: "GET",
       headers: { Authorization: parsedTokens.data.access_token },
     }, "member identity");

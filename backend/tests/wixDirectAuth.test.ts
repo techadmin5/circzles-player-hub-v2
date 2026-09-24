@@ -54,10 +54,11 @@ describe("WixDirectAuthProvider", () => {
     expect(wix.calls[4].init?.headers).toEqual({ Authorization: "member-access-token" });
   });
 
-  it("rejects a Wix member whose login email is not provider-verified", async () => {
+  it("rejects a Google-authenticated Wix member whose login email is explicitly unverified", async () => {
     const { provider, state, wix } = await startGoogleFlow();
     wix.responses.push(ok({ access_token: "member-token" }), ok({ member: { ...verifiedMember.member, loginEmailVerified: false } }));
     await expect(provider.completeAuthorization({ code: "code", state })).rejects.toMatchObject({ code: "WIX_MEMBER_IDENTITY_INVALID", statusCode: 502 });
+    expect(wix.calls[3].url).toBe("https://wix.example.test/members/v1/members/my?fieldsets=FULL");
   });
 
   it("maps invalid credentials safely without returning provider data", async () => {
@@ -144,12 +145,13 @@ describe("WixDirectAuthProvider", () => {
     await expect(retryProvider.verifyEmailSignup({ challengeId: retryChallenge.challengeId, code: "000000", returnTo: "/hub" })).rejects.toMatchObject({ code: "WIX_SIGNUP_VERIFICATION_INVALID", statusCode: 400 });
   });
 
-  it("validates Google OAuth state and returns a Google identity", async () => {
+  it("requests the full Wix member projection and returns a verified Google identity", async () => {
     const { provider, state, wix } = await startGoogleFlow();
     expect(bodyAt(wix.calls, 1).auth.authRequest).toMatchObject({ idp: "0e6a50f5-b523-4e29-990d-f37fa2ffdd69", responseMode: "query" });
     await expect(provider.completeAuthorization({ code: "code", state: `${state}tampered` })).rejects.toMatchObject({ code: "WIX_AUTH_STATE_INVALID", statusCode: 400 });
     wix.responses.push(ok({ access_token: "google-member-token" }), ok(verifiedMember));
     const completed = await provider.completeAuthorization({ code: "code", state });
+    expect(wix.calls[3].url).toBe("https://wix.example.test/members/v1/members/my?fieldsets=FULL");
     expect(completed.identity).toMatchObject({ sourceSite: "CIRCZLES_COM", provider: "GOOGLE", externalIdentityId: "wix-member-1", emailVerified: true });
   });
 
