@@ -5,7 +5,7 @@ import { playerService } from "@/services";
 import { dataMode } from "@/config/dataMode";
 
 export default async function Page() {
-  const player = await playerService.getMockCurrentPlayer();
+  const player = dataMode === "mock" ? await playerService.getMockCurrentPlayer() : undefined;
   return (
     <GameShell player={player}>
       <PageHeader kicker="Loadout" title="Inventory" subtitle="Your frames, badges, cards, coupons & special items" />

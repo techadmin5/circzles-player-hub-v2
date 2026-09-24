@@ -20,7 +20,7 @@ function stateFor(order: number, currentOrder: number): RankState {
   return "locked";
 }
 
-export function ProgressionCodex({ open, onClose, player }: { open: boolean; onClose: () => void; player: PlayerProfile }) {
+export function ProgressionCodex({ open, onClose, player, showRewardPreview = true }: { open: boolean; onClose: () => void; player: PlayerProfile; showRewardPreview?: boolean }) {
   const current = rankFor(player.progressionLevel);
   const [selectedKey, setSelectedKey] = useState(current.key);
   const selected = progressionRanks.find((r) => r.key === selectedKey) ?? current;
@@ -60,11 +60,10 @@ export function ProgressionCodex({ open, onClose, player }: { open: boolean; onC
                     {state === "current" ? `${formatNumber(player.xp)} / ${formatNumber(player.xpNeeded)} XP` : `Unlocks at Progression Level ${selected.progressionLevel}`}
                   </p>
                 </div>
-                <div className="cz-inset w-full max-w-[230px] px-4 py-3">
+                {showRewardPreview && <div className="cz-inset w-full max-w-[230px] px-4 py-3">
                   <p className="mb-1 flex items-center gap-1.5 text-[0.62rem] uppercase tracking-wider text-[var(--cz-text-tertiary)]"><Gift size={12} />Reward preview</p>
                   <p className="text-sm text-[var(--cz-text-secondary)]">{selected.rewards.join(" · ")}</p>
-                  <p className="mt-1 text-[0.62rem] text-[var(--cz-text-tertiary)]">Placeholder tier · final values set by backend</p>
-                </div>
+                </div>}
                 {next && state === "current" && <p className="text-xs text-[var(--cz-text-tertiary)]">Next rank: <span className="text-[var(--cz-text-secondary)]">{next.rank}</span></p>}
               </div>
 

@@ -5,7 +5,7 @@ import { dataMode } from "@/config/dataMode";
 import { playerService } from "@/services";
 
 export default async function Page() {
-  const player = await playerService.getMockCurrentPlayer();
+  const player = dataMode === "mock" ? await playerService.getMockCurrentPlayer() : undefined;
   return (
     <GameShell player={player}>
       <PageHeader kicker="Objectives" title="Missions" subtitle="Daily, weekly, sprint, season, event & achievement goals" />

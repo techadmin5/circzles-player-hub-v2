@@ -3,8 +3,11 @@ import { PageHeader, EmptyState } from "@/components/ui/kit";
 import { ActivityTimeline } from "@/components/activity/ActivityTimeline";
 import { Activity } from "lucide-react";
 import { activityService, playerService } from "@/services";
+import { dataMode } from "@/config/dataMode";
+import { FeatureUnavailable } from "@/components/production/FeatureUnavailable";
 
 export default async function Page() {
+  if (dataMode === "api") return <GameShell><FeatureUnavailable title="Activity" description="A production activity API is not available yet." /></GameShell>;
   const [player, events] = await Promise.all([playerService.getMockCurrentPlayer(), activityService.getActivity()]);
   return (
     <GameShell player={player}>

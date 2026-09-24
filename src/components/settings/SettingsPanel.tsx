@@ -3,6 +3,7 @@
 import { Volume2 } from "lucide-react";
 import { useSound } from "@/hooks/useSound";
 import { cn } from "@/lib/utils";
+import { dataMode } from "@/config/dataMode";
 
 function Toggle({ label, description, checked, onChange, testid }: { label: string; description: string; checked: boolean; onChange: (v: boolean) => void; testid: string }) {
   return (
@@ -31,8 +32,8 @@ const PROFILE_FIELDS = ["First Name", "Last Name", "Email", "Display Name", "Cou
 export function SettingsPanel() {
   const { master, effects, music, reducedMotion, notifications, effectsVolume, musicVolume, setSound } = useSound();
   return (
-    <div className="grid gap-5 lg:grid-cols-2">
-      <section className="cz-surface grid gap-3 p-5">
+    <div className={cn("grid min-w-0 gap-5", dataMode === "mock" && "lg:grid-cols-2")}>
+      {dataMode === "mock" && <section className="cz-surface grid gap-3 p-5">
         <h2 className="cz-display text-base font-bold">Profile Settings</h2>
         <p className="text-xs text-[var(--cz-text-tertiary)]">Only <span className="text-[var(--cz-text-secondary)]">Display Name</span> is renameable. Your player IDs stay immutable.</p>
         {PROFILE_FIELDS.map((f) => (
@@ -42,7 +43,7 @@ export function SettingsPanel() {
           </label>
         ))}
         <button className="cz-btn cz-btn-primary mt-1 w-fit" data-testid="save-profile">Save Changes</button>
-      </section>
+      </section>}
 
       <section className="cz-surface grid content-start gap-3 p-5">
         <h2 className="cz-display flex items-center gap-2 text-base font-bold"><Volume2 size={17} className="text-[var(--cz-aqua)]" />Game & Sound</h2>

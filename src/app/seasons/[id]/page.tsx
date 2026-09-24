@@ -5,8 +5,11 @@ import { PageHeader, Chip, SectionHeader, Stat } from "@/components/ui/kit";
 import { MissionCard } from "@/components/missions/missions";
 import { playerService, seasonService } from "@/services";
 import { formatDate } from "@/lib/format";
+import { dataMode } from "@/config/dataMode";
+import { FeatureUnavailable } from "@/components/production/FeatureUnavailable";
 
 export default async function Page() {
+  if (dataMode === "api") return <GameShell><FeatureUnavailable title="Season" description="Season details are deferred until the production season API is available." /></GameShell>;
   const [player, season] = await Promise.all([playerService.getMockCurrentPlayer(), seasonService.getCurrentSeason()]);
   return (
     <GameShell player={player}>

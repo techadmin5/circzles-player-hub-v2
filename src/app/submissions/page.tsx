@@ -4,9 +4,11 @@ import { GameShell } from "@/components/game-shell/GameShell";
 import { PageHeader } from "@/components/ui/kit";
 import { SubmissionListClient } from "@/components/submissions/SubmissionListClient";
 import { playerService, submissionService } from "@/services";
+import { dataMode } from "@/config/dataMode";
 
 export default async function Page() {
-  const [player, submissions] = await Promise.all([playerService.getMockCurrentPlayer(), submissionService.getSubmissions()]);
+  const player = dataMode === "mock" ? await playerService.getMockCurrentPlayer() : undefined;
+  const submissions = dataMode === "mock" ? await submissionService.getSubmissions() : [];
   return (
     <GameShell player={player}>
       <PageHeader kicker="Verification" title="Submissions" subtitle="Track every solve through review" actions={<Link href="/submissions/new" className="cz-btn cz-btn-primary"><Camera size={16} />New Submission</Link>} />

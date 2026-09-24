@@ -44,6 +44,7 @@ function NavLink({ item, pathname, onClick }: { item: NavItem; pathname: string;
 }
 
 function Sidebar({ pathname, onLogout }: { pathname: string; onLogout: () => void }) {
+  const items = dataMode === "api" ? PRIMARY_NAV.filter((item) => PRODUCTION_NAV.has(item.href)) : PRIMARY_NAV;
   return (
     <aside className="sticky top-0 hidden h-dvh w-[236px] shrink-0 flex-col border-r border-[var(--cz-hairline)] bg-[var(--cz-surface)] px-3 py-5 lg:flex">
       <Link href="/hub" data-sound="navigation" className="mb-6 flex items-center gap-2.5 px-2">
@@ -51,13 +52,13 @@ function Sidebar({ pathname, onLogout }: { pathname: string; onLogout: () => voi
         <span className="cz-display text-[1.05rem] font-bold tracking-tight">CircZles</span>
       </Link>
       <nav className="cz-scroll flex flex-1 flex-col gap-0.5 overflow-y-auto pr-1">
-        {PRIMARY_NAV.map((item) => <NavLink key={item.href} item={item} pathname={pathname} />)}
+        {items.map((item) => <NavLink key={item.href} item={item} pathname={pathname} />)}
       </nav>
       <div className="mt-2 grid gap-0.5 border-t border-[var(--cz-hairline)] pt-2">
         <NavLink item={SETTINGS_ITEM} pathname={pathname} />
-        <Link href="/admin" data-sound="navigation" data-testid="nav-admin" className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-[var(--cz-text-tertiary)] transition-colors hover:bg-[var(--cz-gold-dim)] hover:text-[var(--cz-gold)]">
+        {dataMode === "mock" && <Link href="/admin" data-sound="navigation" data-testid="nav-admin" className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-[var(--cz-text-tertiary)] transition-colors hover:bg-[var(--cz-gold-dim)] hover:text-[var(--cz-gold)]">
           <Shield size={18} />Admin Area
-        </Link>
+        </Link>}
         <button type="button" onClick={onLogout} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-[var(--cz-text-tertiary)] transition-colors hover:bg-white/[0.03] hover:text-[var(--cz-text-primary)]">
           <LogOut size={18} />Log out
         </button>
@@ -82,9 +83,7 @@ function TopBar({ player, onOpenMenu }: { player?: PlayerProfile; onOpenMenu: ()
             <Gem size={15} /><span className="cz-num">{formatNumber(balance)}</span>
           </Link>
         )}
-        <Link href="/notifications" onClick={() => playSound("navigation")} data-testid="topbar-notifications" aria-label="Notifications" className="grid h-9 w-9 place-items-center rounded-full border border-[var(--cz-hairline)] bg-white/[0.03] text-[var(--cz-text-secondary)] transition-colors hover:text-[var(--cz-text-primary)]">
-          <Bell size={17} />
-        </Link>
+        {dataMode === "mock" && <Link href="/notifications" onClick={() => playSound("navigation")} data-testid="topbar-notifications" aria-label="Notifications" className="grid h-9 w-9 place-items-center rounded-full border border-[var(--cz-hairline)] bg-white/[0.03] text-[var(--cz-text-secondary)] transition-colors hover:text-[var(--cz-text-primary)]"><Bell size={17} /></Link>}
         <Link href="/profile" onClick={() => playSound("navigation")} data-testid="topbar-profile" aria-label="Profile" className="relative hidden h-9 w-9 overflow-hidden rounded-full border border-[var(--cz-hairline-strong)] bg-[var(--cz-surface-raised)] min-[430px]:block">
           <Image src={player?.avatar || DEFAULT_AVATAR} alt="" fill sizes="36px" className="object-cover" />
         </Link>
@@ -97,6 +96,7 @@ function TopBar({ player, onOpenMenu }: { player?: PlayerProfile; onOpenMenu: ()
 }
 
 function MoreSheet({ open, onClose, pathname, onLogout }: { open: boolean; onClose: () => void; pathname: string; onLogout: () => void }) {
+  const items = dataMode === "api" ? MORE_NAV.filter((item) => PRODUCTION_NAV.has(item.href)) : MORE_NAV;
   return (
     <AnimatePresence>
       {open && (
@@ -112,7 +112,7 @@ function MoreSheet({ open, onClose, pathname, onLogout }: { open: boolean; onClo
               <button onClick={() => { playSound("modalClose"); onClose(); }} aria-label="Close menu" className="grid h-9 w-9 place-items-center rounded-full border border-[var(--cz-hairline)] text-[var(--cz-text-tertiary)]"><X size={18} /></button>
             </div>
             <div className="grid grid-cols-2 gap-2 pb-[env(safe-area-inset-bottom)]">
-              {MORE_NAV.map((item) => {
+              {items.map((item) => {
                 const active = isActive(pathname, item.href);
                 const Icon = item.icon;
                 return (
@@ -123,10 +123,10 @@ function MoreSheet({ open, onClose, pathname, onLogout }: { open: boolean; onClo
                   </Link>
                 );
               })}
-              <Link href="/admin" onClick={onClose} data-sound="navigation" data-testid="more-admin" className="col-span-2 flex items-center justify-between gap-2 rounded-xl border border-[rgba(232,180,80,0.3)] bg-[var(--cz-gold-dim)] px-3 py-3 text-sm font-medium text-[var(--cz-gold)]">
+              {dataMode === "mock" && <Link href="/admin" onClick={onClose} data-sound="navigation" data-testid="more-admin" className="col-span-2 flex items-center justify-between gap-2 rounded-xl border border-[rgba(232,180,80,0.3)] bg-[var(--cz-gold-dim)] px-3 py-3 text-sm font-medium text-[var(--cz-gold)]">
                 <span className="flex items-center gap-2.5"><Shield size={17} />Admin Area</span>
                 <ChevronRight size={15} />
-              </Link>
+              </Link>}
               <button type="button" onClick={onLogout} className="col-span-2 flex items-center justify-center gap-2 rounded-xl border border-[var(--cz-hairline)] px-3 py-3 text-sm font-medium text-[var(--cz-text-secondary)]"><LogOut size={17} />Log out</button>
             </div>
           </motion.div>
@@ -159,7 +159,7 @@ function MobileNav({ pathname, onOpenMore }: { pathname: string; onOpenMore: () 
 export function GameShell({ player, children }: { player?: PlayerProfile; children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { logout } = useAuth();
+  const { logout, player: authenticatedPlayer } = useAuth();
   const [moreOpen, setMoreOpen] = useState(false);
 
   useEffect(() => {
@@ -174,11 +174,13 @@ export function GameShell({ player, children }: { player?: PlayerProfile; childr
     <div className="min-h-dvh lg:flex">
       <Sidebar pathname={pathname} onLogout={handleLogout} />
       <div className="flex min-h-dvh w-full min-w-0 flex-col">
-        <TopBar player={player} onOpenMenu={() => setMoreOpen(true)} />
-        <main className="mx-auto w-full max-w-[1240px] flex-1 px-4 pb-28 pt-6 lg:px-8 lg:pb-12">{children}</main>
+        <TopBar player={dataMode === "api" ? authenticatedPlayer : player} onOpenMenu={() => setMoreOpen(true)} />
+        <main className="mx-auto min-w-0 w-full max-w-[1240px] flex-1 overflow-x-clip px-4 pb-28 pt-6 lg:px-8 lg:pb-12">{children}</main>
       </div>
       <MobileNav pathname={pathname} onOpenMore={() => setMoreOpen(true)} />
       <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} pathname={pathname} onLogout={handleLogout} />
     </div>
   </AuthenticatedRoute>;
 }
+
+const PRODUCTION_NAV = new Set(["/hub", "/puzzles", "/submissions", "/leaderboard", "/missions", "/rewards", "/inventory", "/profile", "/settings"]);
