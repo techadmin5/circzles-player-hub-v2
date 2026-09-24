@@ -52,16 +52,20 @@ Existing pre-migration Wix links default to `CIRCZLES_COM`. Development must ins
 
 ## Direct Authentication
 
-The backend exposes provider-neutral seams for:
+The production `WixDirectAuthProvider` uses the canonical `circzles.com` Wix Headless OAuth client for:
 
-- email/password login
-- email/password signup challenge
-- one-time signup email verification
-- Google authorization start/callback
+- Email login through Authentication API Login V2.
+- Email signup through Register V2 followed by Verify During Authentication. Player Hub requires Wix to return the email-verification state; an immediate registration success is rejected so signup cannot bypass the requested OTP.
+- Google login through a Wix Redirect Session using Wix's Google connection ID.
+- A common OAuth 2.0 authorization-code callback with PKCE, followed by `GET /members/v1/members/my`.
 
-Passwords and OTP values are passed only to the configured identity provider adapter and are never persisted by Player Hub. Direct identities must come back as verified `CIRCZLES_COM` identities with the expected `EMAIL` or `GOOGLE` provider.
+Login, registration, verification, redirect, token, and member calls use Wix visitor/member OAuth tokens. Passwords and OTP values are sent only to Wix and are never persisted. Wix state tokens, PKCE verifiers, expected email, flow, expiry, and local return path are carried only inside short-lived AES-GCM authenticated opaque values. Provider access/refresh tokens remain request-local and are never returned to the browser or stored by Player Hub.
 
-No Wix direct-auth API behavior is guessed in this phase. The default adapter returns `DIRECT_AUTH_PROVIDER_NOT_CONFIGURED`; live direct login requires a separately verified Wix Headless/member-auth adapter. Facebook remains optional and is not exposed.
+The callback accepts only unexpired authenticated state, exchanges the code with the configured Headless client and exact callback URI, and requires a canonical member ID, `loginEmail`, and `loginEmailVerified: true`. Email flows additionally require the returned normalized email to match the email Wix authenticated. Only then does the existing identity service create or link the Player Hub user/player and issue its own HttpOnly session.
+
+Optional request fields `captchaToken` and `captchaType` (`RECAPTCHA` or `INVISIBLE_RECAPTCHA`) map to Wix's documented CAPTCHA token contract. Wix CAPTCHA failures return `WIX_CAPTCHA_REQUIRED`; Player Hub never bypasses the challenge. The unconfigured adapter remains the safe fallback whenever `WIX_CLIENT_ID` or `WIX_DIRECT_AUTH_CALLBACK_URL` is absent. Facebook remains deferred.
+
+`returnTo` is restricted to a relative local path. Wix state validation and the backend-owned frontend origin prevent open redirects.
 
 ## Sessions
 
@@ -84,6 +88,6 @@ Development auto-login remains limited to development, API mode, explicit opt-in
 
 ## Migration Status
 
-`0019_glossy_polaris.sql`: **GENERATED / NOT APPLIED**.
+`0019_glossy_polaris.sql`: **APPLIED AND VERIFIED ON NEON DEVELOPMENT ONLY**.
 
-It must be inspected and applied manually only after the existing identity-link source assumption is confirmed.
+Production migration remains a separate controlled deployment action.

@@ -17,4 +17,16 @@ describe("authentication environment safety", () => {
   it("rejects short handoff secrets", () => {
     expect(() => loadEnv({ ...base, AUTH_HANDOFF_CIRCZLES_COM_SECRET: "too-short" })).toThrow();
   });
+
+  it("normalizes blank optional Wix direct-auth settings and validates configured callback URLs", () => {
+    expect(loadEnv({ ...base, WIX_CLIENT_ID: "", WIX_DIRECT_AUTH_CALLBACK_URL: "" })).toMatchObject({
+      WIX_CLIENT_ID: undefined,
+      WIX_DIRECT_AUTH_CALLBACK_URL: undefined,
+    });
+    expect(() => loadEnv({ ...base, WIX_CLIENT_ID: "client-id", WIX_DIRECT_AUTH_CALLBACK_URL: "not-a-url" })).toThrow();
+    expect(loadEnv({ ...base, WIX_CLIENT_ID: " client-id ", WIX_DIRECT_AUTH_CALLBACK_URL: "https://api.example.test/api/auth/direct/google/callback" })).toMatchObject({
+      WIX_CLIENT_ID: "client-id",
+      WIX_DIRECT_AUTH_CALLBACK_URL: "https://api.example.test/api/auth/direct/google/callback",
+    });
+  });
 });

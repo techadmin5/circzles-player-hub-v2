@@ -1,6 +1,9 @@
 import "dotenv/config";
 import { z } from "zod";
 
+const optionalTrimmedString = z.preprocess((value) => typeof value === "string" && !value.trim() ? undefined : value, z.string().trim().min(1).optional());
+const optionalUrl = z.preprocess((value) => typeof value === "string" && !value.trim() ? undefined : value, z.string().url().optional());
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(4000),
@@ -15,7 +18,8 @@ const envSchema = z.object({
   SESSION_COOKIE_SAME_SITE: z.enum(["lax", "strict", "none"]).default("lax"),
   AUTH_HANDOFF_CIRCZLES_COM_SECRET: z.string().min(32).optional(),
   AUTH_HANDOFF_CIRCZLES_IN_SECRET: z.string().min(32).optional(),
-  WIX_CLIENT_ID: z.string().optional(),
+  WIX_CLIENT_ID: optionalTrimmedString,
+  WIX_DIRECT_AUTH_CALLBACK_URL: optionalUrl,
   WIX_APP_ID: z.string().optional(),
   WIX_APP_SECRET: z.string().optional(),
   WIX_CIRCZLES_IN_APP_ID: z.string().optional(),

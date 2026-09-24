@@ -196,24 +196,28 @@ describe("http auth poc", () => {
     expect(response.json().code).toBe("DIRECT_AUTH_PROVIDER_NOT_CONFIGURED");
   });
 
-  it("accepts direct login only from a verified canonical provider identity", async () => {
+  it("creates a session only after the direct provider callback returns a verified canonical identity", async () => {
     const verified = { sourceSite: "CIRCZLES_COM" as const, provider: "EMAIL" as const, externalIdentityId: "canonical-member", verifiedEmail: "player@example.com", emailVerified: true as const, displayName: "Verified Player" };
     const directAuth: DirectAuthProvider = {
-      loginWithEmail: async () => verified,
+      loginWithEmail: async () => ({ authorizationUrl: "https://identity.example.test/email" }),
       startEmailSignup: async () => ({ challengeId: "challenge" }),
-      verifyEmailSignup: async () => verified,
+      verifyEmailSignup: async () => ({ authorizationUrl: "https://identity.example.test/verify" }),
       getGoogleAuthorizationUrl: async () => ({ authorizationUrl: "https://identity.example.test/start" }),
-      completeGoogleAuthorization: async () => ({ ...verified, provider: "GOOGLE" }),
+      completeAuthorization: async () => ({ identity: verified, returnTo: "/hub" }),
     };
     const { app } = await appWithFakes({}, directAuth);
     const response = await app.inject({ method: "POST", url: "/api/auth/direct/email/login", payload: { email: "player@example.com", password: "strong-password" } });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({ displayName: "Verified Player" });
-    expect(response.headers["set-cookie"]).toContain("HttpOnly");
+    expect(response.json()).toEqual({ authorizationUrl: "https://identity.example.test/email" });
+    expect(response.headers["set-cookie"]).toBeUndefined();
+    const callback = await app.inject({ method: "GET", url: "/api/auth/direct/google/callback?code=code&state=state" });
+    expect(callback.statusCode).toBe(302);
+    expect(callback.headers.location).toBe("http://localhost:3000/hub");
+    expect(callback.headers["set-cookie"]).toContain("HttpOnly");
 
-    const wrongSite = { ...directAuth, loginWithEmail: async () => ({ ...verified, sourceSite: "CIRCZLES_IN" as const }) };
+    const wrongSite: DirectAuthProvider = { ...directAuth, completeAuthorization: async () => ({ identity: { ...verified, sourceSite: "CIRCZLES_IN" }, returnTo: "/hub" }) };
     const other = await appWithFakes({}, wrongSite);
-    const rejected = await other.app.inject({ method: "POST", url: "/api/auth/direct/email/login", payload: { email: "player@example.com", password: "strong-password" } });
+    const rejected = await other.app.inject({ method: "GET", url: "/api/auth/direct/google/callback?code=code&state=state" });
     expect(rejected.statusCode).toBe(502);
     expect(rejected.json().code).toBe("DIRECT_AUTH_IDENTITY_INVALID");
   });

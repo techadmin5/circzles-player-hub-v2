@@ -2,7 +2,7 @@
 
 ## Status
 
-**IMPLEMENTED AND AUTOMATED-TESTED / EXTERNAL PROVIDER CONFIGURATION AND DATABASE MIGRATION PENDING**
+**IMPLEMENTED, AUTOMATED-TESTED, AND DEVELOPMENT RUNTIME-VERIFIED / PRODUCTION DEPLOYMENT PENDING**
 
 ## Implemented
 
@@ -21,15 +21,15 @@ All private gameplay routes continue deriving `player_id` from the authenticated
 
 ## Migration
 
-`backend/drizzle/0019_glossy_polaris.sql` is generated and **was not run**. Before manual Development application, inspect historical `wix_identity_links`: the generated migration defaults existing links to `CIRCZLES_COM`, so any historical `circzles.in` link must be identified and handled deliberately.
+`backend/drizzle/0019_glossy_polaris.sql` was manually applied and verified on Neon Development. Health, development login, session reuse, logout/revocation, and the fail-closed unconfigured direct-auth boundary passed runtime smoke testing. Production was not migrated.
 
 ## External Boundary
 
-The signed website handoff contract is complete but must be implemented in each Wix site's server-side code with its own secret. Direct email/password, signup OTP, and Google login deliberately use an unconfigured provider adapter until the exact Wix Headless/member-auth contract is verified. There is no fake authentication success.
+The signed website handoff contract is complete but must be implemented in each Wix site's server-side code with its own secret. The Wix Headless direct-auth adapter is implemented separately in Phase Auth B. There is no fake authentication success.
 
 ## Known Limitations
 
 - Facebook is deferred.
-- Direct email/Google live verification is blocked on the real Wix adapter and settings.
-- Migration and real PostgreSQL concurrency were not runtime-tested in this implementation step.
+- Direct email/Google live verification depends on Phase Auth B Wix dashboard configuration and runtime smoke testing.
+- No real PostgreSQL concurrency test was performed in this implementation step.
 - Browser cookie behavior must be verified using final Vercel/API custom domains.

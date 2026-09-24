@@ -538,6 +538,6 @@ Migration `0010_medical_gideon.sql` contains schema only, with no drops or seed 
 
 ## Phase Auth A Identity Changes
 
-Migration `0019_glossy_polaris.sql` is generated and not applied. It adds normalized verified email and safe profile/login fields to `users`; changes `wix_identity_links` from one-link-per-user/global-member uniqueness to source-scoped identity uniqueness; adds sliding-session timestamps; and adds `auth_handoff_exchanges` for one-time handoff consumption.
+Migration `0019_glossy_polaris.sql` was applied and verified on Neon Development only. It adds normalized verified email and safe profile/login fields to `users`; changes `wix_identity_links` from one-link-per-user/global-member uniqueness to source-scoped identity uniqueness; adds sliding-session timestamps; and adds `auth_handoff_exchanges` for one-time handoff consumption. No Auth B schema change or migration is required.
 
 No gameplay ownership foreign key changes. XP, wallets, puzzles, submissions, missions, rewards, inventory, wheel, leaderboard, and coupon state continue referencing `players.player_id`.

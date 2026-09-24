@@ -9,7 +9,7 @@ import { useAuth } from "./AuthProvider";
 
 export function LoginForm({ returnTo }: { returnTo: string }) {
   const router = useRouter();
-  const { status, acceptAuthentication } = useAuth();
+  const { status } = useAuth();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -22,9 +22,8 @@ export function LoginForm({ returnTo }: { returnTo: string }) {
     setBusy(true); setError("");
     const data = new FormData(event.currentTarget);
     try {
-      const player = await apiClient.loginWithEmail(String(data.get("email")), String(data.get("password")));
-      acceptAuthentication(player);
-      router.replace(returnTo);
+      const { authorizationUrl } = await apiClient.loginWithEmail(String(data.get("email")), String(data.get("password")), returnTo);
+      window.location.assign(authorizationUrl);
     } catch (caught) {
       setError(authMessage(caught));
     } finally { setBusy(false); }

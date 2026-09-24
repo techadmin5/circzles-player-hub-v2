@@ -54,9 +54,10 @@ export interface AppDeps {
 }
 
 const handoffExchangeBodySchema = z.object({ token: z.string().min(1).max(8192) }).strict();
-const emailLoginBodySchema = z.object({ email: z.string().email().max(320), password: z.string().min(8).max(256) }).strict();
-const emailSignupBodySchema = z.object({ displayName: z.string().trim().min(2).max(80), email: z.string().email().max(320), password: z.string().min(8).max(256) }).strict();
-const emailVerificationBodySchema = z.object({ challengeId: z.string().min(1).max(512), code: z.string().trim().min(4).max(12) }).strict();
+const captchaFields = { captchaToken: z.string().min(1).max(8192).optional(), captchaType: z.enum(["RECAPTCHA", "INVISIBLE_RECAPTCHA"]).optional() };
+const emailLoginBodySchema = z.object({ email: z.string().email().max(320), password: z.string().min(8).max(256), returnTo: z.string().optional(), ...captchaFields }).strict();
+const emailSignupBodySchema = z.object({ displayName: z.string().trim().min(2).max(80), email: z.string().email().max(320), password: z.string().min(8).max(256), ...captchaFields }).strict();
+const emailVerificationBodySchema = z.object({ challengeId: z.string().min(1).max(8192), code: z.string().trim().min(4).max(12), returnTo: z.string().optional() }).strict();
 const googleStartQuerySchema = z.object({ returnTo: z.string().optional() }).strict();
 const googleCallbackQuerySchema = z.object({ code: z.string().min(1).max(4096), state: z.string().min(1).max(4096) }).strict();
 
@@ -169,9 +170,7 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
   app.post("/api/auth/direct/email/login", async (request, reply) => {
     const body = emailLoginBodySchema.safeParse(request.body);
     if (!body.success) throw validationFailed("Invalid login request.", body.error.flatten());
-    const verified = requireCanonicalDirectIdentity(await directAuthProvider.loginWithEmail(body.data), "EMAIL");
-    const account = await identity.resolveVerifiedIdentity(verified);
-    return finishAuthentication(account, identity, gameState, reply, env);
+    return reply.send(await directAuthProvider.loginWithEmail({ ...body.data, returnTo: safeReturnTo(body.data.returnTo) }));
   });
 
   app.post("/api/auth/direct/email/signup", async (request, reply) => {
@@ -183,9 +182,7 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
   app.post("/api/auth/direct/email/verify", async (request, reply) => {
     const body = emailVerificationBodySchema.safeParse(request.body);
     if (!body.success) throw validationFailed("Invalid verification request.", body.error.flatten());
-    const verified = requireCanonicalDirectIdentity(await directAuthProvider.verifyEmailSignup(body.data), "EMAIL");
-    const account = await identity.resolveVerifiedIdentity(verified);
-    return finishAuthentication(account, identity, gameState, reply, env);
+    return reply.send(await directAuthProvider.verifyEmailSignup({ ...body.data, returnTo: safeReturnTo(body.data.returnTo) }));
   });
 
   app.get("/api/auth/direct/google/start", async (request, reply) => {
@@ -197,13 +194,14 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
 
   app.get("/api/auth/direct/google/callback", async (request, reply) => {
     const query = googleCallbackQuerySchema.safeParse(request.query);
-    if (!query.success) throw validationFailed("Invalid Google callback.", query.error.flatten());
-    const verified = requireCanonicalDirectIdentity(await directAuthProvider.completeGoogleAuthorization(query.data), "GOOGLE");
+    if (!query.success) throw validationFailed("Invalid Wix authentication callback.", query.error.flatten());
+    const completed = await directAuthProvider.completeAuthorization(query.data);
+    const verified = requireCanonicalDirectIdentity(completed.identity, completed.identity.provider);
     const account = await identity.resolveVerifiedIdentity(verified);
     const session = await identity.createSession(account.userId);
     setSessionCookie(reply, env, session.token, session.expiresAt);
     await gameState.ensurePlayerGameState(account.player.internalId);
-    return reply.redirect(`${env.FRONTEND_ORIGIN}/hub`);
+    return reply.redirect(`${env.FRONTEND_ORIGIN}${safeReturnTo(completed.returnTo)}`);
   });
 
   app.get("/api/me", async (request, reply) => {
@@ -494,7 +492,7 @@ function safeReturnTo(value: string | undefined) {
 }
 
 function requireCanonicalDirectIdentity(identity: VerifiedExternalIdentity, provider: IdentityProvider) {
-  if (identity.sourceSite !== "CIRCZLES_COM" || identity.provider !== provider || identity.emailVerified !== true) {
+  if (identity.sourceSite !== "CIRCZLES_COM" || !["EMAIL", "GOOGLE"].includes(provider) || identity.provider !== provider || identity.emailVerified !== true) {
     throw new AppError("DIRECT_AUTH_IDENTITY_INVALID", "The identity provider returned an invalid verified identity.", 502);
   }
   return identity;

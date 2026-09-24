@@ -10,7 +10,7 @@ import { authMessage } from "./LoginForm";
 
 export function SignupForm() {
   const router = useRouter();
-  const { status, acceptAuthentication } = useAuth();
+  const { status } = useAuth();
   const [challengeId, setChallengeId] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -32,8 +32,8 @@ export function SignupForm() {
     setBusy(true); setError("");
     const data = new FormData(event.currentTarget);
     try {
-      const player = await apiClient.verifyEmailSignup(challengeId, String(data.get("code")));
-      acceptAuthentication(player); router.replace("/hub");
+      const { authorizationUrl } = await apiClient.verifyEmailSignup(challengeId, String(data.get("code")));
+      window.location.assign(authorizationUrl);
     } catch (caught) { setError(authMessage(caught)); }
     finally { setBusy(false); }
   }
