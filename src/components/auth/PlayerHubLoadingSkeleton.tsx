@@ -38,23 +38,27 @@ function SessionLoadingTips() {
   }, []);
 
   return (
-    <section className="cz-inset min-h-[104px] overflow-hidden px-4 py-3.5" aria-live="polite" aria-atomic="true">
-      <p className="text-[0.65rem] font-bold uppercase tracking-[0.14em] text-[var(--cz-gold)]">While you wait</p>
-      <div className="relative mt-2 min-h-[44px]">
+    <aside
+      className="pointer-events-none fixed inset-x-3 bottom-[calc(76px+env(safe-area-inset-bottom))] z-40 mx-auto min-h-[82px] max-w-[580px] overflow-hidden rounded-xl border border-[rgba(61,234,212,0.28)] bg-[rgba(7,10,18,0.9)] px-4 py-3 shadow-[0_16px_44px_rgba(0,0,0,0.42)] backdrop-blur-md sm:inset-x-4 lg:bottom-8"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <p className="text-[0.62rem] font-bold uppercase tracking-[0.14em] text-[var(--cz-gold)]">Quick Tip</p>
+      <div className="relative mt-1.5 min-h-[42px]">
         <AnimatePresence mode="wait" initial={false}>
           <motion.p
             key={tipIndex}
             className="absolute inset-x-0 top-0 text-sm leading-5 text-[var(--cz-text-secondary)]"
-            initial={reduceMotion ? { opacity: 1 } : { opacity: 0, y: 5 }}
+            initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 5 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={reduceMotion ? { opacity: 1 } : { opacity: 0, y: -4 }}
-            transition={{ duration: reduceMotion ? 0 : 0.24 }}
+            exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -4 }}
+            transition={{ duration: reduceMotion ? 0.12 : 0.24 }}
           >
             {SESSION_LOADING_TIPS[tipIndex]}
           </motion.p>
         </AnimatePresence>
       </div>
-    </section>
+    </aside>
   );
 }
 
@@ -95,7 +99,7 @@ export function PlayerHubLoadingSkeleton() {
 
               <section className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1.45fr)_minmax(260px,0.75fr)]">
                 <div className="cz-surface grid gap-4 p-5"><SkeletonBlock className="h-5 w-40 rounded" /><SkeletonBlock className="h-24 w-full rounded-xl" /><SkeletonBlock className="h-24 w-full rounded-xl" /></div>
-                <div className="grid min-w-0 gap-5"><SessionLoadingTips /><div className="cz-surface grid gap-3 p-5"><SkeletonBlock className="h-5 w-36 rounded" /><SkeletonBlock className="h-14 w-full rounded-xl" /><SkeletonBlock className="h-14 w-full rounded-xl" /></div></div>
+                <div className="cz-surface grid min-w-0 gap-3 p-5"><SkeletonBlock className="h-5 w-36 rounded" /><SkeletonBlock className="h-14 w-full rounded-xl" /><SkeletonBlock className="h-14 w-full rounded-xl" /></div>
               </section>
             </div>
           </main>
@@ -105,6 +109,7 @@ export function PlayerHubLoadingSkeleton() {
           </nav>
         </div>
       </div>
+      <SessionLoadingTips />
     </div>
   );
 }
