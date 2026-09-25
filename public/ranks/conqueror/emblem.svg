@@ -1,1 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128"><path fill="#0b111c" stroke="#fef08a" stroke-width="6" d="M64 10 108 32v32c0 28-18 45-44 56-26-11-44-28-44-56V32z"/><path fill="#facc15" d="M32 54 48 34l16 20 16-20 16 20-8 36H40z"/><path fill="#7c2d12" d="M46 90h36v10H46z"/></svg>
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <defs><linearGradient id="conqueror-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#12141b"/><stop offset="100%" stop-color="#000000"/></linearGradient><linearGradient id="conqueror-trim" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#e8b450"/><stop offset="100%" stop-color="#3dead4"/></linearGradient><radialGradient id="conqueror-aura" cx="50%" cy="42%" r="70%"><stop offset="0%" stop-color="#3dead4" stop-opacity="0.5"/><stop offset="60%" stop-color="#e8b450" stop-opacity="0.18"/><stop offset="100%" stop-color="#3dead4" stop-opacity="0"/></radialGradient></defs>
+  <circle cx="50" cy="48" r="46" fill="url(#conqueror-aura)"/>
+  <path d="M50 1 L98 20 V50 C98 84 72 98 50 101 C28 98 2 84 2 50 V20 Z" fill="url(#conqueror-fill)" stroke="url(#conqueror-trim)" stroke-width="2"/>
+  <path d="M50 16 L62 42 L90 48 L64 58 L72 88 L50 68 L28 88 L36 58 L10 48 L38 42 Z" fill="url(#conqueror-trim)"/><circle cx="50" cy="50" r="6" fill="#000"/>
+</svg>
