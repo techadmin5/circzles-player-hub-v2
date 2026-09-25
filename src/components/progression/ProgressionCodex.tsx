@@ -2,14 +2,16 @@
 
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Gift, X } from "lucide-react";
+import { Gift, LockKeyhole, X } from "lucide-react";
 import type { PlayerProfile } from "@/types";
 import { progressionRanks } from "@/config/progression";
 import { getRankVisualTreatment } from "@/config/rankVisualHierarchy";
-import { RankEmblem, type RankState } from "./RankEmblem";
+import { ProgressionBadge } from "./ProgressionBadge";
 import { playSound } from "@/hooks/useSound";
 import { formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
+
+type RankState = "completed" | "current" | "locked";
 
 function rankFor(progressionLevel: number) {
   return progressionRanks.reduce((current, rank) => (rank.progressionLevel <= progressionLevel ? rank : current), progressionRanks[0]);
@@ -59,7 +61,8 @@ export function ProgressionCodex({ open, onClose, player, showRewardPreview = tr
             <div className="cz-scroll grid h-[calc(100%-65px)] min-w-0 grid-cols-1 overflow-y-auto md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] md:overflow-hidden">
               <div className="flex min-w-0 flex-col items-center justify-center gap-4 border-b border-[var(--cz-hairline)] px-4 py-5 md:border-b-0 md:border-r md:px-8 md:py-8">
                 <div className="relative grid h-44 w-full max-w-[260px] place-items-center rounded-2xl border bg-black/15" style={{ borderColor: `${selectedVisual.primary}30`, boxShadow: `inset 0 0 36px ${selectedVisual.secondary}12` }}>
-                  <RankEmblem rank={selected.rank} state={state} size={150} />
+                  <ProgressionBadge rankName={selected.rank} size="lg" animated={state === "current"} className={cn(state === "locked" && "opacity-55 grayscale")} decorative />
+                  {state === "locked" && <span className="absolute bottom-3 right-3 z-[2] grid h-8 w-8 place-items-center rounded-full border border-white/15 bg-black/70 text-[var(--cz-text-secondary)]" aria-hidden="true"><LockKeyhole size={15} /></span>}
                 </div>
                 <div className="text-center">
                   <p className="cz-display text-2xl font-bold">{selected.rank}</p>
@@ -86,7 +89,10 @@ export function ProgressionCodex({ open, onClose, player, showRewardPreview = tr
                     <button key={rank.key} data-sound="tab" onClick={() => setSelectedKey(rank.key)} data-testid={`codex-rank-${rank.key}`}
                       className={cn("mb-2 grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1 rounded-xl border px-3 py-2.5 text-left transition-colors min-[390px]:grid-cols-[auto_minmax(0,1fr)_auto]", s === "locked" && "text-[var(--cz-text-secondary)]", selectedKey === rank.key ? "bg-white/[0.055]" : "bg-white/[0.02] hover:bg-white/[0.035]")}
                       style={{ borderColor: selectedKey === rank.key ? `${visual.primary}66` : `${visual.primary}${s === "locked" ? "18" : "30"}`, boxShadow: selectedKey === rank.key ? `inset 3px 0 0 ${visual.primary}aa, inset 0 0 22px ${visual.secondary}0d` : undefined }}>
-                      <RankEmblem rank={rank.rank} state={s} size={42} />
+                      <span className="relative grid h-[42px] w-[42px] shrink-0 place-items-center">
+                        <ProgressionBadge rankName={rank.rank} size="xs" className={cn(s === "locked" && "opacity-50 grayscale")} decorative />
+                        {s === "locked" && <span className="absolute -bottom-0.5 -right-0.5 z-[2] grid h-4 w-4 place-items-center rounded-full border border-white/15 bg-black/75 text-[var(--cz-text-tertiary)]" aria-hidden="true"><LockKeyhole size={9} /></span>}
+                      </span>
                       <div className="min-w-0">
                         <p className="cz-display truncate text-sm font-semibold">{rank.rank}</p>
                         <p className="text-xs text-[var(--cz-text-tertiary)]">Progression Level {rank.progressionLevel}</p>
