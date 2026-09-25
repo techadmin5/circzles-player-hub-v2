@@ -82,7 +82,7 @@ All private APIs continue deriving `player_id` from the session. Client-selected
 
 ## Frontend
 
-`AuthProvider` checks `/api/auth/session` at startup. `GameShell` routes render through `AuthenticatedRoute`; unauthenticated users are sent to `/login` with a safe local return path. `/login`, `/signup`, and `/auth/handoff` are the small public authentication surface. Production builds reject mock data mode.
+`AuthProvider` checks `/api/auth/session` at startup. That request returns only the authenticated core identity, allowing `AuthenticatedRoute` and `GameShell` to render immediately after session authority is established. The provider then hydrates the full gameplay profile asynchronously from `/api/me`; rank, XP, Synapse Points, and other gameplay values remain neutral loading states until that authoritative response arrives. Unauthenticated users are sent to `/login` with a safe local return path. `/login`, `/signup`, and `/auth/handoff` are the small public authentication surface. Production builds reject mock data mode.
 
 Development auto-login remains limited to development, API mode, explicit opt-in, and localhost/127.0.0.1 APIs. `/api/dev/login` remains forbidden in production.
 

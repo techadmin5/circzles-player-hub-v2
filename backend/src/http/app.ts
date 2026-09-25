@@ -5,7 +5,7 @@ import type { FastifyError } from "fastify";
 import type { FastifyReply } from "fastify";
 import { z } from "zod";
 import type { Env } from "../config/env.js";
-import type { IdentityProvider, IdentityService, PlayerDto, VerifiedExternalIdentity } from "../domain/identity.js";
+import { toSessionPlayerDto, type IdentityProvider, type IdentityService, type PlayerDto, type VerifiedExternalIdentity } from "../domain/identity.js";
 import { AppError, forbidden, unauthorized, validationFailed } from "../domain/errors.js";
 import type { GameStateService } from "../domain/gameState.js";
 import type { PuzzleOwnershipService } from "../domain/puzzles.js";
@@ -146,8 +146,7 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
     const session = await identity.refreshSession(request.cookies[SESSION_COOKIE_NAME]);
     if (!session) throw unauthorized();
     setSessionCookie(reply, env, request.cookies[SESSION_COOKIE_NAME]!, session.expiresAt);
-    await gameState.ensurePlayerGameState(session.player.internalId);
-    return reply.send(await withGameState(session.player, gameState));
+    return reply.send(toSessionPlayerDto(session.player));
   });
 
   app.post("/api/auth/logout", async (request, reply) => {

@@ -27,6 +27,19 @@ export interface PlayerDto {
   badgeShowcase: string[];
 }
 
+export type SessionPlayerDto = Pick<PlayerDto, "internalId" | "publicPlayerId" | "displayName" | "avatar" | "country" | "state">;
+
+export function toSessionPlayerDto(player: PlayerDto): SessionPlayerDto {
+  return {
+    internalId: player.internalId,
+    publicPlayerId: player.publicPlayerId,
+    displayName: player.displayName,
+    avatar: player.avatar || "/brand/avatar.svg",
+    country: player.country,
+    state: player.state,
+  };
+}
+
 export interface VerifiedExternalIdentity {
   sourceSite: IdentitySourceSite;
   provider: IdentityProvider;

@@ -177,16 +177,35 @@ describe("http auth poc", () => {
   });
 
   it("bootstraps a persistent session and logout invalidates it", async () => {
-    const { app } = await appWithFakes({ NODE_ENV: "development" });
+    const { app, gameRepo } = await appWithFakes({ NODE_ENV: "development" });
     const cookie = await login(app);
+    gameRepo.ensureCalls.length = 0;
     const session = await app.inject({ method: "GET", url: "/api/auth/session", headers: { cookie } });
     expect(session.statusCode).toBe(200);
     expect(session.headers["set-cookie"]).toBeDefined();
+    expect(session.json()).toMatchObject({
+      internalId: expect.any(String),
+      publicPlayerId: "CZ-8F42KD",
+      displayName: "Smokey_OP",
+      avatar: "/brand/avatar.svg",
+    });
+    expect(session.json()).not.toHaveProperty("progressionLevel");
+    expect(session.json()).not.toHaveProperty("xp");
+    expect(session.json()).not.toHaveProperty("synapsePoints");
+    expect(gameRepo.ensureCalls).toEqual([]);
     const logout = await app.inject({ method: "POST", url: "/api/auth/logout", headers: { cookie } });
     expect(logout.statusCode).toBe(200);
     expect(logout.headers["set-cookie"]).toContain("cz_session=;");
     const after = await app.inject({ method: "GET", url: "/api/me", headers: { cookie } });
     expect(after.statusCode).toBe(401);
+  });
+
+  it("rejects an invalid session without touching gameplay state", async () => {
+    const { app, gameRepo } = await appWithFakes();
+    const response = await app.inject({ method: "GET", url: "/api/auth/session", headers: { cookie: "cz_session=invalid" } });
+    expect(response.statusCode).toBe(401);
+    expect(response.json().code).toBe("UNAUTHORIZED");
+    expect(gameRepo.ensureCalls).toEqual([]);
   });
 
   it("keeps direct authentication fail-closed until a real provider adapter is configured", async () => {

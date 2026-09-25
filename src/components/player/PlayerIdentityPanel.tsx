@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { ReactNode } from "react";
 import { Camera, Flame, Gem, Trophy } from "lucide-react";
 import type { PlayerProfile } from "@/types";
@@ -13,6 +13,7 @@ import { apiClient, ApiClientError } from "@/lib/apiClient";
 import { playSound } from "@/hooks/useSound";
 import { formatNumber } from "@/lib/format";
 import { usePlayerUiState } from "@/stores/playerUiState";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 function rankFor(progressionLevel: number) {
   return progressionRanks.reduce((current, rank) => (rank.progressionLevel <= progressionLevel ? rank : current), progressionRanks[0]);
@@ -80,54 +81,36 @@ export function PlayerHero({ player, placement = null, profileMode = false, onOp
 }
 
 /**
- * Owns codex + avatar-picker state and preserves the real /api/me identity flow.
- * In `api` mode it fetches the authenticated player and offers development login.
+ * Owns codex + avatar-picker presentation. AuthProvider owns production profile hydration.
  */
 export function PlayerIdentityPanel({ fallbackPlayer, mode = "mock", placement = null, profileMode = false }: {
   fallbackPlayer: PlayerProfile; mode?: "mock" | "api"; placement?: Placement; profileMode?: boolean;
 }) {
-  const [player, setPlayer] = useState<PlayerProfile>(fallbackPlayer);
-  const [previewAvatar, setPreviewAvatar] = useState(fallbackPlayer.avatar);
+  const { acceptAuthentication } = useAuth();
+  const [previewAvatar, setPreviewAvatar] = useState<string>();
   const [codexOpen, setCodexOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(mode === "api");
   const authoritativeDisplayName = usePlayerUiState((state) => state.displayName);
-
-  useEffect(() => {
-    if (mode !== "api") return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const me = await apiClient.getMe();
-        if (!cancelled) { setPlayer(me); setPreviewAvatar(me.avatar); usePlayerUiState.getState().setDisplayName(me.displayName); setError(null); }
-      } catch (err) {
-        if (!cancelled) setError(err instanceof ApiClientError ? err.message : "Could not load authenticated player.");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [mode]);
 
   async function devLogin() {
     playSound("button");
     setError(null);
     try {
       const me = await apiClient.devLogin();
-      setPlayer(me);
-      setPreviewAvatar(me.avatar);
+      acceptAuthentication(me);
+      setPreviewAvatar(undefined);
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : "Development login failed.");
     }
   }
 
-  const shown = { ...player, displayName: mode === "api" ? authoritativeDisplayName ?? player.displayName : player.displayName, avatar: previewAvatar };
+  const shown = { ...fallbackPlayer, displayName: mode === "api" ? authoritativeDisplayName ?? fallbackPlayer.displayName : fallbackPlayer.displayName, avatar: previewAvatar ?? fallbackPlayer.avatar };
   const devControls = process.env.NODE_ENV === "development" && mode === "api" ? (
     <div className="mb-4 flex flex-col gap-2 rounded-xl border border-[var(--cz-hairline)] bg-[var(--cz-inset)] p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
       <div>
-        <p className="font-semibold text-[var(--cz-aqua)]">{loading ? "Checking authenticated session…" : "Authenticated identity"}</p>
-        <p className="text-xs text-[var(--cz-text-tertiary)]">Session cookie verified via GET /api/me · publicPlayerId {player.publicPlayerId}</p>
+        <p className="font-semibold text-[var(--cz-aqua)]">Authenticated identity</p>
+        <p className="text-xs text-[var(--cz-text-tertiary)]">Gameplay profile hydrated via GET /api/me - publicPlayerId {fallbackPlayer.publicPlayerId}</p>
         {error && <p className="mt-1 text-xs text-[var(--cz-danger)]">{error}</p>}
       </div>
       <button className="cz-btn cz-btn-primary cz-btn-sm shrink-0" onClick={devLogin} data-testid="dev-login-btn">Development Login</button>
@@ -138,7 +121,7 @@ export function PlayerIdentityPanel({ fallbackPlayer, mode = "mock", placement =
     <>
       <PlayerHero player={shown} placement={placement} profileMode={profileMode} productionData={mode === "api"} onOpenCodex={() => { playSound("modalOpen"); setCodexOpen(true); }} onEditAvatar={mode === "mock" ? () => { playSound("modalOpen"); setPickerOpen(true); } : undefined} header={devControls} />
       <ProgressionCodex open={codexOpen} onClose={() => setCodexOpen(false)} player={shown} showRewardPreview={mode === "mock"} />
-      <AvatarPicker open={pickerOpen} currentAvatar={previewAvatar} onPreview={setPreviewAvatar} onClose={() => setPickerOpen(false)} />
+      <AvatarPicker open={pickerOpen} currentAvatar={shown.avatar} onPreview={setPreviewAvatar} onClose={() => setPickerOpen(false)} />
     </>
   );
 }

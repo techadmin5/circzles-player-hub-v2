@@ -389,7 +389,7 @@ Provider transport verification confirmed a real `circzles.in` Wix Coupon Applie
 ## Production Authentication Foundation
 
 - `POST /api/auth/handoff/exchange` accepts only `{ "token": "..." }`. The backend verifies source-specific signature and claims, consumes the handoff once, resolves the verified identity, creates a session, and returns the safe player DTO.
-- `GET /api/auth/session` validates the HttpOnly session, performs bounded sliding renewal when due, refreshes cookie expiry, and returns the safe player DTO.
+- `GET /api/auth/session` validates the HttpOnly session, performs bounded sliding renewal when due, refreshes cookie expiry, and returns only the core authenticated identity (`internalId`, `publicPlayerId`, `displayName`, avatar fallback, country, and state). It does not initialize or read progression, wallet, inventory, missions, or other gameplay state. The browser requests the full authoritative gameplay profile separately through `GET /api/me` after authentication succeeds.
 - `POST /api/auth/logout` revokes the current session if present, clears the cookie, and returns `{ "ok": true }`.
 - `POST /api/auth/direct/email/login` accepts strict `{ email, password, returnTo?, captchaToken?, captchaType? }`. Wix Login V2 success returns `{ authorizationUrl }`; the frontend performs the required PKCE redirect before Player Hub creates a session.
 - `POST /api/auth/direct/email/signup` accepts strict `{ displayName, email, password, captchaToken?, captchaType? }`. Wix Register V2 must return an email-verification state. The response is `{ challengeId, expiresAt }`; `challengeId` is authenticated ciphertext containing provider state, not an OTP or browser-selected identity.
