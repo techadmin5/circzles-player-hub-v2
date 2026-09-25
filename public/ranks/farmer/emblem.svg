@@ -1,1 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128"><path fill="#0b111c" stroke="#86efac" stroke-width="6" d="M64 10 108 32v32c0 28-18 45-44 56-26-11-44-28-44-56V32z"/><path fill="#6ee7b7" d="M64 86c17-16 24-31 21-46-14 2-25 11-32 27-7-12-16-18-27-19 1 21 14 35 38 38z"/></svg>
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <defs><linearGradient id="farmer-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#c98a4e"/><stop offset="100%" stop-color="#7a4d28"/></linearGradient></defs>
+  <path d="M50 6 L88 20 V50 C88 74 72 90 50 96 C28 90 12 74 12 50 V20 Z" fill="url(#farmer-fill)" stroke="#e0a868" stroke-width="1.5"/>
+  <path d="M50 30 L64 46 L50 62 L36 46 Z" fill="#3a2311" stroke="#e0a868" stroke-width="1.2"/>
+</svg>

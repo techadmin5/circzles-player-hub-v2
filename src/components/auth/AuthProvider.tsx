@@ -1,11 +1,12 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { dataMode, devAutoLoginEnabled, logPublicFrontendConfig } from "@/config/dataMode";
 import { apiClient, ApiClientError } from "@/lib/apiClient";
 import { usePlayerUiState } from "@/stores/playerUiState";
 import type { PlayerProfile } from "@/types";
+import { PlayerHubLoadingSkeleton } from "./PlayerHubLoadingSkeleton";
 
 type AuthStatus = "checking" | "authenticated" | "unauthenticated" | "error";
 
@@ -22,6 +23,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>(dataMode === "mock" ? "authenticated" : "checking");
   const [player, setPlayer] = useState<PlayerProfile>();
+  const sessionRequestRef = useRef<Promise<PlayerProfile | null> | null>(null);
 
   const acceptAuthentication = useCallback((authenticatedPlayer: PlayerProfile) => {
     setPlayer(authenticatedPlayer);
@@ -29,32 +31,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStatus("authenticated");
   }, []);
 
-  const refresh = useCallback(async () => {
-    if (dataMode === "mock") return null;
+  const refresh = useCallback(() => {
+    if (dataMode === "mock") return Promise.resolve(null);
+    if (sessionRequestRef.current) return sessionRequestRef.current;
     setStatus("checking");
-    try {
-      const authenticatedPlayer = await apiClient.getSession();
-      acceptAuthentication(authenticatedPlayer);
-      return authenticatedPlayer;
-    } catch (error) {
-      if (error instanceof ApiClientError && error.status === 401) {
-        if (devAutoLoginEnabled) {
-          try {
-            const authenticatedPlayer = await apiClient.devLogin();
-            acceptAuthentication(authenticatedPlayer);
-            return authenticatedPlayer;
-          } catch {
-            console.error("[CircZles dev auth] Automatic development login failed.");
+    const sessionRequest = (async () => {
+      try {
+        const authenticatedPlayer = await apiClient.getSession();
+        acceptAuthentication(authenticatedPlayer);
+        return authenticatedPlayer;
+      } catch (error) {
+        if (error instanceof ApiClientError && error.status === 401) {
+          if (devAutoLoginEnabled) {
+            try {
+              const authenticatedPlayer = await apiClient.devLogin();
+              acceptAuthentication(authenticatedPlayer);
+              return authenticatedPlayer;
+            } catch {
+              console.error("[CircZles dev auth] Automatic development login failed.");
+            }
           }
+          setPlayer(undefined);
+          usePlayerUiState.getState().clear();
+          setStatus("unauthenticated");
+          return null;
         }
-        setPlayer(undefined);
-        usePlayerUiState.getState().clear();
-        setStatus("unauthenticated");
-        return null;
+        setStatus("error");
+        throw error;
+      } finally {
+        sessionRequestRef.current = null;
       }
-      setStatus("error");
-      throw error;
-    }
+    })();
+    sessionRequestRef.current = sessionRequest;
+    return sessionRequest;
   }, [acceptAuthentication]);
 
   const logout = useCallback(async () => {
@@ -85,9 +94,16 @@ export function AuthenticatedRoute({ children }: { children: ReactNode }) {
   const { status, refresh } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
+  const redirectedPathRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (status === "unauthenticated") router.replace(`/login?returnTo=${encodeURIComponent(pathname)}`);
+    if (status !== "unauthenticated") {
+      redirectedPathRef.current = null;
+      return;
+    }
+    if (redirectedPathRef.current === pathname) return;
+    redirectedPathRef.current = pathname;
+    router.replace(`/login?returnTo=${encodeURIComponent(pathname)}`);
   }, [pathname, router, status]);
 
   if (dataMode === "mock") return children;
@@ -95,5 +111,5 @@ export function AuthenticatedRoute({ children }: { children: ReactNode }) {
   if (status === "error") {
     return <div className="grid min-h-dvh place-items-center bg-[var(--cz-void)] px-4"><div className="cz-surface max-w-md p-6 text-center"><h1 className="cz-display text-xl font-bold">Session unavailable</h1><p className="mt-2 text-sm text-[var(--cz-text-secondary)]">The Player Hub could not verify your session.</p><button className="cz-btn cz-btn-primary mt-5" onClick={() => refresh().catch(() => undefined)}>Try again</button></div></div>;
   }
-  return <div className="min-h-dvh bg-[var(--cz-void)]" aria-busy="true" aria-label="Checking authenticated session" />;
+  return <PlayerHubLoadingSkeleton />;
 }

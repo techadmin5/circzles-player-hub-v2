@@ -1,1 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128"><path fill="#0b111c" stroke="#bfdbfe" stroke-width="6" d="M64 10 108 32v32c0 28-18 45-44 56-26-11-44-28-44-56V32z"/><path fill="#60a5fa" d="M42 38h44l-8 48H50z"/><path fill="#1d4ed8" d="M58 38h12v48H58z"/></svg>
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <defs><linearGradient id="squire-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#c94b4b"/><stop offset="100%" stop-color="#5c1f1f"/></linearGradient><linearGradient id="squire-steel" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#dfe4ec"/><stop offset="100%" stop-color="#8f97a6"/></linearGradient></defs>
+  <path d="M50 6 L88 20 V50 C88 74 72 90 50 96 C28 90 12 74 12 50 V20 Z" fill="url(#squire-fill)" stroke="#e88888" stroke-width="1.5"/>
+  <path d="M50 24 L58 44 L50 40 L42 44 Z" fill="url(#squire-steel)"/><path d="M50 40 L58 44 L50 68 L42 44 Z" fill="url(#squire-steel)" opacity="0.9"/>
+</svg>

@@ -8,14 +8,14 @@ import { apiClient } from "@/lib/apiClient";
 import { useAuth } from "./AuthProvider";
 import { authMessage } from "./LoginForm";
 
-export function SignupForm() {
+export function SignupForm({ returnTo = "/hub" }: { returnTo?: string }) {
   const router = useRouter();
   const { status } = useAuth();
   const [challengeId, setChallengeId] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => { if (status === "authenticated") router.replace("/hub"); }, [router, status]);
+  useEffect(() => { if (status === "authenticated") router.replace(returnTo); }, [returnTo, router, status]);
 
   async function startSignup(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError("");
@@ -32,7 +32,7 @@ export function SignupForm() {
     setBusy(true); setError("");
     const data = new FormData(event.currentTarget);
     try {
-      const { authorizationUrl } = await apiClient.verifyEmailSignup(challengeId, String(data.get("code")));
+      const { authorizationUrl } = await apiClient.verifyEmailSignup(challengeId, String(data.get("code")), returnTo);
       window.location.assign(authorizationUrl);
     } catch (caught) { setError(authMessage(caught)); }
     finally { setBusy(false); }
@@ -40,7 +40,7 @@ export function SignupForm() {
 
   async function googleSignup() {
     setBusy(true); setError("");
-    try { window.location.assign((await apiClient.getGoogleAuthorization("/hub")).authorizationUrl); }
+    try { window.location.assign((await apiClient.getGoogleAuthorization(returnTo)).authorizationUrl); }
     catch (caught) { setError(authMessage(caught)); setBusy(false); }
   }
 
@@ -61,6 +61,6 @@ export function SignupForm() {
     </form>}
     {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
     <p className="text-center text-[0.68rem] text-[var(--cz-text-tertiary)]">Your password and one-time code remain provider-managed and are never stored by Player Hub.</p>
-    <p className="text-center text-sm text-[var(--cz-text-tertiary)]">Already have an account? <Link href="/login" className="text-[var(--cz-aqua)]">Log in</Link></p>
+    <p className="text-center text-sm text-[var(--cz-text-tertiary)]">Already have an account? <Link href={`/login?returnTo=${encodeURIComponent(returnTo)}`} className="text-[var(--cz-aqua)]">Log in</Link></p>
   </div>;
 }

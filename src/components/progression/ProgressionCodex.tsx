@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Gift, X } from "lucide-react";
 import type { PlayerProfile } from "@/types";
@@ -30,13 +30,20 @@ export function ProgressionCodex({ open, onClose, player, showRewardPreview = tr
   const next = progressionRanks.find((r) => r.order === current.order + 1);
   const pct = state === "current" ? Math.min(100, Math.round((player.xp / Math.max(1, player.xpNeeded)) * 100)) : state === "completed" ? 100 : 0;
 
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, [open]);
+
   return (
     <AnimatePresence>
       {open && (
         <motion.div className="fixed inset-0 z-[80] grid place-items-center bg-black/72 p-2 backdrop-blur-sm sm:p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
           <motion.div
             role="dialog" aria-modal="true" aria-label="Progression ranks"
-            className="cz-surface cz-grain cz-elevate max-h-[92dvh] w-full min-w-0 max-w-3xl overflow-hidden"
+            className="cz-surface cz-grain cz-elevate h-[min(92dvh,46rem)] w-full min-w-0 max-w-3xl overflow-hidden"
             initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 12, scale: 0.98 }} transition={{ duration: 0.2 }}
             onClick={(e) => e.stopPropagation()}
             data-testid="progression-ranks"
@@ -49,7 +56,7 @@ export function ProgressionCodex({ open, onClose, player, showRewardPreview = tr
               <button onClick={() => { playSound("modalClose"); onClose(); }} aria-label="Close" data-testid="codex-close" className="grid h-9 w-9 place-items-center rounded-full text-[var(--cz-text-tertiary)] hover:bg-white/5 hover:text-[var(--cz-text-primary)]"><X size={18} /></button>
             </div>
 
-            <div className="cz-scroll grid max-h-[calc(92dvh-58px)] min-w-0 grid-cols-1 overflow-y-auto md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] md:overflow-hidden">
+            <div className="cz-scroll grid h-[calc(100%-65px)] min-w-0 grid-cols-1 overflow-y-auto md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] md:overflow-hidden">
               <div className="flex min-w-0 flex-col items-center justify-center gap-4 border-b border-[var(--cz-hairline)] px-4 py-5 md:border-b-0 md:border-r md:px-8 md:py-8">
                 <div className="relative grid h-44 w-full max-w-[260px] place-items-center rounded-2xl border bg-black/15" style={{ borderColor: `${selectedVisual.primary}30`, boxShadow: `inset 0 0 36px ${selectedVisual.secondary}12` }}>
                   <RankEmblem rank={selected.rank} state={state} size={150} />
@@ -71,7 +78,7 @@ export function ProgressionCodex({ open, onClose, player, showRewardPreview = tr
                 {next && state === "current" && <p className="text-xs text-[var(--cz-text-tertiary)]">Next rank: <span className="text-[var(--cz-text-secondary)]">{next.rank}</span></p>}
               </div>
 
-              <div className="cz-scroll min-w-0 px-2 py-3 sm:px-3 md:overflow-y-auto">
+              <div className="cz-scroll min-w-0 px-2 py-3 sm:px-3 md:h-full md:overflow-y-auto md:overscroll-contain">
                 {progressionRanks.map((rank) => {
                   const s = stateFor(rank.order, current.order);
                   const visual = getRankVisualTreatment(rank.rank);

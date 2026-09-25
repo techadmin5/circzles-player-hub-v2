@@ -49,7 +49,7 @@ export function LoginForm({ returnTo }: { returnTo: string }) {
       <button className="cz-btn cz-btn-ghost w-full" disabled={busy} type="submit"><LogIn size={16} />{busy ? "Checking account" : "Log in"}</button>
     </form>
     <p className="text-center text-xs text-[var(--cz-text-tertiary)]">Email and social authentication are verified by the canonical CircZles identity provider. Player Hub never stores your password.</p>
-    <p className="text-center text-sm text-[var(--cz-text-tertiary)]">New to CircZles? <Link href="/signup" className="text-[var(--cz-aqua)]">Create a profile</Link></p>
+    <p className="text-center text-sm text-[var(--cz-text-tertiary)]">New to CircZles? <Link href={`/signup?returnTo=${encodeURIComponent(returnTo)}`} className="text-[var(--cz-aqua)]">Create a profile</Link></p>
   </div>;
 }
 
