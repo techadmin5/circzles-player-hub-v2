@@ -32,6 +32,8 @@ export interface PlayerProfile extends Player {
   isFriend?: boolean;
 }
 
+export type AuthenticatedPlayerIdentity = Pick<Player, "internalId" | "publicPlayerId" | "displayName" | "avatar" | "country" | "state">;
+
 export interface Puzzle {
   id: string;
   name: string;

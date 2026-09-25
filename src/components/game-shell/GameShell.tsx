@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Bell, ChevronRight, Gem, LayoutGrid, LogOut, Menu, Shield, X } from "lucide-react";
 import type { ReactNode } from "react";
-import type { PlayerProfile } from "@/types";
+import type { AuthenticatedPlayerIdentity, PlayerProfile } from "@/types";
 import { MOBILE_PRIMARY, MORE_NAV, PRIMARY_NAV, SETTINGS_ITEM, type NavItem } from "./navConfig";
 import { playSound } from "@/hooks/useSound";
 import { DEFAULT_AVATAR } from "@/config/assets";
@@ -67,7 +67,7 @@ function Sidebar({ pathname, onLogout }: { pathname: string; onLogout: () => voi
   );
 }
 
-function TopBar({ player, onOpenMenu }: { player?: PlayerProfile; onOpenMenu: () => void }) {
+function TopBar({ player, identity, onOpenMenu }: { player?: PlayerProfile; identity?: AuthenticatedPlayerIdentity; onOpenMenu: () => void }) {
   const displayedSynapsePoints = usePlayerUiState((state) => state.displayedSynapsePoints);
   const balancePulse = usePlayerUiState((state) => state.balancePulse);
   const balance = displayedSynapsePoints ?? player?.synapsePoints;
@@ -85,7 +85,7 @@ function TopBar({ player, onOpenMenu }: { player?: PlayerProfile; onOpenMenu: ()
         )}
         {dataMode === "mock" && <Link href="/notifications" onClick={() => playSound("navigation")} data-testid="topbar-notifications" aria-label="Notifications" className="grid h-9 w-9 place-items-center rounded-full border border-[var(--cz-hairline)] bg-white/[0.03] text-[var(--cz-text-secondary)] transition-colors hover:text-[var(--cz-text-primary)]"><Bell size={17} /></Link>}
         <Link href="/profile" onClick={() => playSound("navigation")} data-testid="topbar-profile" aria-label="Profile" className="relative hidden h-9 w-9 overflow-hidden rounded-full border border-[var(--cz-hairline-strong)] bg-[var(--cz-surface-raised)] min-[430px]:block">
-          <Image src={player?.avatar || DEFAULT_AVATAR} alt="" fill sizes="36px" className="object-cover" />
+          <Image src={player?.avatar || identity?.avatar || DEFAULT_AVATAR} alt="" fill sizes="36px" className="object-cover" />
         </Link>
         <button onClick={() => { playSound("button"); onOpenMenu(); }} data-testid="topbar-menu" aria-label="Open menu" className="grid h-9 w-9 place-items-center rounded-full border border-[var(--cz-hairline)] bg-white/[0.03] text-[var(--cz-text-secondary)] lg:hidden">
           <Menu size={18} />
@@ -159,7 +159,7 @@ function MobileNav({ pathname, onOpenMore }: { pathname: string; onOpenMore: () 
 export function GameShell({ player, children }: { player?: PlayerProfile; children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { logout, player: authenticatedPlayer } = useAuth();
+  const { logout, identity: authenticatedIdentity, player: authenticatedPlayer } = useAuth();
   const [moreOpen, setMoreOpen] = useState(false);
 
   useEffect(() => {
@@ -174,7 +174,7 @@ export function GameShell({ player, children }: { player?: PlayerProfile; childr
     <div className="min-h-dvh lg:flex">
       <Sidebar pathname={pathname} onLogout={handleLogout} />
       <div className="flex min-h-dvh w-full min-w-0 flex-col">
-        <TopBar player={dataMode === "api" ? authenticatedPlayer : player} onOpenMenu={() => setMoreOpen(true)} />
+        <TopBar player={dataMode === "api" ? authenticatedPlayer : player} identity={dataMode === "api" ? authenticatedIdentity : player} onOpenMenu={() => setMoreOpen(true)} />
         <main className="mx-auto min-w-0 w-full max-w-[1240px] flex-1 overflow-x-clip px-4 pb-28 pt-6 lg:px-8 lg:pb-12">{children}</main>
       </div>
       <MobileNav pathname={pathname} onOpenMore={() => setMoreOpen(true)} />

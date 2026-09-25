@@ -5,16 +5,19 @@ import { usePathname, useRouter } from "next/navigation";
 import { dataMode, devAutoLoginEnabled, logPublicFrontendConfig } from "@/config/dataMode";
 import { apiClient, ApiClientError } from "@/lib/apiClient";
 import { usePlayerUiState } from "@/stores/playerUiState";
-import type { PlayerProfile } from "@/types";
+import type { AuthenticatedPlayerIdentity, PlayerProfile } from "@/types";
 import { PlayerHubLoadingSkeleton } from "./PlayerHubLoadingSkeleton";
 
 type AuthStatus = "checking" | "authenticated" | "unauthenticated" | "error";
+type ProfileStatus = "idle" | "loading" | "ready" | "error";
 
 interface AuthContextValue {
   status: AuthStatus;
+  identity?: AuthenticatedPlayerIdentity;
   player?: PlayerProfile;
+  profileStatus: ProfileStatus;
   acceptAuthentication: (player: PlayerProfile) => void;
-  refresh: () => Promise<PlayerProfile | null>;
+  refresh: () => Promise<AuthenticatedPlayerIdentity | PlayerProfile | null>;
   logout: () => Promise<void>;
 }
 
@@ -22,14 +25,51 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>(dataMode === "mock" ? "authenticated" : "checking");
+  const [identity, setIdentity] = useState<AuthenticatedPlayerIdentity>();
   const [player, setPlayer] = useState<PlayerProfile>();
-  const sessionRequestRef = useRef<Promise<PlayerProfile | null> | null>(null);
+  const [profileStatus, setProfileStatus] = useState<ProfileStatus>("idle");
+  const sessionRequestRef = useRef<Promise<AuthenticatedPlayerIdentity | PlayerProfile | null> | null>(null);
+  const profileRequestRef = useRef<Promise<PlayerProfile | null> | null>(null);
+  const profileAbortRef = useRef<AbortController | null>(null);
+
+  const acceptProfile = useCallback((profile: PlayerProfile) => {
+    setIdentity(profile);
+    setPlayer(profile);
+    usePlayerUiState.getState().hydrate(profile);
+    setProfileStatus("ready");
+  }, []);
 
   const acceptAuthentication = useCallback((authenticatedPlayer: PlayerProfile) => {
-    setPlayer(authenticatedPlayer);
-    usePlayerUiState.getState().hydrate(authenticatedPlayer);
+    profileAbortRef.current?.abort();
+    profileRequestRef.current = null;
+    acceptProfile(authenticatedPlayer);
     setStatus("authenticated");
-  }, []);
+  }, [acceptProfile]);
+
+  const hydrateProfile = useCallback(() => {
+    if (dataMode === "mock") return Promise.resolve(null);
+    if (profileRequestRef.current) return profileRequestRef.current;
+    const controller = new AbortController();
+    profileAbortRef.current = controller;
+    setProfileStatus("loading");
+    const profileRequest = apiClient.getMe(controller.signal)
+      .then((profile) => {
+        acceptProfile(profile);
+        return profile;
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) setProfileStatus("error");
+        throw error;
+      })
+      .finally(() => {
+        if (profileAbortRef.current === controller) {
+          profileAbortRef.current = null;
+          profileRequestRef.current = null;
+        }
+      });
+    profileRequestRef.current = profileRequest;
+    return profileRequest;
+  }, [acceptProfile]);
 
   const refresh = useCallback(() => {
     if (dataMode === "mock") return Promise.resolve(null);
@@ -37,11 +77,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStatus("checking");
     const sessionRequest = (async () => {
       try {
-        const authenticatedPlayer = await apiClient.getSession();
-        acceptAuthentication(authenticatedPlayer);
-        return authenticatedPlayer;
+        const authenticatedIdentity = await apiClient.getSession();
+        profileAbortRef.current?.abort();
+        profileRequestRef.current = null;
+        setIdentity(authenticatedIdentity);
+        setPlayer(undefined);
+        usePlayerUiState.getState().clear();
+        setStatus("authenticated");
+        void hydrateProfile().catch(() => undefined);
+        return authenticatedIdentity;
       } catch (error) {
         if (error instanceof ApiClientError && error.status === 401) {
+          profileAbortRef.current?.abort();
+          profileRequestRef.current = null;
           if (devAutoLoginEnabled) {
             try {
               const authenticatedPlayer = await apiClient.devLogin();
@@ -51,7 +99,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               console.error("[CircZles dev auth] Automatic development login failed.");
             }
           }
+          setIdentity(undefined);
           setPlayer(undefined);
+          setProfileStatus("idle");
           usePlayerUiState.getState().clear();
           setStatus("unauthenticated");
           return null;
@@ -64,11 +114,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })();
     sessionRequestRef.current = sessionRequest;
     return sessionRequest;
-  }, [acceptAuthentication]);
+  }, [acceptAuthentication, hydrateProfile]);
 
   const logout = useCallback(async () => {
     if (dataMode === "api") await apiClient.logout();
+    profileAbortRef.current?.abort();
+    profileRequestRef.current = null;
+    setIdentity(undefined);
     setPlayer(undefined);
+    setProfileStatus("idle");
     usePlayerUiState.getState().clear();
     setStatus("unauthenticated");
   }, []);
@@ -80,7 +134,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(timeout);
   }, [refresh]);
 
-  const value = useMemo(() => ({ status, player, acceptAuthentication, refresh, logout }), [status, player, acceptAuthentication, refresh, logout]);
+  const value = useMemo(() => ({ status, identity, player, profileStatus, acceptAuthentication, refresh, logout }), [status, identity, player, profileStatus, acceptAuthentication, refresh, logout]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

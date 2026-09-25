@@ -20,6 +20,7 @@ interface StoredAccount {
 }
 
 export class FakeGameStateRepository implements GameStateRepository {
+  public ensureCalls: string[] = [];
   public progressionLevels: ProgressionLevelConfig[] = [];
   public states = new Map<string, { progressionLevel: number; rankName: string; totalXp: number }>();
   public wallets = new Map<string, number>();
@@ -37,6 +38,7 @@ export class FakeGameStateRepository implements GameStateRepository {
   }
 
   async ensurePlayerGameState(playerId: string) {
+    this.ensureCalls.push(playerId);
     const initial = this.firstLevel();
     if (!this.states.has(playerId)) this.states.set(playerId, { progressionLevel: initial.progressionLevel, rankName: initial.rankName, totalXp: 0 });
     if (!this.wallets.has(playerId)) this.wallets.set(playerId, 0);
