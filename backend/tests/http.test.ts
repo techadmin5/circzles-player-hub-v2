@@ -250,6 +250,21 @@ describe("http auth poc", () => {
     expect(rejected.json().code).toBe("DIRECT_AUTH_IDENTITY_INVALID");
   });
 
+  it("returns an email-verification challenge without creating a Player Hub session", async () => {
+    const directAuth: DirectAuthProvider = {
+      loginWithEmail: async () => ({ state: "EMAIL_VERIFICATION_REQUIRED", challengeId: "sealed-challenge", expiresAt: "2026-09-26T12:00:00.000Z" }),
+      startEmailSignup: async () => ({ challengeId: "challenge" }),
+      verifyEmailSignup: async () => ({ authorizationUrl: "https://identity.example.test/verify" }),
+      getGoogleAuthorizationUrl: async () => ({ authorizationUrl: "https://identity.example.test/start" }),
+      completeAuthorization: async () => { throw new Error("Not called"); },
+    };
+    const { app } = await appWithFakes({}, directAuth);
+    const response = await app.inject({ method: "POST", url: "/api/auth/direct/email/login", payload: { email: "player@example.com", password: "strong-password" } });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ state: "EMAIL_VERIFICATION_REQUIRED", challengeId: "sealed-challenge", expiresAt: "2026-09-26T12:00:00.000Z" });
+    expect(response.headers["set-cookie"]).toBeUndefined();
+  });
+
   it("rejects backslash return paths before direct-auth redirects", async () => {
     let receivedReturnTo = "";
     const verified = { sourceSite: "CIRCZLES_COM" as const, provider: "EMAIL" as const, externalIdentityId: "canonical-member", verifiedEmail: "player@example.com", emailVerified: true as const, displayName: "Verified Player" };
