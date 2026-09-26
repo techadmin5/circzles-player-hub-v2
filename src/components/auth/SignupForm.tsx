@@ -4,9 +4,10 @@ import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { MailCheck, UserPlus } from "lucide-react";
-import { apiClient } from "@/lib/apiClient";
+import { apiClient, ApiClientError } from "@/lib/apiClient";
 import { useAuth } from "./AuthProvider";
 import { authMessage } from "./LoginForm";
+import { WixCaptcha } from "./WixCaptcha";
 
 export function SignupForm({ returnTo = "/hub" }: { returnTo?: string }) {
   const router = useRouter();
@@ -14,16 +15,33 @@ export function SignupForm({ returnTo = "/hub" }: { returnTo?: string }) {
   const [challengeId, setChallengeId] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [captchaRequired, setCaptchaRequired] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState<string>();
+  const [captchaResetKey, setCaptchaResetKey] = useState(0);
 
   useEffect(() => { if (status === "authenticated") router.replace(returnTo); }, [returnTo, router, status]);
 
   async function startSignup(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true); setError("");
+    event.preventDefault();
+    if (captchaRequired && !captchaToken) {
+      setError("Complete the security check before creating your account.");
+      return;
+    }
+    setBusy(true); setError("");
     const data = new FormData(event.currentTarget);
     try {
-      const challenge = await apiClient.startEmailSignup(String(data.get("displayName")), String(data.get("email")), String(data.get("password")));
+      const challenge = await apiClient.startEmailSignup(String(data.get("displayName")), String(data.get("email")), String(data.get("password")), captchaToken ? { token: captchaToken, type: "RECAPTCHA" } : undefined);
       setChallengeId(challenge.challengeId);
-    } catch (caught) { setError(authMessage(caught)); }
+    } catch (caught) {
+      if (caught instanceof ApiClientError && caught.code === "WIX_CAPTCHA_REQUIRED") {
+        setCaptchaRequired(true);
+        setCaptchaToken(undefined);
+        setCaptchaResetKey((value) => value + 1);
+        setError("Complete the security check, then try creating your account again.");
+      } else {
+        setError(authMessage(caught));
+      }
+    }
     finally { setBusy(false); }
   }
 
@@ -52,6 +70,7 @@ export function SignupForm({ returnTo = "/hub" }: { returnTo?: string }) {
         <label className="grid gap-1 text-sm"><span className="text-[var(--cz-text-secondary)]">Name</span><input name="displayName" required minLength={2} maxLength={80} autoComplete="name" className="min-h-11 rounded-xl border border-[var(--cz-hairline-strong)] bg-[var(--cz-inset)] px-3.5 text-sm outline-none focus:border-[var(--cz-aqua)]" /></label>
         <label className="grid gap-1 text-sm"><span className="text-[var(--cz-text-secondary)]">Email</span><input name="email" required type="email" autoComplete="email" className="min-h-11 rounded-xl border border-[var(--cz-hairline-strong)] bg-[var(--cz-inset)] px-3.5 text-sm outline-none focus:border-[var(--cz-aqua)]" /></label>
         <label className="grid gap-1 text-sm"><span className="text-[var(--cz-text-secondary)]">Password</span><input name="password" required minLength={8} maxLength={256} type="password" autoComplete="new-password" className="min-h-11 rounded-xl border border-[var(--cz-hairline-strong)] bg-[var(--cz-inset)] px-3.5 text-sm outline-none focus:border-[var(--cz-aqua)]" /></label>
+        {captchaRequired && <WixCaptcha resetKey={captchaResetKey} onTokenChange={setCaptchaToken} />}
         <button className="cz-btn cz-btn-ghost w-full" disabled={busy} type="submit"><UserPlus size={16} />{busy ? "Creating verification" : "Create account"}</button>
       </form>
     </> : <form className="grid gap-4" onSubmit={verify}>

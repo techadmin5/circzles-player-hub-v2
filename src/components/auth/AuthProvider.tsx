@@ -29,6 +29,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [player, setPlayer] = useState<PlayerProfile>();
   const [profileStatus, setProfileStatus] = useState<ProfileStatus>("idle");
   const sessionRequestRef = useRef<Promise<AuthenticatedPlayerIdentity | PlayerProfile | null> | null>(null);
+  const sessionAbortRef = useRef<AbortController | null>(null);
+  const authGenerationRef = useRef(0);
   const profileRequestRef = useRef<Promise<PlayerProfile | null> | null>(null);
   const profileAbortRef = useRef<AbortController | null>(null);
 
@@ -74,10 +76,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(() => {
     if (dataMode === "mock") return Promise.resolve(null);
     if (sessionRequestRef.current) return sessionRequestRef.current;
+    const generation = authGenerationRef.current;
+    const controller = new AbortController();
+    sessionAbortRef.current = controller;
     setStatus("checking");
     const sessionRequest = (async () => {
       try {
-        const authenticatedIdentity = await apiClient.getSession();
+        const authenticatedIdentity = await apiClient.getSession(controller.signal);
+        if (generation !== authGenerationRef.current) return null;
         profileAbortRef.current?.abort();
         profileRequestRef.current = null;
         setIdentity(authenticatedIdentity);
@@ -87,6 +93,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         void hydrateProfile().catch(() => undefined);
         return authenticatedIdentity;
       } catch (error) {
+        if (generation !== authGenerationRef.current) return null;
         if (error instanceof ApiClientError && error.status === 401) {
           profileAbortRef.current?.abort();
           profileRequestRef.current = null;
@@ -109,6 +116,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setStatus("error");
         throw error;
       } finally {
+        if (sessionAbortRef.current === controller) sessionAbortRef.current = null;
         sessionRequestRef.current = null;
       }
     })();
@@ -117,7 +125,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [acceptAuthentication, hydrateProfile]);
 
   const logout = useCallback(async () => {
-    if (dataMode === "api") await apiClient.logout();
+    authGenerationRef.current += 1;
+    sessionAbortRef.current?.abort();
+    sessionAbortRef.current = null;
+    sessionRequestRef.current = null;
     profileAbortRef.current?.abort();
     profileRequestRef.current = null;
     setIdentity(undefined);
@@ -125,6 +136,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfileStatus("idle");
     usePlayerUiState.getState().clear();
     setStatus("unauthenticated");
+    if (dataMode === "api") await apiClient.logout();
   }, []);
 
   useEffect(() => {

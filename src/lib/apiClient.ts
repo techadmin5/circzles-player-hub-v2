@@ -34,9 +34,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-async function requestSession<T>(): Promise<T> {
+async function requestSession<T>(signal?: AbortSignal): Promise<T> {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 30_000);
+  const abort = () => controller.abort();
+  signal?.addEventListener("abort", abort, { once: true });
+  const timeout = window.setTimeout(() => controller.abort(), 20_000);
   try {
     return await request<T>("/api/auth/session", { signal: controller.signal });
   } catch (error) {
@@ -46,6 +48,7 @@ async function requestSession<T>(): Promise<T> {
     throw error;
   } finally {
     window.clearTimeout(timeout);
+    signal?.removeEventListener("abort", abort);
   }
 }
 
@@ -123,7 +126,7 @@ function missionTimeRemaining(endsAt: string | null, now: Date) {
 
 export const apiClient = {
   getMe: async (signal?: AbortSignal) => adaptPhase3aPlayer(await request<Partial<PlayerProfile> & Pick<PlayerProfile, "internalId" | "publicPlayerId" | "displayName">>("/api/me", { signal })),
-  getSession: async () => adaptSessionIdentity(await requestSession<Partial<AuthenticatedPlayerIdentity> & Pick<AuthenticatedPlayerIdentity, "internalId" | "publicPlayerId" | "displayName">>()),
+  getSession: async (signal?: AbortSignal) => adaptSessionIdentity(await requestSession<Partial<AuthenticatedPlayerIdentity> & Pick<AuthenticatedPlayerIdentity, "internalId" | "publicPlayerId" | "displayName">>(signal)),
   exchangeAuthHandoff: async (token: string) => adaptPhase3aPlayer(await request<Partial<PlayerProfile> & Pick<PlayerProfile, "internalId" | "publicPlayerId" | "displayName">>("/api/auth/handoff/exchange", { method: "POST", body: JSON.stringify({ token }) })),
   loginWithEmail: async (email: string, password: string, returnTo = "/hub", captcha?: { token: string; type: "RECAPTCHA" | "INVISIBLE_RECAPTCHA" }) => request<{ authorizationUrl: string }>("/api/auth/direct/email/login", { method: "POST", body: JSON.stringify({ email, password, returnTo, captchaToken: captcha?.token, captchaType: captcha?.type }) }),
   startEmailSignup: async (displayName: string, email: string, password: string, captcha?: { token: string; type: "RECAPTCHA" | "INVISIBLE_RECAPTCHA" }) => request<{ challengeId: string; expiresAt?: string }>("/api/auth/direct/email/signup", { method: "POST", body: JSON.stringify({ displayName, email, password, captchaToken: captcha?.token, captchaType: captcha?.type }) }),

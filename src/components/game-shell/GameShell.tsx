@@ -167,7 +167,10 @@ export function GameShell({ player, children }: { player?: PlayerProfile; childr
   }, [player]);
 
   const handleLogout = () => {
-    logout().then(() => router.replace("/login")).catch(() => undefined);
+    setMoreOpen(false);
+    const invalidation = logout();
+    router.replace("/login");
+    void invalidation.catch(() => console.error("[CircZles auth] Logout session invalidation failed."));
   };
 
   return <AuthenticatedRoute>
