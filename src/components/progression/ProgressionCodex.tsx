@@ -37,8 +37,8 @@ export function ProgressionCodex({ open, onClose, player, showRewardPreview = tr
   const next = progressionRanks.find((r) => r.order === current.order + 1);
   const pct = state === "current" ? Math.min(100, Math.round((player.xp / Math.max(1, player.xpNeeded)) * 100)) : state === "completed" ? 100 : 0;
   const frameLevel = selectedProgressionVisual.prestigeLevel;
-  const frameShadow = `inset 0 0 ${22 + frameLevel * 2}px ${selectedVisual.secondary}12, 0 0 ${6 + frameLevel * 1.5}px ${selectedVisual.primary}${state === "locked" ? "08" : "18"}`;
-  const activeFrameShadow = `inset 0 0 ${26 + frameLevel * 2}px ${selectedVisual.secondary}22, 0 0 ${10 + frameLevel * 2.4}px ${selectedVisual.primary}42`;
+  const frameShadow = `inset 0 0 ${24 + frameLevel * 2}px ${selectedVisual.secondary}${state === "current" ? "28" : "12"}, 0 0 ${8 + frameLevel * 1.5}px ${selectedVisual.primary}${state === "locked" ? "08" : state === "current" ? "32" : "18"}`;
+  const activeFrameShadow = `inset 0 0 ${30 + frameLevel * 2}px ${selectedVisual.secondary}38, 0 0 ${12 + frameLevel * 2.4}px ${selectedVisual.primary}58`;
 
   useEffect(() => {
     if (!open) return;
@@ -70,8 +70,8 @@ export function ProgressionCodex({ open, onClose, player, showRewardPreview = tr
               <div className="flex min-w-0 flex-col items-center justify-center gap-4 border-b border-[var(--cz-hairline)] px-4 py-5 md:border-b-0 md:border-r md:px-8 md:py-8">
                 <motion.div
                   className="relative grid h-40 w-full max-w-[240px] place-items-center overflow-hidden rounded-2xl border bg-black/15 sm:h-44 sm:max-w-[260px]"
-                  style={{ borderColor: `${selectedVisual.primary}${state === "locked" ? "20" : "38"}`, boxShadow: frameShadow }}
-                  animate={state === "current" && !reducedMotion ? { borderColor: [`${selectedVisual.primary}38`, `${selectedVisual.primary}70`, `${selectedVisual.primary}38`], boxShadow: [frameShadow, activeFrameShadow, frameShadow] } : undefined}
+                  style={{ borderColor: `${selectedVisual.primary}${state === "locked" ? "20" : state === "current" ? "50" : "38"}`, boxShadow: frameShadow, background: `radial-gradient(circle at center, ${selectedProgressionVisual.aura}${state === "current" ? "1f" : "0c"} 0%, rgba(0,0,0,0.15) 68%)` }}
+                  animate={state === "current" && !reducedMotion ? { borderColor: [`${selectedVisual.primary}50`, `${selectedVisual.primary}82`, `${selectedVisual.primary}50`], boxShadow: [frameShadow, activeFrameShadow, frameShadow] } : undefined}
                   transition={{ duration: 6.8 - frameLevel * 0.18, repeat: Infinity, ease: "easeInOut" }}
                 >
                   <ProgressionBadge rankName={selected.rank} size="lg" presentation="preview" animated={state === "current"} muted={state === "locked"} decorative />

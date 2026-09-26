@@ -8,33 +8,33 @@ Implemented on `phase-c2-2-rank-presentation-polish`. This phase changes progres
 
 The nine progression PNGs have different canvas sizes and substantially different transparent margins. Alpha-bound inspection found visible artwork ranging from about 49% of source height for Peasant, Farmer, Squire, and Knight to about 71% for Conqueror. Master is visually top-heavy, while Apprentice and Nobleman sit low in their source canvases. Rendering every complete PNG canvas at one raw size therefore made some badges look much smaller or off-center.
 
-The source artwork remains untouched. `progressionVisuals.ts` now owns presentation scale and alignment for preview and list contexts.
+The source artwork remains untouched. A scale-only normalization attempt still allowed the transparent source canvas to influence placement and was rejected during visual review. `progressionVisuals.ts` now records the measured visible alpha bounds for each rank, and `ProgressionBadge` crops only transparent padding before fitting the visible artwork into a common centered stage.
 
-## Scale Strategy
+## Visible-Bounds Strategy
 
-| Rank | Preview scale | List scale | Preview/list offset X | Preview/list offset Y |
-| --- | ---: | ---: | ---: | ---: |
-| Peasant | 1.36 | 1.55 | 0% | 0% |
-| Farmer | 1.38 | 1.55 | 0% | 0% |
-| Squire | 1.28 | 1.38 | -5.5% | 0% |
-| Knight | 1.12 | 1.16 | 0% | 0% |
-| Apprentice | 1.14 | 1.16 | 0% | -5.5% |
-| Nobleman | 1.14 | 1.16 | 2% | -7% |
-| Master | 1.42 | 1.42 | 1% | 10% |
-| Hero | 1.14 | 1.12 | -1% | 1% |
-| Conqueror | 1.08 | 1.06 | 1% | -1.5% |
+| Rank | Source canvas | Visible alpha bounds `(x, y, width, height)` |
+| --- | --- | --- |
+| Peasant | 300x484 | 52, 125, 196, 237 |
+| Farmer | 279x462 | 45, 120, 189, 226 |
+| Squire | 306x480 | 42, 124, 264, 235 |
+| Knight | 375x480 | 31, 124, 314, 235 |
+| Apprentice | 373x480 | 27, 124, 315, 287 |
+| Nobleman | 395x480 | 31, 124, 316, 302 |
+| Master | 391x500 | 74, 80, 239, 268 |
+| Hero | 415x500 | 42, 90, 338, 314 |
+| Conqueror | 482x500 | 59, 80, 358, 356 |
 
-These values normalize the 38px list slot to an apparent maximum artwork dimension of roughly 29px for every rank. The 150px preview stage intentionally grows visible maximum artwork from approximately 100px for Peasant to 116px for Conqueror, preserving controlled prestige growth without abrupt size jumps.
+All preview artwork now uses the same centered 112px visible height. All row artwork uses the same centered 30px visible height. Width follows each badge's real visible aspect ratio; the widest case is Knight at about 150px in the preview and 40px in the row, both safely inside their containers. The crop wrapper removes transparent padding from layout calculations, so changing rank no longer changes the artwork center or lets the visible badge touch the frame.
 
 ## Preview Containment
 
-The selected-rank frame keeps fixed responsive dimensions: 160px high with a 240px width cap on small screens, then 176px high with a 260px cap from `sm` upward. The normalized badge renders on a separate 150px stage. Programmatic alpha-bound calculations place every rank's visible artwork at or below 116px in either dimension, leaving at least 17px of vertical clearance inside the smallest frame even before its wider horizontal clearance.
+The selected-rank frame keeps fixed responsive dimensions: 160px high with a 240px width cap on small screens, then 176px high with a 260px cap from `sm` upward. Every visible badge is exactly 112px high, leaving 24px of vertical clearance inside the smallest frame. Even the widest artwork remains at least 45px from each horizontal frame edge.
 
-The frame uses `overflow-hidden` to contain aura and ring effects. The measured artwork bounds remain inside the frame, so source pixels are not clipped. The artwork keeps its intrinsic aspect ratio through `object-contain`.
+The frame uses `overflow-hidden` to contain aura and ring effects. Only measured transparent padding is cropped from the source image; the complete visible alpha bounds are retained. The artwork keeps its intrinsic aspect ratio and remains centered.
 
 ## List Alignment
 
-Every rank row retains the same 42px outer icon slot and 38px badge stage. Per-rank list scaling and offsets normalize the visible artwork to about 29px while preserving each badge's original proportions. Current rows keep a subtle rank-colored glow, completed rows remain full-color and static, and locked rows retain recognizable grayscale artwork with a small independent lock marker.
+Every rank row retains the same 42px outer icon slot. The complete visible artwork is centered at the same 30px height while preserving its original proportions; the widest artwork is about 40px and remains inside the slot. Current rows keep a subtle rank-colored glow, completed rows remain full-color and static, and locked rows retain recognizable grayscale artwork with a small independent lock marker.
 
 ## Prestige Hierarchy
 
@@ -50,7 +50,7 @@ Every rank row retains the same 42px outer icon slot and 38px badge stage. Per-r
 8. Hero: stronger warm radial treatment and four restrained particles.
 9. Conqueror: strongest gold/aqua layered treatment, slow ring, and five restrained sparks.
 
-The badge artwork no longer bounces vertically. Current-rank motion is limited to slow aura breathing, a slow rotating energy ring from Squire upward, restrained 1-2px particle drift where configured, and tier-scaled frame breathing. Completed ranks keep static premium effects. Locked ranks remain static, mute only the artwork, and retain a faint underlying tier tint.
+The badge artwork no longer bounces. The selected current badge has only a restrained 1px drift, slow aura breathing, a slow energy ring, and tier-scaled frame breathing. Higher configured tiers add tiny 1-2px particle drift. Completed ranks keep static premium effects. Locked ranks remain static, mute only the artwork, and retain a faint underlying tier tint.
 
 ## Reduced Motion
 
@@ -63,9 +63,9 @@ The smaller preview frame applies below 640px and remains centered without chang
 ## Validation
 
 - Inspected intrinsic dimensions and alpha bounds for all nine PNG assets.
-- Verified preview and list containment mathematically from visible alpha bounds and configured transforms. Every preview returned `PreviewFits = true`; every row icon returned `ListFits = true`.
-- Preview visible bounds range from `83x100px` for Peasant to `116x115px` for Conqueror inside the smallest `240x160px` frame.
-- List artwork has a normalized maximum dimension of approximately `29px` inside every `42px` slot.
+- Verified all measured alpha bounds are retained by the crop calculation.
+- Every preview uses the same centered 112px visible height inside the smallest `240x160px` frame.
+- Every row icon uses the same centered 30px visible height inside its `42px` slot.
 - `npm run lint`: passed.
 - `npm run build`: passed, including TypeScript and all 40 application routes.
 - `git diff --check`: passed.
