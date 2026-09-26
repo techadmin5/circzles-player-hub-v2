@@ -35,9 +35,12 @@ export function LoginForm({ returnTo }: { returnTo: string }) {
     } catch (caught) {
       if (isCaptchaRequired(caught)) {
         setCaptchaRequired(true);
+        setError("Please complete the security check.");
+      } else if (isCaptchaInvalid(caught)) {
+        setCaptchaRequired(true);
         setCaptchaToken(undefined);
         setCaptchaResetKey((value) => value + 1);
-        setError("Complete the security check, then try logging in again.");
+        setError("Security check expired. Please try again.");
       } else {
         setError(authMessage(caught));
       }
@@ -60,7 +63,7 @@ export function LoginForm({ returnTo }: { returnTo: string }) {
     <form className="grid gap-4" onSubmit={submit}>
       <label className="grid gap-1 text-sm"><span className="text-[var(--cz-text-secondary)]">Email</span><input name="email" required type="email" autoComplete="email" placeholder="player@example.com" className="min-h-11 rounded-xl border border-[var(--cz-hairline-strong)] bg-[var(--cz-inset)] px-3.5 text-sm outline-none focus:border-[var(--cz-aqua)]" /></label>
       <label className="grid gap-1 text-sm"><span className="text-[var(--cz-text-secondary)]">Password</span><input name="password" required minLength={8} maxLength={256} type="password" autoComplete="current-password" className="min-h-11 rounded-xl border border-[var(--cz-hairline-strong)] bg-[var(--cz-inset)] px-3.5 text-sm outline-none focus:border-[var(--cz-aqua)]" /></label>
-      {captchaRequired && <WixCaptcha resetKey={captchaResetKey} onTokenChange={setCaptchaToken} />}
+      {captchaRequired && <WixCaptcha resetKey={captchaResetKey} onTokenChange={setCaptchaToken} onExpired={() => setError("Security check expired. Please try again.")} />}
       {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
       <button className="cz-btn cz-btn-ghost w-full" disabled={busy} type="submit"><LogIn size={16} />{busy ? "Checking account" : "Log in"}</button>
     </form>
@@ -72,6 +75,12 @@ export function LoginForm({ returnTo }: { returnTo: string }) {
 export function authMessage(error: unknown) {
   if (error instanceof ApiClientError) {
     if (error.code === "DIRECT_AUTH_PROVIDER_NOT_CONFIGURED") return "Direct account access is awaiting provider configuration.";
+    if (error.code === "WIX_ACCOUNT_NOT_FOUND") return "Account not found. Please create a profile first.";
+    if (error.code === "WIX_INCORRECT_PASSWORD") return "Incorrect password. Please try again.";
+    if (error.code === "WIX_ACCOUNT_ALREADY_EXISTS") return "Account already exists. Please log in.";
+    if (error.code === "WIX_INVALID_EMAIL") return "Enter a valid email address.";
+    if (error.code === "WIX_CAPTCHA_REQUIRED") return "Please complete the security check.";
+    if (error.code === "WIX_CAPTCHA_INVALID") return "Security check expired. Please try again.";
     if (error.status === 401) return "Email or password was not accepted.";
     return error.message;
   }
@@ -80,4 +89,8 @@ export function authMessage(error: unknown) {
 
 function isCaptchaRequired(error: unknown) {
   return error instanceof ApiClientError && error.code === "WIX_CAPTCHA_REQUIRED";
+}
+
+function isCaptchaInvalid(error: unknown) {
+  return error instanceof ApiClientError && error.code === "WIX_CAPTCHA_INVALID";
 }

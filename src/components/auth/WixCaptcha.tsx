@@ -25,14 +25,16 @@ declare global {
   }
 }
 
-export function WixCaptcha({ onTokenChange, resetKey }: { onTokenChange: (token?: string) => void; resetKey: number }) {
+export function WixCaptcha({ onTokenChange, onExpired, resetKey }: { onTokenChange: (token?: string) => void; onExpired: () => void; resetKey: number }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetIdRef = useRef<number | undefined>(undefined);
   const onTokenChangeRef = useRef(onTokenChange);
+  const onExpiredRef = useRef(onExpired);
   const [scriptReady, setScriptReady] = useState(false);
   const [loadError, setLoadError] = useState(false);
 
   useEffect(() => { onTokenChangeRef.current = onTokenChange; }, [onTokenChange]);
+  useEffect(() => { onExpiredRef.current = onExpired; }, [onExpired]);
 
   useEffect(() => {
     if (!scriptReady || !containerRef.current || widgetIdRef.current !== undefined) return;
@@ -45,7 +47,10 @@ export function WixCaptcha({ onTokenChange, resetKey }: { onTokenChange: (token?
         size: "compact",
         theme: "dark",
         callback: (token) => onTokenChangeRef.current(token),
-        "expired-callback": () => onTokenChangeRef.current(undefined),
+        "expired-callback": () => {
+          onTokenChangeRef.current(undefined);
+          onExpiredRef.current();
+        },
         "error-callback": () => {
           onTokenChangeRef.current(undefined);
           setLoadError(true);

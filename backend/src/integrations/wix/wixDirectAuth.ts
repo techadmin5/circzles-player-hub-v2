@@ -11,6 +11,7 @@ const FLOW_TTL_MS = 10 * 60 * 1000;
 const wixAuthResponseSchema = z.object({
   state: z.string().optional(),
   loginState: z.string().optional(),
+  errorCode: z.string().optional(),
   sessionToken: z.string().min(1).optional(),
   stateToken: z.string().min(1).optional(),
 }).passthrough();
@@ -251,6 +252,9 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
     }, operation);
     const parsed = wixAuthResponseSchema.safeParse(response);
     if (!parsed.success) throw providerMalformed(operation);
+    if (authState(parsed.data) === "FAILURE" || parsed.data.errorCode) {
+      throw wixAuthFailure(parsed.data, operation, 400);
+    }
     return parsed.data;
   }
 
@@ -263,17 +267,12 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
     }
     if (!response.ok) {
       const providerError = await response.json().catch(() => undefined);
-      const marker = providerErrorMarker(providerError);
-      if (marker.includes("CAPTCHA")) {
-        throw new AppError("WIX_CAPTCHA_REQUIRED", "Wix requires a valid CAPTCHA response.", 400, { captchaRequired: true });
-      }
-      if (operation === "login" && (response.status === 400 || response.status === 401 || response.status === 403)) {
-        throw new AppError("WIX_INVALID_CREDENTIALS", "Email or password was not accepted.", 401);
-      }
+      const mapped = wixAuthFailure(providerError, operation, response.status);
+      if (mapped.code !== "WIX_AUTH_REQUEST_FAILED") throw mapped;
       if (operation === "verification" && (response.status === 400 || response.status === 401 || response.status === 403)) {
         throw new AppError("WIX_SIGNUP_VERIFICATION_INVALID", "The signup verification code is invalid or expired.", 400);
       }
-      throw new AppError("WIX_AUTH_REQUEST_FAILED", "Wix could not complete authentication.", response.status >= 500 ? 503 : 400);
+      throw mapped;
     }
     try {
       return await response.json();
@@ -307,7 +306,7 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
 
 function captchaBody(token?: string, type: CaptchaType = "RECAPTCHA") {
   if (!token) return {};
-  return { captchaTokens: { [type === "INVISIBLE_RECAPTCHA" ? "InvisibleRecaptcha" : "Recaptcha"]: token } };
+  return { captchaTokens: [{ [type === "INVISIBLE_RECAPTCHA" ? "InvisibleRecaptcha" : "Recaptcha"]: token }] };
 }
 
 function authState(response: z.infer<typeof wixAuthResponseSchema>) {
@@ -356,9 +355,36 @@ function collectProviderMarkers(value: unknown, markers: string[], depth: number
   }
   if (typeof value === "object") {
     for (const [key, item] of Object.entries(value)) {
-      if (["code", "error", "message", "details", "applicationError"].includes(key)) collectProviderMarkers(item, markers, depth + 1);
+      if (["code", "errorCode", "error"].includes(key) && typeof item === "string") markers.push(item);
+      else if (typeof item === "object") collectProviderMarkers(item, markers, depth + 1);
     }
   }
+}
+
+function wixAuthFailure(value: unknown, operation: string, status: number) {
+  const marker = providerErrorMarker(value).replace(/[^A-Z0-9]/g, "");
+  if (marker.includes("INVALIDCAPTCHATOKEN")) {
+    return new AppError("WIX_CAPTCHA_INVALID", "The Wix CAPTCHA response is invalid or expired.", 400, { captchaInvalid: true });
+  }
+  if (marker.includes("MISSINGCAPTCHATOKEN") || marker.includes("CAPTCHAREQUIRED") || marker.includes("RECAPTCHAREQUIRED")) {
+    return new AppError("WIX_CAPTCHA_REQUIRED", "Wix requires a CAPTCHA response.", 400, { captchaRequired: true });
+  }
+  if (operation === "login" && marker.includes("INVALIDEMAIL")) {
+    return new AppError("WIX_ACCOUNT_NOT_FOUND", "No Wix member account exists for this email.", 404);
+  }
+  if (operation === "login" && marker.includes("INVALIDPASSWORD")) {
+    return new AppError("WIX_INCORRECT_PASSWORD", "The Wix member password was not accepted.", 401);
+  }
+  if (operation === "signup" && (marker.includes("EMAILALREADYEXISTS") || marker.includes("ALREADYEXISTS"))) {
+    return new AppError("WIX_ACCOUNT_ALREADY_EXISTS", "A Wix member account already exists for this email.", 409);
+  }
+  if (marker.includes("INVALIDEMAIL")) {
+    return new AppError("WIX_INVALID_EMAIL", "Wix rejected the email address.", 400);
+  }
+  if (operation === "login" && (status === 400 || status === 401 || status === 403)) {
+    return new AppError("WIX_INVALID_CREDENTIALS", "Email or password was not accepted.", 401);
+  }
+  return new AppError("WIX_AUTH_REQUEST_FAILED", "Wix could not complete authentication.", status >= 500 ? 503 : 400);
 }
 
 function toVerifiedIdentity(
