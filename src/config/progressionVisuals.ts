@@ -16,18 +16,25 @@ export interface ProgressionVisual {
   glow: string;
   ambientIntensity: number;
   particleIntensity: number;
+  prestigeLevel: number;
+  previewScale: number;
+  listScale: number;
+  previewOffsetX: number;
+  previewOffsetY: number;
+  listOffsetX: number;
+  listOffsetY: number;
 }
 
 export const progressionVisuals: Record<string, ProgressionVisual> = {
-  peasant: visual("Peasant", peasant, "#d9772d", "#f2b04f", 0.18, 0),
-  farmer: visual("Farmer", farmer, "#388cf2", "#5ce1ff", 0.2, 0),
-  squire: visual("Squire", squire, "#e7493f", "#7ac943", 0.22, 0),
-  knight: visual("Knight", knight, "#c4c9dc", "#9a6dff", 0.25, 0),
-  apprentice: visual("Apprentice", apprentice, "#f28a2e", "#ffd35a", 0.28, 2),
-  nobleman: visual("Nobleman", nobleman, "#b846e8", "#ff5abf", 0.3, 3),
-  master: visual("Master", master, "#f0ad32", "#ffd76a", 0.34, 4),
-  hero: visual("Hero", hero, "#e83e45", "#f4b53f", 0.38, 5),
-  conqueror: visual("Conqueror", conqueror, "#ef3f42", "#ffc343", 0.44, 6),
+  peasant: visual("Peasant", peasant, "#d9772d", "#f2b04f", 0.14, 0, 1, 1.36, 1.55),
+  farmer: visual("Farmer", farmer, "#388cf2", "#5ce1ff", 0.18, 0, 2, 1.38, 1.55),
+  squire: visual("Squire", squire, "#e7493f", "#7ac943", 0.21, 0, 3, 1.28, 1.38, -5.5, 0, -5.5, 0),
+  knight: visual("Knight", knight, "#c4c9dc", "#9a6dff", 0.24, 0, 4, 1.12, 1.16),
+  apprentice: visual("Apprentice", apprentice, "#f28a2e", "#ffd35a", 0.28, 2, 5, 1.14, 1.16, 0, -5.5, 0, -5.5),
+  nobleman: visual("Nobleman", nobleman, "#b846e8", "#ff5abf", 0.31, 2, 6, 1.14, 1.16, 2, -7, 2, -7),
+  master: visual("Master", master, "#f0ad32", "#ffd76a", 0.35, 3, 7, 1.42, 1.42, 1, 10, 1, 10),
+  hero: visual("Hero", hero, "#e83e45", "#f4b53f", 0.39, 4, 8, 1.14, 1.12, -1, 1, -1, 1),
+  conqueror: visual("Conqueror", conqueror, "#ef3f42", "#3dead4", 0.45, 5, 9, 1.08, 1.06, 1, -1.5, 1, -1.5),
 };
 
 export const progressionRankNames = ["Peasant", "Farmer", "Squire", "Knight", "Apprentice", "Nobleman", "Master", "Hero", "Conqueror"] as const;
@@ -41,6 +48,20 @@ export function normalizeRankName(rankName: string) {
   return rankName.trim().toLowerCase().replace(/[^a-z]/g, "");
 }
 
-function visual(rankName: string, badge: StaticImageData, aura: string, glow: string, ambientIntensity: number, particleIntensity: number): ProgressionVisual {
-  return { rankName, badge, aura, glow, ambientIntensity, particleIntensity };
+function visual(
+  rankName: string,
+  badge: StaticImageData,
+  aura: string,
+  glow: string,
+  ambientIntensity: number,
+  particleIntensity: number,
+  prestigeLevel: number,
+  previewScale: number,
+  listScale: number,
+  previewOffsetX = 0,
+  previewOffsetY = 0,
+  listOffsetX = previewOffsetX,
+  listOffsetY = previewOffsetY,
+): ProgressionVisual {
+  return { rankName, badge, aura, glow, ambientIntensity, particleIntensity, prestigeLevel, previewScale, listScale, previewOffsetX, previewOffsetY, listOffsetX, listOffsetY };
 }
