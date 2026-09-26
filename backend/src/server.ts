@@ -40,7 +40,12 @@ const authHandoff = new AuthHandoffVerifier({
   circzlesIn: env.AUTH_HANDOFF_CIRCZLES_IN_SECRET,
 });
 const directAuth = env.WIX_CLIENT_ID && env.WIX_DIRECT_AUTH_CALLBACK_URL
-  ? new WixDirectAuthProvider({ clientId: env.WIX_CLIENT_ID, callbackUrl: env.WIX_DIRECT_AUTH_CALLBACK_URL, stateSecret: env.SESSION_SECRET })
+  ? new WixDirectAuthProvider({
+    clientId: env.WIX_CLIENT_ID,
+    callbackUrl: env.WIX_DIRECT_AUTH_CALLBACK_URL,
+    stateSecret: env.SESSION_SECRET,
+    onDiagnostic: (diagnostic) => console.warn("Wix email authentication outcome", diagnostic),
+  })
   : new UnconfiguredDirectAuthProvider();
 const gameState = new GameStateService(new DrizzleGameStateRepository(db));
 const puzzles = new PuzzleOwnershipService(new DrizzlePuzzleRepository(db));
