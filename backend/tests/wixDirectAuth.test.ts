@@ -19,12 +19,13 @@ const verifiedMember = {
     profile: { nickname: "Puzzle Player", photo: { url: "//static.wix.test/avatar.png" } },
   },
 };
+const authIdentity = { id: "wix-member-1" };
 
 describe("WixDirectAuthProvider", () => {
   it("completes successful email login through PKCE and returns a verified Wix member", async () => {
     const wix = mockWix(
       ok({ access_token: "visitor-token" }),
-      ok({ state: "SUCCESS", sessionToken: "member-session-token" }),
+      ok({ state: "SUCCESS", session_token: "member-session-token", identity: authIdentity }),
       ok({ redirectSession: { fullUrl: "https://wix.example.test/authorize-email" } }),
       ok({ access_token: "member-access-token", refresh_token: "member-refresh-token" }),
       ok(verifiedMember),
@@ -62,7 +63,7 @@ describe("WixDirectAuthProvider", () => {
   it("logs in without adding CAPTCHA data when Wix does not require a challenge", async () => {
     const wix = mockWix(
       ok({ access_token: "visitor-token" }),
-      ok({ state: "SUCCESS", sessionToken: "member-session-token" }),
+      ok({ state: "SUCCESS", sessionToken: "member-session-token", identity: authIdentity }),
       ok({ redirectSession: { fullUrl: "https://wix.example.test/authorize-email" } }),
     );
     const provider = new WixDirectAuthProvider(config, wix.fetch);
@@ -90,7 +91,7 @@ describe("WixDirectAuthProvider", () => {
   });
 
   it("maps an unknown login email to the controlled account-not-found response", async () => {
-    const wix = mockWix(ok({ access_token: "visitor-token" }), ok({ state: "FAILURE", errorCode: "invalidEmail", error: "provider detail" }));
+    const wix = mockWix(ok({ access_token: "visitor-token" }), ok({ state: "FAILURE", error_code: "invalidEmail", error: "provider detail" }));
     const provider = new WixDirectAuthProvider(config, wix.fetch);
     const error = await captureError(provider.loginWithEmail({ email: "missing@example.com", password: "safe-password", returnTo: "/hub" }));
     expect(error).toMatchObject({ code: "WIX_ACCOUNT_NOT_FOUND", statusCode: 404 });
@@ -134,7 +135,7 @@ describe("WixDirectAuthProvider", () => {
   it("creates an opaque signup challenge and forwards supported CAPTCHA data", async () => {
     const wix = mockWix(
       ok({ access_token: "visitor-token" }),
-      ok({ state: "REQUIRE_EMAIL_VERIFICATION", stateToken: "provider-state-token" }),
+      ok({ state: "REQUIRE_EMAIL_VERIFICATION", state_token: "provider-state-token" }),
     );
     const provider = new WixDirectAuthProvider(config, wix.fetch);
     const result = await provider.startEmailSignup({
@@ -145,6 +146,7 @@ describe("WixDirectAuthProvider", () => {
       captchaType: "INVISIBLE_RECAPTCHA",
     });
     expect(result.challengeId).not.toContain("provider-state-token");
+    expect(result).toMatchObject({ state: "EMAIL_VERIFICATION_REQUIRED" });
     expect(result.challengeId.split(".")).toHaveLength(3);
     expect(bodyAt(wix.calls, 1)).toEqual({
       loginId: { email: "player@example.com" },
@@ -152,6 +154,26 @@ describe("WixDirectAuthProvider", () => {
       profile: { nickname: "Puzzle Player" },
       captchaTokens: [{ InvisibleRecaptcha: "captcha-token" }],
     });
+  });
+
+  it("preserves a login email-verification state and completes it with the sealed Wix state token", async () => {
+    const wix = mockWix(
+      ok({ access_token: "visitor-token" }),
+      ok({ state: "EMAIL_VERIFICATION_REQUIRED", state_token: "login-verification-state" }),
+    );
+    const provider = new WixDirectAuthProvider(config, wix.fetch);
+    const challenge = await provider.loginWithEmail({ email: "player@example.com", password: "safe-password", returnTo: "/hub" });
+    expect(challenge).toMatchObject({ state: "EMAIL_VERIFICATION_REQUIRED", challengeId: expect.any(String) });
+    expect(JSON.stringify(challenge)).not.toContain("login-verification-state");
+
+    if (!("challengeId" in challenge)) throw new Error("Expected an email verification challenge");
+    wix.responses.push(
+      ok({ state: "SUCCESS", session_token: "verified-session-token", identity: authIdentity }),
+      ok({ redirectSession: { fullUrl: "https://wix.example.test/authorize-login-verification" } }),
+    );
+    const redirect = await provider.verifyEmailSignup({ challengeId: challenge.challengeId, code: "123456", returnTo: "/hub" });
+    expect(redirect.authorizationUrl).toBe("https://wix.example.test/authorize-login-verification");
+    expect(bodyAt(wix.calls, 2)).toEqual({ code: "123456", stateToken: "login-verification-state" });
   });
 
   it("maps an existing signup email without exposing provider details", async () => {
@@ -180,7 +202,7 @@ describe("WixDirectAuthProvider", () => {
     const provider = new WixDirectAuthProvider(config, wix.fetch);
     const challenge = await provider.startEmailSignup({ displayName: "Puzzle Player", email: "player@example.com", password: "safe-password" });
     wix.responses.push(
-      ok({ state: "SUCCESS", sessionToken: "verified-session-token" }),
+      ok({ state: "SUCCESS", session_token: "verified-session-token", identity: authIdentity }),
       ok({ redirectSession: { fullUrl: "https://wix.example.test/authorize-signup" } }),
       ok({ access_token: "member-token", refresh_token: "ignored-refresh-token" }),
       ok(verifiedMember),
@@ -194,6 +216,23 @@ describe("WixDirectAuthProvider", () => {
     expect(JSON.stringify({ challenge, redirect, completed })).not.toContain("visitor-token");
     expect(JSON.stringify({ challenge, redirect, completed })).not.toContain("member-token");
     expect(JSON.stringify({ challenge, redirect, completed })).not.toContain("ignored-refresh-token");
+  });
+
+  it("fails closed when Wix reports SUCCESS without an authenticated identity", async () => {
+    const wix = mockWix(ok({ access_token: "visitor-token" }), ok({ state: "SUCCESS", session_token: "member-session-token" }));
+    const provider = new WixDirectAuthProvider(config, wix.fetch);
+    await expect(provider.loginWithEmail({ email: "player@example.com", password: "safe-password", returnTo: "/hub" })).rejects.toMatchObject({ code: "WIX_LOGIN_FAILED" });
+    expect(wix.calls).toHaveLength(2);
+  });
+
+  it("maps unknown login and signup failure states to operation-specific safe errors", async () => {
+    const loginWix = mockWix(ok({ access_token: "visitor-token" }), ok({ state: "FAILURE" }));
+    const loginProvider = new WixDirectAuthProvider(config, loginWix.fetch);
+    await expect(loginProvider.loginWithEmail({ email: "player@example.com", password: "safe-password", returnTo: "/hub" })).rejects.toMatchObject({ code: "WIX_LOGIN_FAILED", statusCode: 400 });
+
+    const signupWix = mockWix(ok({ access_token: "visitor-token" }), ok({ state: "FAILURE" }));
+    const signupProvider = new WixDirectAuthProvider(config, signupWix.fetch);
+    await expect(signupProvider.startEmailSignup({ displayName: "Puzzle Player", email: "player@example.com", password: "safe-password" })).rejects.toMatchObject({ code: "WIX_SIGNUP_FAILED", statusCode: 400 });
   });
 
   it("rejects invalid provider verification and expired local signup challenges", async () => {
@@ -223,7 +262,7 @@ describe("WixDirectAuthProvider", () => {
   it("rejects a member identity that does not match the email authenticated by Wix", async () => {
     const wix = mockWix(
       ok({ access_token: "visitor-token" }),
-      ok({ state: "SUCCESS", sessionToken: "session-token" }),
+      ok({ state: "SUCCESS", sessionToken: "session-token", identity: authIdentity }),
       ok({ redirectSession: { fullUrl: "https://wix.example.test/authorize" } }),
       ok({ access_token: "member-token" }),
       ok({ member: { ...verifiedMember.member, loginEmail: "other@example.com" } }),

@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
-import type { CaptchaType, CompletedDirectAuthorization, DirectAuthProvider, DirectAuthRedirect, DirectSignupChallenge } from "../../domain/directAuth.js";
+import type { CaptchaType, CompletedDirectAuthorization, DirectAuthProvider, DirectAuthRedirect, DirectEmailLoginResult, DirectSignupChallenge } from "../../domain/directAuth.js";
 import { AppError } from "../../domain/errors.js";
 import type { IdentityProvider, VerifiedExternalIdentity } from "../../domain/identity.js";
 
@@ -11,9 +11,14 @@ const FLOW_TTL_MS = 10 * 60 * 1000;
 const wixAuthResponseSchema = z.object({
   state: z.string().optional(),
   loginState: z.string().optional(),
+  login_state: z.string().optional(),
   errorCode: z.string().optional(),
+  error_code: z.string().optional(),
   sessionToken: z.string().min(1).optional(),
+  session_token: z.string().min(1).optional(),
   stateToken: z.string().min(1).optional(),
+  state_token: z.string().min(1).optional(),
+  identity: z.object({ id: z.string().min(1).optional(), _id: z.string().min(1).optional() }).passthrough().optional(),
 }).passthrough();
 
 const tokenResponseSchema = z.object({
@@ -89,7 +94,7 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
     this.now = config.now ?? Date.now;
   }
 
-  async loginWithEmail(input: { email: string; password: string; captchaToken?: string; captchaType?: CaptchaType; returnTo: string }): Promise<DirectAuthRedirect> {
+  async loginWithEmail(input: { email: string; password: string; captchaToken?: string; captchaType?: CaptchaType; returnTo: string }): Promise<DirectEmailLoginResult> {
     const visitorAccessToken = await this.createVisitorToken();
     const response = await this.postWixAuth("/_api/iam/authentication/v2/login", {
       loginId: { email: normalizeEmail(input.email) },
@@ -98,17 +103,18 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
     }, visitorAccessToken, "login");
     const state = authState(response);
     if (isEmailVerificationRequired(state)) {
-      throw new AppError("WIX_EMAIL_NOT_VERIFIED", "Verify this email through signup before logging in.", 403);
+      return this.createEmailVerificationChallenge(response, visitorAccessToken, normalizeEmail(input.email));
     }
     if (isOwnerApprovalRequired(state)) {
       throw new AppError("WIX_MEMBER_APPROVAL_REQUIRED", "This Wix membership is awaiting approval.", 403);
     }
-    if (state !== "SUCCESS" || !response.sessionToken) {
+    const sessionToken = authSessionToken(response);
+    if (state !== "SUCCESS" || !sessionToken || !authIdentityId(response)) {
       throw new AppError("WIX_LOGIN_FAILED", "Wix could not complete email login.", 401);
     }
     return this.createAuthorizationRedirect({
       visitorAccessToken,
-      sessionToken: response.sessionToken,
+      sessionToken,
       flow: "EMAIL",
       expectedEmail: normalizeEmail(input.email),
       returnTo: safeLocalReturnTo(input.returnTo),
@@ -128,17 +134,13 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
     if (isOwnerApprovalRequired(state)) {
       throw new AppError("WIX_MEMBER_APPROVAL_REQUIRED", "This Wix membership is awaiting approval.", 403);
     }
-    if (!isEmailVerificationRequired(state) || !response.stateToken) {
+    if (!isEmailVerificationRequired(state)) {
       if (state === "SUCCESS") {
         throw new AppError("WIX_SIGNUP_VERIFICATION_NOT_REQUIRED", "Wix must require email verification for Player Hub signup.", 503);
       }
       throw new AppError("WIX_SIGNUP_FAILED", "Wix could not start email signup.", 400);
     }
-    const expiresAt = this.now() + FLOW_TTL_MS;
-    return {
-      challengeId: this.seal({ type: "SIGNUP_CHALLENGE", stateToken: response.stateToken, visitorAccessToken, expectedEmail, expiresAt }),
-      expiresAt: new Date(expiresAt).toISOString(),
-    };
+    return this.createEmailVerificationChallenge(response, visitorAccessToken, expectedEmail);
   }
 
   async verifyEmailSignup(input: { challengeId: string; code: string; returnTo: string }): Promise<DirectAuthRedirect> {
@@ -147,12 +149,13 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
       code: input.code.trim(),
       stateToken: challenge.stateToken,
     }, challenge.visitorAccessToken, "verification");
-    if (authState(response) !== "SUCCESS" || !response.sessionToken) {
+    const sessionToken = authSessionToken(response);
+    if (authState(response) !== "SUCCESS" || !sessionToken || !authIdentityId(response)) {
       throw new AppError("WIX_SIGNUP_VERIFICATION_INVALID", "The signup verification code is invalid or expired.", 400);
     }
     return this.createAuthorizationRedirect({
       visitorAccessToken: challenge.visitorAccessToken,
-      sessionToken: response.sessionToken,
+      sessionToken,
       flow: "EMAIL",
       expectedEmail: challenge.expectedEmail,
       returnTo: safeLocalReturnTo(input.returnTo),
@@ -244,6 +247,21 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
     return { authorizationUrl: parsed.data.redirectSession.fullUrl };
   }
 
+  private createEmailVerificationChallenge(
+    response: z.infer<typeof wixAuthResponseSchema>,
+    visitorAccessToken: string,
+    expectedEmail: string,
+  ) {
+    const stateToken = authStateToken(response);
+    if (!stateToken) throw providerMalformed("email verification");
+    const expiresAt = this.now() + FLOW_TTL_MS;
+    return {
+      state: "EMAIL_VERIFICATION_REQUIRED" as const,
+      challengeId: this.seal({ type: "SIGNUP_CHALLENGE", stateToken, visitorAccessToken, expectedEmail, expiresAt }),
+      expiresAt: new Date(expiresAt).toISOString(),
+    };
+  }
+
   private async postWixAuth(path: string, body: unknown, accessToken: string, operation: string) {
     const response = await this.requestJson(path, {
       method: "POST",
@@ -252,7 +270,7 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
     }, operation);
     const parsed = wixAuthResponseSchema.safeParse(response);
     if (!parsed.success) throw providerMalformed(operation);
-    if (authState(parsed.data) === "FAILURE" || parsed.data.errorCode) {
+    if (authState(parsed.data) === "FAILURE" || parsed.data.errorCode || parsed.data.error_code) {
       throw wixAuthFailure(parsed.data, operation, 400);
     }
     return parsed.data;
@@ -310,7 +328,19 @@ function captchaBody(token?: string, type: CaptchaType = "RECAPTCHA") {
 }
 
 function authState(response: z.infer<typeof wixAuthResponseSchema>) {
-  return response.state ?? response.loginState ?? "";
+  return response.state ?? response.loginState ?? response.login_state ?? "";
+}
+
+function authSessionToken(response: z.infer<typeof wixAuthResponseSchema>) {
+  return response.sessionToken ?? response.session_token;
+}
+
+function authStateToken(response: z.infer<typeof wixAuthResponseSchema>) {
+  return response.stateToken ?? response.state_token;
+}
+
+function authIdentityId(response: z.infer<typeof wixAuthResponseSchema>) {
+  return response.identity?.id ?? response.identity?._id;
 }
 
 function isEmailVerificationRequired(state: string) {
@@ -355,7 +385,7 @@ function collectProviderMarkers(value: unknown, markers: string[], depth: number
   }
   if (typeof value === "object") {
     for (const [key, item] of Object.entries(value)) {
-      if (["code", "errorCode", "error"].includes(key) && typeof item === "string") markers.push(item);
+      if (["code", "errorCode", "error_code", "error"].includes(key) && typeof item === "string") markers.push(item);
       else if (typeof item === "object") collectProviderMarkers(item, markers, depth + 1);
     }
   }
@@ -381,8 +411,11 @@ function wixAuthFailure(value: unknown, operation: string, status: number) {
   if (marker.includes("INVALIDEMAIL")) {
     return new AppError("WIX_INVALID_EMAIL", "Wix rejected the email address.", 400);
   }
-  if (operation === "login" && (status === 400 || status === 401 || status === 403)) {
-    return new AppError("WIX_INVALID_CREDENTIALS", "Email or password was not accepted.", 401);
+  if (operation === "login") {
+    return new AppError("WIX_LOGIN_FAILED", "Unable to complete login. Please try again.", status >= 500 ? 503 : 400);
+  }
+  if (operation === "signup") {
+    return new AppError("WIX_SIGNUP_FAILED", "Unable to create account. Please try again.", status >= 500 ? 503 : 400);
   }
   return new AppError("WIX_AUTH_REQUEST_FAILED", "Wix could not complete authentication.", status >= 500 ? 503 : 400);
 }
