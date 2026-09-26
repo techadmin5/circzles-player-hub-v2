@@ -71,6 +71,14 @@ interface WixDirectAuthConfig {
   stateSecret: string;
   apiBaseUrl?: string;
   now?: () => number;
+  onDiagnostic?: (diagnostic: WixAuthDiagnostic) => void;
+}
+
+export interface WixAuthDiagnostic {
+  operation: "LOGIN" | "REGISTER" | "VERIFY";
+  state: string | null;
+  errorCode: string | null;
+  status: number;
 }
 
 type Fetch = typeof fetch;
@@ -109,9 +117,9 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
       throw new AppError("WIX_MEMBER_APPROVAL_REQUIRED", "This Wix membership is awaiting approval.", 403);
     }
     const sessionToken = authSessionToken(response);
-    if (state !== "SUCCESS" || !sessionToken || !authIdentityId(response)) {
-      throw new AppError("WIX_LOGIN_FAILED", "Wix could not complete email login.", 401);
-    }
+    if (state !== "SUCCESS") throw new AppError("WIX_LOGIN_STATE_UNSUPPORTED", "Wix returned an unsupported login state.", 400);
+    if (!sessionToken) throw new AppError("WIX_LOGIN_SESSION_TOKEN_MISSING", "Wix login did not return a session token.", 502);
+    if (!authIdentityId(response)) throw new AppError("WIX_LOGIN_IDENTITY_MISSING", "Wix login did not return a member identity.", 502);
     return this.createAuthorizationRedirect({
       visitorAccessToken,
       sessionToken,
@@ -138,7 +146,7 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
       if (state === "SUCCESS") {
         throw new AppError("WIX_SIGNUP_VERIFICATION_NOT_REQUIRED", "Wix must require email verification for Player Hub signup.", 503);
       }
-      throw new AppError("WIX_SIGNUP_FAILED", "Wix could not start email signup.", 400);
+      throw new AppError("WIX_SIGNUP_STATE_UNSUPPORTED", "Wix returned an unsupported signup state.", 400);
     }
     return this.createEmailVerificationChallenge(response, visitorAccessToken, expectedEmail);
   }
@@ -150,9 +158,9 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
       stateToken: challenge.stateToken,
     }, challenge.visitorAccessToken, "verification");
     const sessionToken = authSessionToken(response);
-    if (authState(response) !== "SUCCESS" || !sessionToken || !authIdentityId(response)) {
-      throw new AppError("WIX_SIGNUP_VERIFICATION_INVALID", "The signup verification code is invalid or expired.", 400);
-    }
+    if (authState(response) !== "SUCCESS") throw new AppError("WIX_SIGNUP_VERIFICATION_INVALID", "The signup verification code is invalid or expired.", 400);
+    if (!sessionToken) throw new AppError("WIX_VERIFICATION_SESSION_TOKEN_MISSING", "Wix verification did not return a session token.", 502);
+    if (!authIdentityId(response)) throw new AppError("WIX_VERIFICATION_IDENTITY_MISSING", "Wix verification did not return a member identity.", 502);
     return this.createAuthorizationRedirect({
       visitorAccessToken: challenge.visitorAccessToken,
       sessionToken,
@@ -267,7 +275,7 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: accessToken },
       body: JSON.stringify(body),
-    }, operation);
+    }, operation, (value, status) => this.reportAuthDiagnostic(operation, value, status));
     const parsed = wixAuthResponseSchema.safeParse(response);
     if (!parsed.success) throw providerMalformed(operation);
     if (authState(parsed.data) === "FAILURE" || parsed.data.errorCode || parsed.data.error_code) {
@@ -276,15 +284,17 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
     return parsed.data;
   }
 
-  private async requestJson(path: string, init: RequestInit, operation: string): Promise<unknown> {
+  private async requestJson(path: string, init: RequestInit, operation: string, onResponse?: (value: unknown, status: number) => void): Promise<unknown> {
     let response: Response;
     try {
       response = await this.fetchImpl(`${this.apiBaseUrl}${path}`, init);
     } catch {
+      onResponse?.({ errorCode: "NETWORK_ERROR" }, 0);
       throw new AppError("WIX_AUTH_UNAVAILABLE", "Wix authentication is temporarily unavailable.", 503);
     }
     if (!response.ok) {
       const providerError = await response.json().catch(() => undefined);
+      onResponse?.(providerError, response.status);
       const mapped = wixAuthFailure(providerError, operation, response.status);
       if (mapped.code !== "WIX_AUTH_REQUEST_FAILED") throw mapped;
       if (operation === "verification" && (response.status === 400 || response.status === 401 || response.status === 403)) {
@@ -293,10 +303,24 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
       throw mapped;
     }
     try {
-      return await response.json();
+      const body: unknown = await response.json();
+      onResponse?.(body, response.status);
+      return body;
     } catch {
+      onResponse?.({ errorCode: "MALFORMED_RESPONSE" }, response.status);
       throw providerMalformed(operation);
     }
+  }
+
+  private reportAuthDiagnostic(operation: string, value: unknown, status: number) {
+    const diagnosticOperation = diagnosticOperationFor(operation);
+    if (!diagnosticOperation) return;
+    this.config.onDiagnostic?.({
+      operation: diagnosticOperation,
+      state: providerState(value),
+      errorCode: providerErrorCodes(value).join("|").slice(0, 160) || null,
+      status,
+    });
   }
 
   private seal(payload: object) {
@@ -368,27 +392,56 @@ function providerMalformed(operation: string) {
 }
 
 function providerErrorMarker(value: unknown) {
-  const markers: string[] = [];
-  collectProviderMarkers(value, markers, 0);
-  return markers.join(" ").toUpperCase();
+  return providerErrorCodes(value).join(" ").toUpperCase();
 }
 
-function collectProviderMarkers(value: unknown, markers: string[], depth: number) {
+function providerErrorCodes(value: unknown) {
+  const markers: string[] = [];
+  collectProviderErrorCodes(value, markers, 0);
+  return markers;
+}
+
+function collectProviderErrorCodes(value: unknown, markers: string[], depth: number) {
   if (depth > 4 || value === null || value === undefined) return;
-  if (typeof value === "string") {
-    markers.push(value);
-    return;
-  }
   if (Array.isArray(value)) {
-    for (const item of value) collectProviderMarkers(item, markers, depth + 1);
+    for (const item of value) collectProviderErrorCodes(item, markers, depth + 1);
     return;
   }
   if (typeof value === "object") {
     for (const [key, item] of Object.entries(value)) {
-      if (["code", "errorCode", "error_code", "error"].includes(key) && typeof item === "string") markers.push(item);
-      else if (typeof item === "object") collectProviderMarkers(item, markers, depth + 1);
+      if (["code", "errorCode", "error_code"].includes(key)) collectScalarValues(item, markers, depth + 1);
+      else if (typeof item === "object") collectProviderErrorCodes(item, markers, depth + 1);
     }
   }
+}
+
+function collectScalarValues(value: unknown, markers: string[], depth: number) {
+  if (depth > 6 || value === null || value === undefined) return;
+  if (typeof value === "string" || typeof value === "number") {
+    markers.push(String(value));
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectScalarValues(item, markers, depth + 1);
+    return;
+  }
+  if (typeof value === "object") {
+    for (const item of Object.values(value)) collectScalarValues(item, markers, depth + 1);
+  }
+}
+
+function providerState(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const state = record.state ?? record.loginState ?? record.login_state;
+  return typeof state === "string" ? state.slice(0, 80) : null;
+}
+
+function diagnosticOperationFor(operation: string): WixAuthDiagnostic["operation"] | undefined {
+  if (operation === "login") return "LOGIN";
+  if (operation === "signup") return "REGISTER";
+  if (operation === "verification") return "VERIFY";
+  return undefined;
 }
 
 function wixAuthFailure(value: unknown, operation: string, status: number) {

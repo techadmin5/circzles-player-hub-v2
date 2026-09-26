@@ -39,12 +39,12 @@ export function SignupForm({ returnTo = "/hub" }: { returnTo?: string }) {
           setCaptchaToken(undefined);
           setCaptchaResetKey((value) => value + 1);
         }
-        setError("Please complete the security check.");
+        setError("Security verification required.");
       } else if (caught instanceof ApiClientError && caught.code === "WIX_CAPTCHA_INVALID") {
         setCaptchaRequired(true);
         setCaptchaToken(undefined);
         setCaptchaResetKey((value) => value + 1);
-        setError("Security check expired. Please try again.");
+        setError("Security verification required.");
       } else {
         setError(authMessage(caught, "signup"));
       }
@@ -77,11 +77,11 @@ export function SignupForm({ returnTo = "/hub" }: { returnTo?: string }) {
         <label className="grid gap-1 text-sm"><span className="text-[var(--cz-text-secondary)]">Name</span><input name="displayName" required minLength={2} maxLength={80} autoComplete="name" className="min-h-11 rounded-xl border border-[var(--cz-hairline-strong)] bg-[var(--cz-inset)] px-3.5 text-sm outline-none focus:border-[var(--cz-aqua)]" /></label>
         <label className="grid gap-1 text-sm"><span className="text-[var(--cz-text-secondary)]">Email</span><input name="email" required type="email" autoComplete="email" className="min-h-11 rounded-xl border border-[var(--cz-hairline-strong)] bg-[var(--cz-inset)] px-3.5 text-sm outline-none focus:border-[var(--cz-aqua)]" /></label>
         <label className="grid gap-1 text-sm"><span className="text-[var(--cz-text-secondary)]">Password</span><input name="password" required minLength={8} maxLength={256} type="password" autoComplete="new-password" className="min-h-11 rounded-xl border border-[var(--cz-hairline-strong)] bg-[var(--cz-inset)] px-3.5 text-sm outline-none focus:border-[var(--cz-aqua)]" /></label>
-        {captchaRequired && <WixCaptcha resetKey={captchaResetKey} onTokenChange={setCaptchaToken} onExpired={() => setError("Security check expired. Please try again.")} />}
+        {captchaRequired && <WixCaptcha resetKey={captchaResetKey} onTokenChange={setCaptchaToken} onExpired={() => setError("Security verification required.")} />}
         <button className="cz-btn cz-btn-ghost w-full" disabled={busy} type="submit"><UserPlus size={16} />{busy ? "Creating account..." : "Create account"}</button>
       </form>
     </> : <form className="grid gap-4" onSubmit={verify}>
-      <div><h2 className="cz-display text-lg font-bold">Verify your email</h2><p className="mt-1 text-sm text-[var(--cz-text-secondary)]">Please verify your email to continue.</p></div>
+      <div><h2 className="cz-display text-lg font-bold">Verify your email</h2><p className="mt-1 text-sm text-[var(--cz-text-secondary)]">Please verify your email before continuing.</p></div>
       <label className="grid gap-1 text-sm"><span className="text-[var(--cz-text-secondary)]">Verification code</span><input name="code" required minLength={4} maxLength={12} inputMode="numeric" autoComplete="one-time-code" className="min-h-11 rounded-xl border border-[var(--cz-hairline-strong)] bg-[var(--cz-inset)] px-3.5 text-sm outline-none focus:border-[var(--cz-aqua)]" /></label>
       <button className="cz-btn cz-btn-primary w-full" disabled={busy} type="submit"><MailCheck size={16} />{busy ? "Verifying..." : "Verify and continue"}</button>
     </form>}

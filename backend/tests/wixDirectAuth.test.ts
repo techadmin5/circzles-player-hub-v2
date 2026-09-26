@@ -221,8 +221,49 @@ describe("WixDirectAuthProvider", () => {
   it("fails closed when Wix reports SUCCESS without an authenticated identity", async () => {
     const wix = mockWix(ok({ access_token: "visitor-token" }), ok({ state: "SUCCESS", session_token: "member-session-token" }));
     const provider = new WixDirectAuthProvider(config, wix.fetch);
-    await expect(provider.loginWithEmail({ email: "player@example.com", password: "safe-password", returnTo: "/hub" })).rejects.toMatchObject({ code: "WIX_LOGIN_FAILED" });
+    await expect(provider.loginWithEmail({ email: "player@example.com", password: "safe-password", returnTo: "/hub" })).rejects.toMatchObject({ code: "WIX_LOGIN_IDENTITY_MISSING", statusCode: 502 });
     expect(wix.calls).toHaveLength(2);
+  });
+
+  it("fails closed when Wix reports SUCCESS without a session token", async () => {
+    const wix = mockWix(ok({ access_token: "visitor-token" }), ok({ state: "SUCCESS", identity: authIdentity }));
+    const provider = new WixDirectAuthProvider(config, wix.fetch);
+    await expect(provider.loginWithEmail({ email: "player@example.com", password: "safe-password", returnTo: "/hub" })).rejects.toMatchObject({ code: "WIX_LOGIN_SESSION_TOKEN_MISSING", statusCode: 502 });
+    expect(wix.calls).toHaveLength(2);
+  });
+
+  it("preserves Wix owner-approval state as a controlled failure", async () => {
+    const wix = mockWix(ok({ access_token: "visitor-token" }), ok({ state: "REQUIRE_OWNER_APPROVAL" }));
+    const provider = new WixDirectAuthProvider(config, wix.fetch);
+    await expect(provider.loginWithEmail({ email: "player@example.com", password: "safe-password", returnTo: "/hub" })).rejects.toMatchObject({ code: "WIX_MEMBER_APPROVAL_REQUIRED", statusCode: 403 });
+  });
+
+  it("extracts wrapped Wix error codes and emits only safe structured diagnostics", async () => {
+    const diagnostics: unknown[] = [];
+    const wix = mockWix(
+      ok({ access_token: "visitor-token" }),
+      failure(401, {
+        state: "FAILURE",
+        additionalData: { errorCode: { stringValue: "invalidPassword" } },
+        password: "must-not-log",
+        captchaToken: "must-not-log",
+        session_token: "must-not-log",
+      }),
+    );
+    const provider = new WixDirectAuthProvider({ ...config, onDiagnostic: (diagnostic) => diagnostics.push(diagnostic) }, wix.fetch);
+    await expect(provider.loginWithEmail({ email: "player@example.com", password: "wrong-password", returnTo: "/hub" })).rejects.toMatchObject({ code: "WIX_INCORRECT_PASSWORD" });
+    expect(diagnostics).toEqual([{ operation: "LOGIN", state: "FAILURE", errorCode: "invalidPassword", status: 401 }]);
+    expect(JSON.stringify(diagnostics)).not.toContain("must-not-log");
+  });
+
+  it("reports REGISTER state diagnostics without exposing request credentials", async () => {
+    const diagnostics: unknown[] = [];
+    const wix = mockWix(ok({ access_token: "visitor-token" }), ok({ state: "EMAIL_VERIFICATION_REQUIRED", state_token: "provider-state-token" }));
+    const provider = new WixDirectAuthProvider({ ...config, onDiagnostic: (diagnostic) => diagnostics.push(diagnostic) }, wix.fetch);
+    await provider.startEmailSignup({ displayName: "Puzzle Player", email: "player@example.com", password: "safe-password", captchaToken: "captcha-secret" });
+    expect(diagnostics).toEqual([{ operation: "REGISTER", state: "EMAIL_VERIFICATION_REQUIRED", errorCode: null, status: 200 }]);
+    expect(JSON.stringify(diagnostics)).not.toContain("safe-password");
+    expect(JSON.stringify(diagnostics)).not.toContain("captcha-secret");
   });
 
   it("maps unknown login and signup failure states to operation-specific safe errors", async () => {
