@@ -35,7 +35,7 @@ describe("WixDirectAuthProvider", () => {
     expect(bodyAt(wix.calls, 1)).toEqual({
       loginId: { email: "player@example.com" },
       password: "safe-password",
-      captchaTokens: { Recaptcha: "visible-captcha-token" },
+      captchaTokens: [{ Recaptcha: "visible-captcha-token" }],
     });
     const redirectBody = bodyAt(wix.calls, 2);
     expect(redirectBody.auth.authRequest).toMatchObject({ clientId: config.clientId, responseMode: "query", responseType: "code", scope: "offline_access" });
@@ -59,6 +59,17 @@ describe("WixDirectAuthProvider", () => {
     expect(wix.calls[4].init?.headers).toEqual({ Authorization: "member-access-token" });
   });
 
+  it("logs in without adding CAPTCHA data when Wix does not require a challenge", async () => {
+    const wix = mockWix(
+      ok({ access_token: "visitor-token" }),
+      ok({ state: "SUCCESS", sessionToken: "member-session-token" }),
+      ok({ redirectSession: { fullUrl: "https://wix.example.test/authorize-email" } }),
+    );
+    const provider = new WixDirectAuthProvider(config, wix.fetch);
+    await provider.loginWithEmail({ email: "player@example.com", password: "safe-password", returnTo: "/hub" });
+    expect(bodyAt(wix.calls, 1)).toEqual({ loginId: { email: "player@example.com" }, password: "safe-password" });
+  });
+
   it("rejects a Google-authenticated Wix member whose login email is explicitly unverified", async () => {
     const { provider, state, wix } = await startGoogleFlow();
     wix.responses.push(ok({ access_token: "member-token" }), ok({ member: { ...verifiedMember.member, loginEmailVerified: false } }));
@@ -66,16 +77,24 @@ describe("WixDirectAuthProvider", () => {
     expect(wix.calls[3].url).toBe("https://wix.example.test/members/v1/members/my?fieldsets=FULL");
   });
 
-  it("maps invalid credentials safely without returning provider data", async () => {
+  it("maps an incorrect password safely without returning provider data", async () => {
     const wix = mockWix(
       ok({ access_token: "visitor-token" }),
-      failure(401, { message: "wrong password", access_token: "must-not-leak", refresh_token: "must-not-leak" }),
+      failure(401, { details: { applicationError: { code: "INVALID_PASSWORD" } }, access_token: "must-not-leak", refresh_token: "must-not-leak" }),
     );
     const provider = new WixDirectAuthProvider(config, wix.fetch);
-    const error = await captureError(provider.loginWithEmail({ email: "player@example.com", password: "wrong-password", returnTo: "/hub" }));
-    expect(error).toMatchObject({ code: "WIX_INVALID_CREDENTIALS", statusCode: 401 });
+    const error = await captureError(provider.loginWithEmail({ email: "player@example.com", password: "wrong-password", captchaToken: "still-current-token", captchaType: "RECAPTCHA", returnTo: "/hub" }));
+    expect(error).toMatchObject({ code: "WIX_INCORRECT_PASSWORD", statusCode: 401 });
+    expect(bodyAt(wix.calls, 1)).toMatchObject({ captchaTokens: [{ Recaptcha: "still-current-token" }] });
     expect(JSON.stringify(error)).not.toContain("must-not-leak");
-    expect(error.message).not.toContain("wrong password");
+  });
+
+  it("maps an unknown login email to the controlled account-not-found response", async () => {
+    const wix = mockWix(ok({ access_token: "visitor-token" }), ok({ state: "FAILURE", errorCode: "invalidEmail", error: "provider detail" }));
+    const provider = new WixDirectAuthProvider(config, wix.fetch);
+    const error = await captureError(provider.loginWithEmail({ email: "missing@example.com", password: "safe-password", returnTo: "/hub" }));
+    expect(error).toMatchObject({ code: "WIX_ACCOUNT_NOT_FOUND", statusCode: 404 });
+    expect(JSON.stringify(error)).not.toContain("provider detail");
   });
 
   it("returns a controlled CAPTCHA contract without exposing Wix response details", async () => {
@@ -86,6 +105,18 @@ describe("WixDirectAuthProvider", () => {
     const provider = new WixDirectAuthProvider(config, wix.fetch);
     const error = await captureError(provider.loginWithEmail({ email: "player@example.com", password: "safe-password", returnTo: "/hub" }));
     expect(error).toMatchObject({ code: "WIX_CAPTCHA_REQUIRED", statusCode: 400, details: { captchaRequired: true } });
+    expect(JSON.stringify(error)).not.toContain("provider-secret-diagnostic");
+  });
+
+  it("distinguishes an invalid or expired CAPTCHA token from an initial challenge", async () => {
+    const wix = mockWix(
+      ok({ access_token: "visitor-token" }),
+      ok({ state: "FAILURE", errorCode: "invalidCaptchaToken", error: "provider-secret-diagnostic" }),
+    );
+    const provider = new WixDirectAuthProvider(config, wix.fetch);
+    const error = await captureError(provider.loginWithEmail({ email: "player@example.com", password: "safe-password", captchaToken: "expired-token", captchaType: "RECAPTCHA", returnTo: "/hub" }));
+    expect(error).toMatchObject({ code: "WIX_CAPTCHA_INVALID", statusCode: 400, details: { captchaInvalid: true } });
+    expect(bodyAt(wix.calls, 1)).toMatchObject({ captchaTokens: [{ Recaptcha: "expired-token" }] });
     expect(JSON.stringify(error)).not.toContain("provider-secret-diagnostic");
   });
 
@@ -119,8 +150,26 @@ describe("WixDirectAuthProvider", () => {
       loginId: { email: "player@example.com" },
       password: "safe-password",
       profile: { nickname: "Puzzle Player" },
-      captchaTokens: { InvisibleRecaptcha: "captcha-token" },
+      captchaTokens: [{ InvisibleRecaptcha: "captcha-token" }],
     });
+  });
+
+  it("maps an existing signup email without exposing provider details", async () => {
+    const wix = mockWix(
+      ok({ access_token: "visitor-token" }),
+      failure(409, { details: { applicationError: { code: "EMAIL_ALREADY_EXISTS", message: "provider detail" } } }),
+    );
+    const provider = new WixDirectAuthProvider(config, wix.fetch);
+    const error = await captureError(provider.startEmailSignup({ displayName: "Puzzle Player", email: "player@example.com", password: "safe-password" }));
+    expect(error).toMatchObject({ code: "WIX_ACCOUNT_ALREADY_EXISTS", statusCode: 409 });
+    expect(JSON.stringify(error)).not.toContain("provider detail");
+  });
+
+  it("maps a provider-rejected signup email to the controlled invalid-email response", async () => {
+    const wix = mockWix(ok({ access_token: "visitor-token" }), ok({ state: "FAILURE", errorCode: "invalidEmail" }));
+    const provider = new WixDirectAuthProvider(config, wix.fetch);
+    const error = await captureError(provider.startEmailSignup({ displayName: "Puzzle Player", email: "player@example.com", password: "safe-password" }));
+    expect(error).toMatchObject({ code: "WIX_INVALID_EMAIL", statusCode: 400 });
   });
 
   it("verifies signup OTP with Wix and resolves the verified identity after callback", async () => {
