@@ -150,8 +150,8 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
   });
 
   app.post("/api/auth/logout", async (request, reply) => {
-    await identity.logout(request.cookies[SESSION_COOKIE_NAME]);
     clearSessionCookie(reply, env);
+    await identity.logout(request.cookies[SESSION_COOKIE_NAME]);
     return reply.send({ ok: true });
   });
 
@@ -486,7 +486,7 @@ function clearSessionCookie(reply: FastifyReply, env: Env) {
 }
 
 function safeReturnTo(value: string | undefined) {
-  if (!value || !value.startsWith("/") || value.startsWith("//")) return "/hub";
+  if (!value || !value.startsWith("/") || value.startsWith("//") || value.includes("\\")) return "/hub";
   return value.slice(0, 512);
 }
 

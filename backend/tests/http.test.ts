@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createHmac } from "crypto";
 import { buildApp } from "../src/http/app.js";
 import { GameStateService, temporaryDevelopmentProgressionLevels } from "../src/domain/gameState.js";
@@ -92,7 +92,7 @@ async function appWithFakes(overrides: Partial<Env> = {}, directAuth?: DirectAut
     spin: async (input) => { wheelSpinCalls.push(input); return { spinId: "60000000-0000-4000-8000-000000000001", rewardId: "20000000-0000-4000-8000-000000000001", rewardDefinitionId: "20000000-0000-4000-8000-000000000001", rewardType: "SYNAPSE_POINTS", rewardLabel: "100 SP", rewardValue: 100, resultingBalance: 1050, wheelSegmentIndex: 4, spunAt: "2026-09-16T12:00:00.000Z", spinNumber: 1, chargedSynapsePoints: 0, cycleStartedAt: "2026-09-16T12:00:00.000Z", cycleEndsAt: "2026-09-17T12:00:00.000Z", idempotent: false }; },
   } satisfies RewardWheelRepository);
   const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, coupons, playerIdentityActions, rewardWheel, directAuth, checkDb: async () => {} });
-  return { app, identityRepo, gameRepo, puzzleRepo, submissionRepo, videoStorage, adminAuthRepo, adminSubmissionRepo, leaderboardRepo, reviewRepo, publicProfileRepo, missionRepo, missionClaimRepo, purchaseCalls, inventoryCalls, couponCalls, renameCalls, wheelSpinCalls, testEnv };
+  return { app, identity, identityRepo, gameRepo, puzzleRepo, submissionRepo, videoStorage, adminAuthRepo, adminSubmissionRepo, leaderboardRepo, reviewRepo, publicProfileRepo, missionRepo, missionClaimRepo, purchaseCalls, inventoryCalls, couponCalls, renameCalls, wheelSpinCalls, testEnv };
 }
 
 async function login(app: Awaited<ReturnType<typeof appWithFakes>>["app"]) {
@@ -200,6 +200,15 @@ describe("http auth poc", () => {
     expect(after.statusCode).toBe(401);
   });
 
+  it("clears the browser cookie even when session revocation fails", async () => {
+    const { app, identity } = await appWithFakes();
+    vi.spyOn(identity, "logout").mockRejectedValueOnce(new Error("database unavailable"));
+    const response = await app.inject({ method: "POST", url: "/api/auth/logout", headers: { cookie: "cz_session=stale" } });
+    expect(response.statusCode).toBe(500);
+    expect(response.headers["set-cookie"]).toContain("cz_session=;");
+    expect(response.json()).toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+  });
+
   it("rejects an invalid session without touching gameplay state", async () => {
     const { app, gameRepo } = await appWithFakes();
     const response = await app.inject({ method: "GET", url: "/api/auth/session", headers: { cookie: "cz_session=invalid" } });
@@ -239,6 +248,22 @@ describe("http auth poc", () => {
     const rejected = await other.app.inject({ method: "GET", url: "/api/auth/direct/google/callback?code=code&state=state" });
     expect(rejected.statusCode).toBe(502);
     expect(rejected.json().code).toBe("DIRECT_AUTH_IDENTITY_INVALID");
+  });
+
+  it("rejects backslash return paths before direct-auth redirects", async () => {
+    let receivedReturnTo = "";
+    const verified = { sourceSite: "CIRCZLES_COM" as const, provider: "EMAIL" as const, externalIdentityId: "canonical-member", verifiedEmail: "player@example.com", emailVerified: true as const, displayName: "Verified Player" };
+    const directAuth: DirectAuthProvider = {
+      loginWithEmail: async (input) => { receivedReturnTo = input.returnTo; return { authorizationUrl: "https://identity.example.test/email" }; },
+      startEmailSignup: async () => ({ challengeId: "challenge" }),
+      verifyEmailSignup: async () => ({ authorizationUrl: "https://identity.example.test/verify" }),
+      getGoogleAuthorizationUrl: async () => ({ authorizationUrl: "https://identity.example.test/start" }),
+      completeAuthorization: async () => ({ identity: verified, returnTo: "/hub" }),
+    };
+    const { app } = await appWithFakes({}, directAuth);
+    const response = await app.inject({ method: "POST", url: "/api/auth/direct/email/login", payload: { email: "player@example.com", password: "strong-password", returnTo: "/\\attacker.example" } });
+    expect(response.statusCode).toBe(200);
+    expect(receivedReturnTo).toBe("/hub");
   });
 
   it("preserves known Fastify 4xx errors", async () => {

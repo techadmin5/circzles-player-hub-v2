@@ -30,8 +30,13 @@ describe("WixDirectAuthProvider", () => {
       ok(verifiedMember),
     );
     const provider = new WixDirectAuthProvider(config, wix.fetch);
-    const started = await provider.loginWithEmail({ email: "PLAYER@example.com", password: "safe-password", returnTo: "/missions" });
+    const started = await provider.loginWithEmail({ email: "PLAYER@example.com", password: "safe-password", captchaToken: "visible-captcha-token", captchaType: "RECAPTCHA", returnTo: "/missions" });
     expect(started).toEqual({ authorizationUrl: "https://wix.example.test/authorize-email" });
+    expect(bodyAt(wix.calls, 1)).toEqual({
+      loginId: { email: "player@example.com" },
+      password: "safe-password",
+      captchaTokens: { Recaptcha: "visible-captcha-token" },
+    });
     const redirectBody = bodyAt(wix.calls, 2);
     expect(redirectBody.auth.authRequest).toMatchObject({ clientId: config.clientId, responseMode: "query", responseType: "code", scope: "offline_access" });
     expect(redirectBody.auth.sessionToken).toBe("member-session-token");
@@ -82,6 +87,17 @@ describe("WixDirectAuthProvider", () => {
     const error = await captureError(provider.loginWithEmail({ email: "player@example.com", password: "safe-password", returnTo: "/hub" }));
     expect(error).toMatchObject({ code: "WIX_CAPTCHA_REQUIRED", statusCode: 400, details: { captchaRequired: true } });
     expect(JSON.stringify(error)).not.toContain("provider-secret-diagnostic");
+  });
+
+  it("returns the controlled CAPTCHA contract when signup requires a challenge", async () => {
+    const wix = mockWix(
+      ok({ access_token: "visitor-token" }),
+      failure(400, { code: "MISSING_CAPTCHA_TOKEN", password: "must-not-leak" }),
+    );
+    const provider = new WixDirectAuthProvider(config, wix.fetch);
+    const error = await captureError(provider.startEmailSignup({ displayName: "Puzzle Player", email: "player@example.com", password: "safe-password" }));
+    expect(error).toMatchObject({ code: "WIX_CAPTCHA_REQUIRED", statusCode: 400, details: { captchaRequired: true } });
+    expect(JSON.stringify(error)).not.toContain("must-not-leak");
   });
 
   it("creates an opaque signup challenge and forwards supported CAPTCHA data", async () => {
