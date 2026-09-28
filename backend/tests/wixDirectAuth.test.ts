@@ -115,6 +115,44 @@ describe("WixDirectAuthProvider", () => {
     expect(JSON.stringify(error)).not.toContain("provider-secret-diagnostic");
   });
 
+  it("maps Wix -19971 to CAPTCHA required only for the exact 403 provider condition", async () => {
+    const missingCaptcha = mockWix(
+      ok({ access_token: "visitor-token" }),
+      failure(403, { details: { applicationError: { code: "-19971", message: "provider-secret-diagnostic" } } }),
+    );
+    const provider = new WixDirectAuthProvider(config, missingCaptcha.fetch);
+    const error = await captureError(provider.loginWithEmail({ email: "player@example.com", password: "safe-password", returnTo: "/hub" }));
+    expect(error).toMatchObject({ code: "WIX_CAPTCHA_REQUIRED", statusCode: 400, details: { captchaRequired: true } });
+    expect(JSON.stringify(error)).not.toContain("provider-secret-diagnostic");
+
+    const unrelatedForbidden = mockWix(
+      ok({ access_token: "visitor-token" }),
+      failure(403, { details: { applicationError: { code: "PERMISSION_DENIED" } } }),
+    );
+    await expect(new WixDirectAuthProvider(config, unrelatedForbidden.fetch).loginWithEmail({ email: "player@example.com", password: "safe-password", returnTo: "/hub" })).rejects.toMatchObject({ code: "WIX_LOGIN_FAILED" });
+  });
+
+  it("allows a -19971 login to retry with a real visible CAPTCHA token", async () => {
+    const wix = mockWix(
+      ok({ access_token: "first-visitor-token" }),
+      failure(403, { details: { applicationError: { code: -19971 } } }),
+      ok({ access_token: "second-visitor-token" }),
+      ok({ state: "SUCCESS", session_token: "member-session-token", identity: authIdentity }),
+      ok({ redirectSession: { fullUrl: "https://wix.example.test/authorize-retry" } }),
+    );
+    const provider = new WixDirectAuthProvider(config, wix.fetch);
+    await expect(provider.loginWithEmail({ email: "player@example.com", password: "safe-password", returnTo: "/hub" })).rejects.toMatchObject({ code: "WIX_CAPTCHA_REQUIRED" });
+
+    await expect(provider.loginWithEmail({
+      email: "player@example.com",
+      password: "safe-password",
+      captchaToken: "visible-captcha-token",
+      captchaType: "RECAPTCHA",
+      returnTo: "/hub",
+    })).resolves.toEqual({ authorizationUrl: "https://wix.example.test/authorize-retry" });
+    expect(bodyAt(wix.calls, 3)).toMatchObject({ captcha_tokens: [{ Recaptcha: "visible-captcha-token" }] });
+  });
+
   it("distinguishes an invalid or expired CAPTCHA token from an initial challenge", async () => {
     const wix = mockWix(
       ok({ access_token: "visitor-token" }),
