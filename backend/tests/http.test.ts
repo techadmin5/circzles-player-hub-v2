@@ -228,7 +228,7 @@ describe("http auth poc", () => {
     const verified = { sourceSite: "CIRCZLES_COM" as const, provider: "EMAIL" as const, externalIdentityId: "canonical-member", verifiedEmail: "player@example.com", emailVerified: true as const, displayName: "Verified Player" };
     const directAuth: DirectAuthProvider = {
       loginWithEmail: async () => ({ authorizationUrl: "https://identity.example.test/email" }),
-      startEmailSignup: async () => ({ challengeId: "challenge" }),
+      startEmailSignup: async () => ({ state: "EMAIL_VERIFICATION_REQUIRED", challengeId: "challenge" }),
       verifyEmailSignup: async () => ({ authorizationUrl: "https://identity.example.test/verify" }),
       getGoogleAuthorizationUrl: async () => ({ authorizationUrl: "https://identity.example.test/start" }),
       completeAuthorization: async () => ({ identity: verified, returnTo: "/hub" }),
@@ -253,7 +253,7 @@ describe("http auth poc", () => {
   it("returns an email-verification challenge without creating a Player Hub session", async () => {
     const directAuth: DirectAuthProvider = {
       loginWithEmail: async () => ({ state: "EMAIL_VERIFICATION_REQUIRED", challengeId: "sealed-challenge", expiresAt: "2026-09-26T12:00:00.000Z" }),
-      startEmailSignup: async () => ({ challengeId: "challenge" }),
+      startEmailSignup: async () => ({ state: "EMAIL_VERIFICATION_REQUIRED", challengeId: "challenge" }),
       verifyEmailSignup: async () => ({ authorizationUrl: "https://identity.example.test/verify" }),
       getGoogleAuthorizationUrl: async () => ({ authorizationUrl: "https://identity.example.test/start" }),
       completeAuthorization: async () => { throw new Error("Not called"); },
@@ -265,12 +265,38 @@ describe("http auth poc", () => {
     expect(response.headers["set-cookie"]).toBeUndefined();
   });
 
+  it("returns either the immediate signup redirect or an email-verification challenge", async () => {
+    let receivedReturnTo = "";
+    const directRedirect: DirectAuthProvider = {
+      loginWithEmail: async () => ({ authorizationUrl: "https://identity.example.test/email" }),
+      startEmailSignup: async (input) => { receivedReturnTo = input.returnTo; return { authorizationUrl: "https://identity.example.test/signup" }; },
+      verifyEmailSignup: async () => ({ authorizationUrl: "https://identity.example.test/verify" }),
+      getGoogleAuthorizationUrl: async () => ({ authorizationUrl: "https://identity.example.test/start" }),
+      completeAuthorization: async () => { throw new Error("Not called"); },
+    };
+    const immediate = await appWithFakes({}, directRedirect);
+    const redirectResponse = await immediate.app.inject({ method: "POST", url: "/api/auth/direct/email/signup", payload: { displayName: "Puzzle Player", email: "player@example.com", password: "strong-password", returnTo: "/missions" } });
+    expect(redirectResponse.statusCode).toBe(200);
+    expect(redirectResponse.json()).toEqual({ authorizationUrl: "https://identity.example.test/signup" });
+    expect(receivedReturnTo).toBe("/missions");
+    expect(redirectResponse.headers["set-cookie"]).toBeUndefined();
+
+    const directChallenge: DirectAuthProvider = {
+      ...directRedirect,
+      startEmailSignup: async () => ({ state: "EMAIL_VERIFICATION_REQUIRED", challengeId: "sealed-challenge", expiresAt: "2026-09-28T12:00:00.000Z" }),
+    };
+    const verification = await appWithFakes({}, directChallenge);
+    const challengeResponse = await verification.app.inject({ method: "POST", url: "/api/auth/direct/email/signup", payload: { displayName: "Puzzle Player", email: "player@example.com", password: "strong-password" } });
+    expect(challengeResponse.statusCode).toBe(202);
+    expect(challengeResponse.json()).toEqual({ state: "EMAIL_VERIFICATION_REQUIRED", challengeId: "sealed-challenge", expiresAt: "2026-09-28T12:00:00.000Z" });
+  });
+
   it("rejects backslash return paths before direct-auth redirects", async () => {
     let receivedReturnTo = "";
     const verified = { sourceSite: "CIRCZLES_COM" as const, provider: "EMAIL" as const, externalIdentityId: "canonical-member", verifiedEmail: "player@example.com", emailVerified: true as const, displayName: "Verified Player" };
     const directAuth: DirectAuthProvider = {
       loginWithEmail: async (input) => { receivedReturnTo = input.returnTo; return { authorizationUrl: "https://identity.example.test/email" }; },
-      startEmailSignup: async () => ({ challengeId: "challenge" }),
+      startEmailSignup: async () => ({ state: "EMAIL_VERIFICATION_REQUIRED", challengeId: "challenge" }),
       verifyEmailSignup: async () => ({ authorizationUrl: "https://identity.example.test/verify" }),
       getGoogleAuthorizationUrl: async () => ({ authorizationUrl: "https://identity.example.test/start" }),
       completeAuthorization: async () => ({ identity: verified, returnTo: "/hub" }),

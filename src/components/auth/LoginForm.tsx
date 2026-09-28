@@ -25,7 +25,7 @@ export function LoginForm({ returnTo }: { returnTo: string }) {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (captchaRequired && !captchaToken) {
-      setError("Complete the security check before logging in.");
+      setError("Please complete the security check.");
       return;
     }
     setBusy(true); setError("");
@@ -44,12 +44,12 @@ export function LoginForm({ returnTo }: { returnTo: string }) {
           setCaptchaToken(undefined);
           setCaptchaResetKey((value) => value + 1);
         }
-        setError("Security verification required.");
+        setError("Please complete the security check.");
       } else if (isCaptchaInvalid(caught)) {
         setCaptchaRequired(true);
         setCaptchaToken(undefined);
         setCaptchaResetKey((value) => value + 1);
-        setError("Security verification required.");
+        setError("Security verification expired. Please try again.");
       } else {
         setError(authMessage(caught, "login"));
       }
@@ -86,7 +86,7 @@ export function LoginForm({ returnTo }: { returnTo: string }) {
       <form className="grid gap-4" onSubmit={submit}>
         <label className="grid gap-1 text-sm"><span className="text-[var(--cz-text-secondary)]">Email</span><input name="email" required type="email" autoComplete="email" placeholder="player@example.com" className="min-h-11 rounded-xl border border-[var(--cz-hairline-strong)] bg-[var(--cz-inset)] px-3.5 text-sm outline-none focus:border-[var(--cz-aqua)]" /></label>
         <label className="grid gap-1 text-sm"><span className="text-[var(--cz-text-secondary)]">Password</span><input name="password" required minLength={8} maxLength={256} type="password" autoComplete="current-password" className="min-h-11 rounded-xl border border-[var(--cz-hairline-strong)] bg-[var(--cz-inset)] px-3.5 text-sm outline-none focus:border-[var(--cz-aqua)]" /></label>
-        {captchaRequired && <WixCaptcha resetKey={captchaResetKey} onTokenChange={setCaptchaToken} onExpired={() => setError("Security verification required.")} />}
+        {captchaRequired && <WixCaptcha resetKey={captchaResetKey} onTokenChange={setCaptchaToken} onExpired={() => setError("Security verification expired. Please try again.")} />}
         <button className="cz-btn cz-btn-ghost w-full" disabled={busy} type="submit"><LogIn size={16} />{busy ? "Logging in..." : "Log in"}</button>
       </form>
     </> : <form className="grid gap-4" onSubmit={verify}>
@@ -103,12 +103,14 @@ export function LoginForm({ returnTo }: { returnTo: string }) {
 export function authMessage(error: unknown, context: "login" | "signup" | "generic" = "generic") {
   if (error instanceof ApiClientError) {
     if (error.code === "DIRECT_AUTH_PROVIDER_NOT_CONFIGURED") return "Direct account access is awaiting provider configuration.";
-    if (error.code === "WIX_ACCOUNT_NOT_FOUND") return "Account not found. Please create a profile first.";
-    if (error.code === "WIX_INCORRECT_PASSWORD") return "Incorrect password.";
-    if (error.code === "WIX_ACCOUNT_ALREADY_EXISTS") return "This email is already registered. Please login.";
-    if (error.code === "WIX_INVALID_EMAIL") return "Enter a valid email address.";
+    if (error.code === "WIX_ACCOUNT_NOT_FOUND") return "Account not found. Please check your email or create a profile.";
+    if (error.code === "WIX_INCORRECT_PASSWORD") return "Incorrect password. Please try again.";
+    if (error.code === "WIX_PASSWORD_RESET_REQUIRED") return "Please reset your password before continuing.";
+    if (error.code === "WIX_ACCOUNT_ALREADY_EXISTS") return "This email is already registered. Please log in.";
+    if (error.code === "WIX_INVALID_EMAIL") return "Please enter a valid email address.";
     if (error.code === "WIX_MEMBER_APPROVAL_REQUIRED") return "Your account is pending approval.";
-    if (error.code === "WIX_CAPTCHA_REQUIRED" || error.code === "WIX_CAPTCHA_INVALID") return "Security verification required.";
+    if (error.code === "WIX_CAPTCHA_REQUIRED") return "Please complete the security check.";
+    if (error.code === "WIX_CAPTCHA_INVALID") return "Security verification expired. Please try again.";
     if (context === "login" || context === "signup") return "Authentication failed. Please try again.";
     return error.message;
   }

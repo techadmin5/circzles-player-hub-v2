@@ -17,6 +17,7 @@ export interface DirectEmailVerificationChallenge extends DirectSignupChallenge 
 }
 
 export type DirectEmailLoginResult = DirectAuthRedirect | DirectEmailVerificationChallenge;
+export type DirectEmailSignupResult = DirectAuthRedirect | DirectEmailVerificationChallenge;
 
 export interface CompletedDirectAuthorization {
   identity: VerifiedExternalIdentity;
@@ -25,7 +26,7 @@ export interface CompletedDirectAuthorization {
 
 export interface DirectAuthProvider {
   loginWithEmail(input: { email: string; password: string; captchaToken?: string; captchaType?: CaptchaType; returnTo: string }): Promise<DirectEmailLoginResult>;
-  startEmailSignup(input: { displayName: string; email: string; password: string; captchaToken?: string; captchaType?: CaptchaType }): Promise<DirectSignupChallenge>;
+  startEmailSignup(input: { displayName: string; email: string; password: string; captchaToken?: string; captchaType?: CaptchaType; returnTo: string }): Promise<DirectEmailSignupResult>;
   verifyEmailSignup(input: { challengeId: string; code: string; returnTo: string }): Promise<DirectAuthRedirect>;
   getGoogleAuthorizationUrl(input: { returnTo: string }): Promise<{ authorizationUrl: string }>;
   completeAuthorization(input: { code: string; state: string }): Promise<CompletedDirectAuthorization>;
@@ -37,7 +38,7 @@ export class UnconfiguredDirectAuthProvider implements DirectAuthProvider {
   }
 
   async loginWithEmail(): Promise<DirectEmailLoginResult> { return this.unavailable(); }
-  async startEmailSignup(): Promise<DirectSignupChallenge> { return this.unavailable(); }
+  async startEmailSignup(): Promise<DirectEmailSignupResult> { return this.unavailable(); }
   async verifyEmailSignup(): Promise<DirectAuthRedirect> { return this.unavailable(); }
   async getGoogleAuthorizationUrl(): Promise<{ authorizationUrl: string }> { return this.unavailable(); }
   async completeAuthorization(): Promise<CompletedDirectAuthorization> { return this.unavailable(); }
