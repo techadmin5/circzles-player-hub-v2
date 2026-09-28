@@ -398,10 +398,6 @@ function providerMalformed(operation: string) {
   return new AppError("WIX_AUTH_RESPONSE_INVALID", `Wix returned an invalid ${operation} response.`, 502);
 }
 
-function providerErrorMarker(value: unknown) {
-  return providerErrorCodes(value).join(" ").toUpperCase();
-}
-
 function providerErrorCodes(value: unknown) {
   const markers: string[] = [];
   collectProviderErrorCodes(value, markers, 0);
@@ -452,7 +448,11 @@ function diagnosticOperationFor(operation: string): WixAuthDiagnostic["operation
 }
 
 function wixAuthFailure(value: unknown, operation: string, status: number) {
-  const marker = providerErrorMarker(value).replace(/[^A-Z0-9]/g, "");
+  const errorCodes = providerErrorCodes(value);
+  const marker = errorCodes.join(" ").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (status === 403 && errorCodes.some((code) => code.trim() === "-19971")) {
+    return new AppError("WIX_CAPTCHA_REQUIRED", "Wix requires a CAPTCHA response.", 400, { captchaRequired: true });
+  }
   if (marker.includes("INVALIDCAPTCHATOKEN")) {
     return new AppError("WIX_CAPTCHA_INVALID", "The Wix CAPTCHA response is invalid or expired.", 400, { captchaInvalid: true });
   }
