@@ -34,9 +34,9 @@ describe("WixDirectAuthProvider", () => {
     const started = await provider.loginWithEmail({ email: "PLAYER@example.com", password: "safe-password", captchaToken: "visible-captcha-token", captchaType: "RECAPTCHA", returnTo: "/missions" });
     expect(started).toEqual({ authorizationUrl: "https://wix.example.test/authorize-email" });
     expect(bodyAt(wix.calls, 1)).toEqual({
-      loginId: { email: "player@example.com" },
+      login_id: { email: "player@example.com" },
       password: "safe-password",
-      captchaTokens: [{ Recaptcha: "visible-captcha-token" }],
+      captcha_tokens: [{ Recaptcha: "visible-captcha-token" }],
     });
     const redirectBody = bodyAt(wix.calls, 2);
     expect(redirectBody.auth.authRequest).toMatchObject({ clientId: config.clientId, responseMode: "query", responseType: "code", scope: "offline_access" });
@@ -68,7 +68,7 @@ describe("WixDirectAuthProvider", () => {
     );
     const provider = new WixDirectAuthProvider(config, wix.fetch);
     await provider.loginWithEmail({ email: "player@example.com", password: "safe-password", returnTo: "/hub" });
-    expect(bodyAt(wix.calls, 1)).toEqual({ loginId: { email: "player@example.com" }, password: "safe-password" });
+    expect(bodyAt(wix.calls, 1)).toEqual({ login_id: { email: "player@example.com" }, password: "safe-password" });
   });
 
   it("rejects a Google-authenticated Wix member whose login email is explicitly unverified", async () => {
@@ -86,8 +86,14 @@ describe("WixDirectAuthProvider", () => {
     const provider = new WixDirectAuthProvider(config, wix.fetch);
     const error = await captureError(provider.loginWithEmail({ email: "player@example.com", password: "wrong-password", captchaToken: "still-current-token", captchaType: "RECAPTCHA", returnTo: "/hub" }));
     expect(error).toMatchObject({ code: "WIX_INCORRECT_PASSWORD", statusCode: 401 });
-    expect(bodyAt(wix.calls, 1)).toMatchObject({ captchaTokens: [{ Recaptcha: "still-current-token" }] });
+    expect(bodyAt(wix.calls, 1)).toMatchObject({ captcha_tokens: [{ Recaptcha: "still-current-token" }] });
     expect(JSON.stringify(error)).not.toContain("must-not-leak");
+  });
+
+  it("preserves Wix reset-password failures as a controlled category", async () => {
+    const wix = mockWix(ok({ access_token: "visitor-token" }), ok({ state: "FAILURE", error_code: "resetPassword" }));
+    const provider = new WixDirectAuthProvider(config, wix.fetch);
+    await expect(provider.loginWithEmail({ email: "player@example.com", password: "safe-password", returnTo: "/hub" })).rejects.toMatchObject({ code: "WIX_PASSWORD_RESET_REQUIRED", statusCode: 403 });
   });
 
   it("maps an unknown login email to the controlled account-not-found response", async () => {
@@ -117,7 +123,7 @@ describe("WixDirectAuthProvider", () => {
     const provider = new WixDirectAuthProvider(config, wix.fetch);
     const error = await captureError(provider.loginWithEmail({ email: "player@example.com", password: "safe-password", captchaToken: "expired-token", captchaType: "RECAPTCHA", returnTo: "/hub" }));
     expect(error).toMatchObject({ code: "WIX_CAPTCHA_INVALID", statusCode: 400, details: { captchaInvalid: true } });
-    expect(bodyAt(wix.calls, 1)).toMatchObject({ captchaTokens: [{ Recaptcha: "expired-token" }] });
+    expect(bodyAt(wix.calls, 1)).toMatchObject({ captcha_tokens: [{ Recaptcha: "expired-token" }] });
     expect(JSON.stringify(error)).not.toContain("provider-secret-diagnostic");
   });
 
@@ -145,15 +151,55 @@ describe("WixDirectAuthProvider", () => {
       captchaToken: "captcha-token",
       captchaType: "INVISIBLE_RECAPTCHA",
     });
+    if (!("challengeId" in result)) throw new Error("Expected an email verification challenge");
     expect(result.challengeId).not.toContain("provider-state-token");
     expect(result).toMatchObject({ state: "EMAIL_VERIFICATION_REQUIRED" });
     expect(result.challengeId.split(".")).toHaveLength(3);
     expect(bodyAt(wix.calls, 1)).toEqual({
-      loginId: { email: "player@example.com" },
+      login_id: { email: "player@example.com" },
       password: "safe-password",
       profile: { nickname: "Puzzle Player" },
-      captchaTokens: [{ InvisibleRecaptcha: "captcha-token" }],
+      captcha_tokens: [{ InvisibleRecaptcha: "captcha-token" }],
     });
+  });
+
+  it("continues a successful registration through the authorization redirect", async () => {
+    const wix = mockWix(
+      ok({ access_token: "visitor-token" }),
+      ok({ state: "SUCCESS", session_token: "signup-session-token", identity: { id: "signup-identity-id" } }),
+      ok({ redirectSession: { fullUrl: "https://wix.example.test/authorize-signup-success" } }),
+    );
+    const provider = new WixDirectAuthProvider(config, wix.fetch);
+    const result = await provider.startEmailSignup({
+      displayName: " Puzzle Player ",
+      email: "NEW@example.com",
+      password: "safe-password",
+      captchaToken: "visible-captcha-token",
+      captchaType: "RECAPTCHA",
+      returnTo: "/hub",
+    });
+    expect(result).toEqual({ authorizationUrl: "https://wix.example.test/authorize-signup-success" });
+    expect(bodyAt(wix.calls, 1)).toEqual({
+      login_id: { email: "new@example.com" },
+      password: "safe-password",
+      profile: { nickname: "Puzzle Player" },
+      captcha_tokens: [{ Recaptcha: "visible-captcha-token" }],
+    });
+    expect(bodyAt(wix.calls, 2).auth.sessionToken).toBe("signup-session-token");
+  });
+
+  it("preserves signup owner approval as a controlled pending state", async () => {
+    const wix = mockWix(ok({ access_token: "visitor-token" }), ok({ state: "REQUIRE_OWNER_APPROVAL" }));
+    const provider = new WixDirectAuthProvider(config, wix.fetch);
+    await expect(provider.startEmailSignup({ displayName: "Puzzle Player", email: "player@example.com", password: "safe-password", returnTo: "/hub" })).rejects.toMatchObject({ code: "WIX_MEMBER_APPROVAL_REQUIRED", statusCode: 403 });
+  });
+
+  it("fails closed when successful registration omits required identity artifacts", async () => {
+    const missingToken = mockWix(ok({ access_token: "visitor-token" }), ok({ state: "SUCCESS", identity: authIdentity }));
+    await expect(new WixDirectAuthProvider(config, missingToken.fetch).startEmailSignup({ displayName: "Puzzle Player", email: "player@example.com", password: "safe-password", returnTo: "/hub" })).rejects.toMatchObject({ code: "WIX_SIGNUP_SESSION_TOKEN_MISSING", statusCode: 502 });
+
+    const missingIdentity = mockWix(ok({ access_token: "visitor-token" }), ok({ state: "SUCCESS", session_token: "signup-session-token" }));
+    await expect(new WixDirectAuthProvider(config, missingIdentity.fetch).startEmailSignup({ displayName: "Puzzle Player", email: "player@example.com", password: "safe-password", returnTo: "/hub" })).rejects.toMatchObject({ code: "WIX_SIGNUP_IDENTITY_MISSING", statusCode: 502 });
   });
 
   it("preserves a login email-verification state and completes it with the sealed Wix state token", async () => {
@@ -201,6 +247,7 @@ describe("WixDirectAuthProvider", () => {
     );
     const provider = new WixDirectAuthProvider(config, wix.fetch);
     const challenge = await provider.startEmailSignup({ displayName: "Puzzle Player", email: "player@example.com", password: "safe-password" });
+    if (!("challengeId" in challenge)) throw new Error("Expected an email verification challenge");
     wix.responses.push(
       ok({ state: "SUCCESS", session_token: "verified-session-token", identity: authIdentity }),
       ok({ redirectSession: { fullUrl: "https://wix.example.test/authorize-signup" } }),
@@ -281,12 +328,14 @@ describe("WixDirectAuthProvider", () => {
     const wix = mockWix(ok({ access_token: "visitor-token" }), ok({ state: "REQUIRE_EMAIL_VERIFICATION", stateToken: "provider-state-token" }));
     const provider = new WixDirectAuthProvider({ ...config, now: () => now }, wix.fetch);
     const challenge = await provider.startEmailSignup({ displayName: "Puzzle Player", email: "player@example.com", password: "safe-password" });
+    if (!("challengeId" in challenge)) throw new Error("Expected an email verification challenge");
     now += 11 * 60 * 1000;
     await expect(provider.verifyEmailSignup({ challengeId: challenge.challengeId, code: "123456", returnTo: "/hub" })).rejects.toMatchObject({ code: "WIX_SIGNUP_CHALLENGE_INVALID" });
 
     const retryWix = mockWix(ok({ access_token: "visitor-token" }), ok({ state: "REQUIRE_EMAIL_VERIFICATION", stateToken: "state" }), failure(400, { code: "INVALID_CODE" }));
     const retryProvider = new WixDirectAuthProvider(config, retryWix.fetch);
     const retryChallenge = await retryProvider.startEmailSignup({ displayName: "Puzzle Player", email: "player@example.com", password: "safe-password" });
+    if (!("challengeId" in retryChallenge)) throw new Error("Expected an email verification challenge");
     await expect(retryProvider.verifyEmailSignup({ challengeId: retryChallenge.challengeId, code: "000000", returnTo: "/hub" })).rejects.toMatchObject({ code: "WIX_SIGNUP_VERIFICATION_INVALID", statusCode: 400 });
   });
 

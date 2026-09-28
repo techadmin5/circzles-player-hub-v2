@@ -55,7 +55,7 @@ Existing pre-migration Wix links default to `CIRCZLES_COM`. Development must ins
 The production `WixDirectAuthProvider` uses the canonical `circzles.com` Wix Headless OAuth client for:
 
 - Email login through Authentication API Login V2.
-- Email signup through Register V2 followed by Verify During Authentication. Player Hub requires Wix to return the email-verification state; an immediate registration success is rejected so signup cannot bypass the requested OTP.
+- Email signup through Register V2 follows Wix's returned state. `SUCCESS` continues directly through the PKCE authorization redirect, while `REQUIRE_EMAIL_VERIFICATION` is completed through Verify During Authentication before entering that same redirect path. `REQUIRE_OWNER_APPROVAL` remains pending and creates no Player Hub session.
 - Google login through a Wix Redirect Session using Wix's Google connection ID.
 - A common OAuth 2.0 authorization-code callback with PKCE, followed by `GET /members/v1/members/my`.
 

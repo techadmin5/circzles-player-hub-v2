@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
-import type { CaptchaType, CompletedDirectAuthorization, DirectAuthProvider, DirectAuthRedirect, DirectEmailLoginResult, DirectSignupChallenge } from "../../domain/directAuth.js";
+import type { CaptchaType, CompletedDirectAuthorization, DirectAuthProvider, DirectAuthRedirect, DirectEmailLoginResult, DirectEmailSignupResult } from "../../domain/directAuth.js";
 import { AppError } from "../../domain/errors.js";
 import type { IdentityProvider, VerifiedExternalIdentity } from "../../domain/identity.js";
 
@@ -105,7 +105,7 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
   async loginWithEmail(input: { email: string; password: string; captchaToken?: string; captchaType?: CaptchaType; returnTo: string }): Promise<DirectEmailLoginResult> {
     const visitorAccessToken = await this.createVisitorToken();
     const response = await this.postWixAuth("/_api/iam/authentication/v2/login", {
-      loginId: { email: normalizeEmail(input.email) },
+      login_id: { email: normalizeEmail(input.email) },
       password: input.password,
       ...captchaBody(input.captchaToken, input.captchaType),
     }, visitorAccessToken, "login");
@@ -129,11 +129,11 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
     });
   }
 
-  async startEmailSignup(input: { displayName: string; email: string; password: string; captchaToken?: string; captchaType?: CaptchaType }): Promise<DirectSignupChallenge> {
+  async startEmailSignup(input: { displayName: string; email: string; password: string; captchaToken?: string; captchaType?: CaptchaType; returnTo?: string }): Promise<DirectEmailSignupResult> {
     const visitorAccessToken = await this.createVisitorToken();
     const expectedEmail = normalizeEmail(input.email);
     const response = await this.postWixAuth("/_api/iam/authentication/v2/register", {
-      loginId: { email: expectedEmail },
+      login_id: { email: expectedEmail },
       password: input.password,
       profile: { nickname: input.displayName.trim() },
       ...captchaBody(input.captchaToken, input.captchaType),
@@ -142,13 +142,20 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
     if (isOwnerApprovalRequired(state)) {
       throw new AppError("WIX_MEMBER_APPROVAL_REQUIRED", "This Wix membership is awaiting approval.", 403);
     }
-    if (!isEmailVerificationRequired(state)) {
-      if (state === "SUCCESS") {
-        throw new AppError("WIX_SIGNUP_VERIFICATION_NOT_REQUIRED", "Wix must require email verification for Player Hub signup.", 503);
-      }
-      throw new AppError("WIX_SIGNUP_STATE_UNSUPPORTED", "Wix returned an unsupported signup state.", 400);
+    if (isEmailVerificationRequired(state)) {
+      return this.createEmailVerificationChallenge(response, visitorAccessToken, expectedEmail);
     }
-    return this.createEmailVerificationChallenge(response, visitorAccessToken, expectedEmail);
+    if (state !== "SUCCESS") throw new AppError("WIX_SIGNUP_STATE_UNSUPPORTED", "Wix returned an unsupported signup state.", 400);
+    const sessionToken = authSessionToken(response);
+    if (!sessionToken) throw new AppError("WIX_SIGNUP_SESSION_TOKEN_MISSING", "Wix signup did not return a session token.", 502);
+    if (!authIdentityId(response)) throw new AppError("WIX_SIGNUP_IDENTITY_MISSING", "Wix signup did not return a member identity.", 502);
+    return this.createAuthorizationRedirect({
+      visitorAccessToken,
+      sessionToken,
+      flow: "EMAIL",
+      expectedEmail,
+      returnTo: safeLocalReturnTo(input.returnTo ?? "/hub"),
+    });
   }
 
   async verifyEmailSignup(input: { challengeId: string; code: string; returnTo: string }): Promise<DirectAuthRedirect> {
@@ -348,7 +355,7 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
 
 function captchaBody(token?: string, type: CaptchaType = "RECAPTCHA") {
   if (!token) return {};
-  return { captchaTokens: [{ [type === "INVISIBLE_RECAPTCHA" ? "InvisibleRecaptcha" : "Recaptcha"]: token }] };
+  return { captcha_tokens: [{ [type === "INVISIBLE_RECAPTCHA" ? "InvisibleRecaptcha" : "Recaptcha"]: token }] };
 }
 
 function authState(response: z.infer<typeof wixAuthResponseSchema>) {
@@ -457,6 +464,9 @@ function wixAuthFailure(value: unknown, operation: string, status: number) {
   }
   if (operation === "login" && marker.includes("INVALIDPASSWORD")) {
     return new AppError("WIX_INCORRECT_PASSWORD", "The Wix member password was not accepted.", 401);
+  }
+  if (operation === "login" && marker.includes("RESETPASSWORD")) {
+    return new AppError("WIX_PASSWORD_RESET_REQUIRED", "Wix requires this member to reset their password.", 403);
   }
   if (operation === "signup" && (marker.includes("EMAILALREADYEXISTS") || marker.includes("ALREADYEXISTS"))) {
     return new AppError("WIX_ACCOUNT_ALREADY_EXISTS", "A Wix member account already exists for this email.", 409);

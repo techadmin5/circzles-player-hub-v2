@@ -56,7 +56,7 @@ export interface AppDeps {
 const handoffExchangeBodySchema = z.object({ token: z.string().min(1).max(8192) }).strict();
 const captchaFields = { captchaToken: z.string().min(1).max(8192).optional(), captchaType: z.enum(["RECAPTCHA", "INVISIBLE_RECAPTCHA"]).optional() };
 const emailLoginBodySchema = z.object({ email: z.string().email().max(320), password: z.string().min(8).max(256), returnTo: z.string().optional(), ...captchaFields }).strict();
-const emailSignupBodySchema = z.object({ displayName: z.string().trim().min(2).max(80), email: z.string().email().max(320), password: z.string().min(8).max(256), ...captchaFields }).strict();
+const emailSignupBodySchema = z.object({ displayName: z.string().trim().min(2).max(80), email: z.string().email().max(320), password: z.string().min(8).max(256), returnTo: z.string().optional(), ...captchaFields }).strict();
 const emailVerificationBodySchema = z.object({ challengeId: z.string().min(1).max(8192), code: z.string().trim().min(4).max(12), returnTo: z.string().optional() }).strict();
 const googleStartQuerySchema = z.object({ returnTo: z.string().optional() }).strict();
 const googleCallbackQuerySchema = z.object({ code: z.string().min(1).max(4096), state: z.string().min(1).max(4096) }).strict();
@@ -175,7 +175,8 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
   app.post("/api/auth/direct/email/signup", async (request, reply) => {
     const body = emailSignupBodySchema.safeParse(request.body);
     if (!body.success) throw validationFailed("Invalid signup request.", body.error.flatten());
-    return reply.status(202).send(await directAuthProvider.startEmailSignup(body.data));
+    const result = await directAuthProvider.startEmailSignup({ ...body.data, returnTo: safeReturnTo(body.data.returnTo) });
+    return "authorizationUrl" in result ? reply.send(result) : reply.status(202).send(result);
   });
 
   app.post("/api/auth/direct/email/verify", async (request, reply) => {
