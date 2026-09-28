@@ -251,11 +251,12 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
       scope: "offline_access",
       state,
     };
+    if (input.sessionToken) authRequest.sessionToken = input.sessionToken;
     if (input.flow === "GOOGLE") authRequest.idp = GOOGLE_CONNECTION_ID;
     const response = await this.requestJson("/_api/redirects-api/v1/redirect-session", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: input.visitorAccessToken },
-      body: JSON.stringify({ auth: { authRequest, ...(input.sessionToken ? { sessionToken: input.sessionToken } : {}) } }),
+      body: JSON.stringify({ auth: { authRequest } }),
     }, "authorization redirect");
     const parsed = redirectResponseSchema.safeParse(response);
     if (!parsed.success) throw providerMalformed("authorization redirect");
@@ -458,6 +459,9 @@ function wixAuthFailure(value: unknown, operation: string, status: number) {
   }
   if (marker.includes("MISSINGCAPTCHATOKEN") || marker.includes("CAPTCHAREQUIRED") || marker.includes("RECAPTCHAREQUIRED")) {
     return new AppError("WIX_CAPTCHA_REQUIRED", "Wix requires a CAPTCHA response.", 400, { captchaRequired: true });
+  }
+  if (operation === "login" && status === 404 && errorCodes.some((code) => code.trim() === "-19999")) {
+    return new AppError("WIX_ACCOUNT_NOT_FOUND", "No Wix member account exists for this email.", 404);
   }
   if (operation === "login" && marker.includes("INVALIDEMAIL")) {
     return new AppError("WIX_ACCOUNT_NOT_FOUND", "No Wix member account exists for this email.", 404);
