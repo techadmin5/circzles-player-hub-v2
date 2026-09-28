@@ -40,7 +40,8 @@ describe("WixDirectAuthProvider", () => {
     });
     const redirectBody = bodyAt(wix.calls, 2);
     expect(redirectBody.auth.authRequest).toMatchObject({ clientId: config.clientId, responseMode: "query", responseType: "code", scope: "offline_access" });
-    expect(redirectBody.auth.sessionToken).toBe("member-session-token");
+    expect(redirectBody.auth.authRequest.sessionToken).toBe("member-session-token");
+    expect(redirectBody.auth.sessionToken).toBeUndefined();
     const completed = await provider.completeAuthorization({ code: "authorization-code", state: redirectBody.auth.authRequest.state as string });
     expect(completed).toEqual({
       returnTo: "/missions",
@@ -102,6 +103,22 @@ describe("WixDirectAuthProvider", () => {
     const error = await captureError(provider.loginWithEmail({ email: "missing@example.com", password: "safe-password", returnTo: "/hub" }));
     expect(error).toMatchObject({ code: "WIX_ACCOUNT_NOT_FOUND", statusCode: 404 });
     expect(JSON.stringify(error)).not.toContain("provider detail");
+  });
+
+  it("maps only Wix 404/-19999 to account not found", async () => {
+    const missingMember = mockWix(
+      ok({ access_token: "visitor-token" }),
+      failure(404, { details: { applicationError: { code: "-19999", message: "provider detail" } } }),
+    );
+    const error = await captureError(new WixDirectAuthProvider(config, missingMember.fetch).loginWithEmail({ email: "missing@example.com", password: "safe-password", returnTo: "/hub" }));
+    expect(error).toMatchObject({ code: "WIX_ACCOUNT_NOT_FOUND", statusCode: 404 });
+    expect(JSON.stringify(error)).not.toContain("provider detail");
+
+    const unrelatedNotFound = mockWix(
+      ok({ access_token: "visitor-token" }),
+      failure(404, { details: { applicationError: { code: "RESOURCE_NOT_FOUND" } } }),
+    );
+    await expect(new WixDirectAuthProvider(config, unrelatedNotFound.fetch).loginWithEmail({ email: "player@example.com", password: "safe-password", returnTo: "/hub" })).rejects.toMatchObject({ code: "WIX_LOGIN_FAILED" });
   });
 
   it("returns a controlled CAPTCHA contract without exposing Wix response details", async () => {
@@ -223,7 +240,8 @@ describe("WixDirectAuthProvider", () => {
       profile: { nickname: "Puzzle Player" },
       captcha_tokens: [{ Recaptcha: "visible-captcha-token" }],
     });
-    expect(bodyAt(wix.calls, 2).auth.sessionToken).toBe("signup-session-token");
+    expect(bodyAt(wix.calls, 2).auth.authRequest.sessionToken).toBe("signup-session-token");
+    expect(bodyAt(wix.calls, 2).auth.sessionToken).toBeUndefined();
   });
 
   it("preserves signup owner approval as a controlled pending state", async () => {
@@ -258,6 +276,8 @@ describe("WixDirectAuthProvider", () => {
     const redirect = await provider.verifyEmailSignup({ challengeId: challenge.challengeId, code: "123456", returnTo: "/hub" });
     expect(redirect.authorizationUrl).toBe("https://wix.example.test/authorize-login-verification");
     expect(bodyAt(wix.calls, 2)).toEqual({ code: "123456", stateToken: "login-verification-state" });
+    expect(bodyAt(wix.calls, 3).auth.authRequest.sessionToken).toBe("verified-session-token");
+    expect(bodyAt(wix.calls, 3).auth.sessionToken).toBeUndefined();
   });
 
   it("maps an existing signup email without exposing provider details", async () => {
@@ -295,6 +315,8 @@ describe("WixDirectAuthProvider", () => {
     const redirect = await provider.verifyEmailSignup({ challengeId: challenge.challengeId, code: "123456", returnTo: "/hub" });
     expect(redirect.authorizationUrl).toBe("https://wix.example.test/authorize-signup");
     expect(bodyAt(wix.calls, 2)).toEqual({ code: "123456", stateToken: "provider-state-token" });
+    expect(bodyAt(wix.calls, 3).auth.authRequest.sessionToken).toBe("verified-session-token");
+    expect(bodyAt(wix.calls, 3).auth.sessionToken).toBeUndefined();
     const state = bodyAt(wix.calls, 3).auth.authRequest.state as string;
     const completed = await provider.completeAuthorization({ code: "code", state });
     expect(completed.identity).toMatchObject({ provider: "EMAIL", externalIdentityId: "wix-member-1", verifiedEmail: "player@example.com", emailVerified: true });
@@ -380,6 +402,8 @@ describe("WixDirectAuthProvider", () => {
   it("requests the full Wix member projection and returns a verified Google identity", async () => {
     const { provider, state, wix } = await startGoogleFlow();
     expect(bodyAt(wix.calls, 1).auth.authRequest).toMatchObject({ idp: "0e6a50f5-b523-4e29-990d-f37fa2ffdd69", responseMode: "query" });
+    expect(bodyAt(wix.calls, 1).auth.authRequest.sessionToken).toBeUndefined();
+    expect(bodyAt(wix.calls, 1).auth.sessionToken).toBeUndefined();
     await expect(provider.completeAuthorization({ code: "code", state: `${state}tampered` })).rejects.toMatchObject({ code: "WIX_AUTH_STATE_INVALID", statusCode: 400 });
     wix.responses.push(ok({ access_token: "google-member-token" }), ok(verifiedMember));
     const completed = await provider.completeAuthorization({ code: "code", state });
