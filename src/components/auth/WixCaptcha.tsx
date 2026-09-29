@@ -62,6 +62,7 @@ export function WixCaptcha({ onTokenChange, onExpired, resetKey }: { onTokenChan
   useEffect(() => {
     const enterprise = window.grecaptcha?.enterprise;
     if (enterprise && widgetIdRef.current !== undefined) {
+      setLoadError(false);
       enterprise.reset(widgetIdRef.current);
       onTokenChangeRef.current(undefined);
     }

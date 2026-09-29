@@ -19,6 +19,8 @@ NEXT_PUBLIC_DATA_MODE=api
 NEXT_PUBLIC_API_BASE_URL=http://localhost:4000
 ```
 
+In production, the browser uses relative `/api/*` URLs. Configure the server-only Vercel variable `PLAYER_HUB_API_ORIGIN=https://circzles-player-hub-api.onrender.com`; do not use `NEXT_PUBLIC_API_BASE_URL` as the production browser API origin.
+
 Backend app:
 
 ```bash

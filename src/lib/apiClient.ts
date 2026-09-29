@@ -18,7 +18,7 @@ export class ApiClientError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  if (!apiBaseUrl) throw new ApiClientError("API_BASE_URL_MISSING", "NEXT_PUBLIC_API_BASE_URL is not configured.", 500);
+  if (apiBaseUrl === undefined) throw new ApiClientError("API_BASE_URL_MISSING", "NEXT_PUBLIC_API_BASE_URL is not configured.", 500);
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...init,
     credentials: "include",

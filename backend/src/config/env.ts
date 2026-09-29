@@ -14,8 +14,12 @@ const envSchema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((value) => value === "true"),
-  SESSION_COOKIE_DOMAIN: z.string().trim().min(1).optional(),
+  SESSION_COOKIE_DOMAIN: optionalTrimmedString,
   SESSION_COOKIE_SAME_SITE: z.enum(["lax", "strict", "none"]).default("lax"),
+  AUTH_SESSION_DIAGNOSTICS: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
   AUTH_HANDOFF_CIRCZLES_COM_SECRET: z.string().min(32).optional(),
   AUTH_HANDOFF_CIRCZLES_IN_SECRET: z.string().min(32).optional(),
   WIX_CLIENT_ID: optionalTrimmedString,
@@ -41,6 +45,14 @@ const envSchema = z.object({
 }).superRefine((env, context) => {
   if (env.SESSION_COOKIE_SAME_SITE === "none" && !env.COOKIE_SECURE) {
     context.addIssue({ code: "custom", path: ["COOKIE_SECURE"], message: "COOKIE_SECURE must be true when SESSION_COOKIE_SAME_SITE is none." });
+  }
+  if (env.NODE_ENV === "production") {
+    if (!env.COOKIE_SECURE) context.addIssue({ code: "custom", path: ["COOKIE_SECURE"], message: "Production session cookies must be Secure." });
+    if (env.SESSION_COOKIE_SAME_SITE !== "lax") context.addIssue({ code: "custom", path: ["SESSION_COOKIE_SAME_SITE"], message: "Production Player Hub session cookies must use SameSite=Lax." });
+    if (env.SESSION_COOKIE_DOMAIN) context.addIssue({ code: "custom", path: ["SESSION_COOKIE_DOMAIN"], message: "Production Player Hub session cookies must remain host-only." });
+    if (env.WIX_DIRECT_AUTH_CALLBACK_URL && new URL(env.WIX_DIRECT_AUTH_CALLBACK_URL).origin !== new URL(env.FRONTEND_ORIGIN).origin) {
+      context.addIssue({ code: "custom", path: ["WIX_DIRECT_AUTH_CALLBACK_URL"], message: "Production Wix callback must use the Player Hub frontend origin." });
+    }
   }
 });
 

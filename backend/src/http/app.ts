@@ -3,6 +3,7 @@ import cors from "@fastify/cors";
 import Fastify from "fastify";
 import type { FastifyError } from "fastify";
 import type { FastifyReply } from "fastify";
+import type { FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { Env } from "../config/env.js";
 import { toSessionPlayerDto, type IdentityProvider, type IdentityService, type PlayerDto, type VerifiedExternalIdentity } from "../domain/identity.js";
@@ -143,9 +144,14 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
   });
 
   app.get("/api/auth/session", async (request, reply) => {
-    const session = await identity.refreshSession(request.cookies[SESSION_COOKIE_NAME]);
-    if (!session) throw unauthorized();
-    setSessionCookie(reply, env, request.cookies[SESSION_COOKIE_NAME]!, session.expiresAt);
+    const sessionCookie = request.cookies[SESSION_COOKIE_NAME];
+    const session = await identity.refreshSession(sessionCookie);
+    if (!session) {
+      logSessionDiagnostic(request, env, "unauthenticated", Boolean(sessionCookie));
+      throw unauthorized();
+    }
+    setSessionCookie(reply, env, sessionCookie!, session.expiresAt);
+    logSessionDiagnostic(request, env, "authenticated", true);
     return reply.send(toSessionPlayerDto(session.player));
   });
 
@@ -200,6 +206,7 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
     const account = await identity.resolveVerifiedIdentity(verified);
     const session = await identity.createSession(account.userId);
     setSessionCookie(reply, env, session.token, session.expiresAt);
+    logSessionDiagnostic(request, env, "created", true);
     await gameState.ensurePlayerGameState(account.player.internalId);
     return reply.redirect(`${env.FRONTEND_ORIGIN}${safeReturnTo(completed.returnTo)}`);
   });
@@ -484,6 +491,29 @@ function clearSessionCookie(reply: FastifyReply, env: Env) {
     domain: env.SESSION_COOKIE_DOMAIN,
     path: "/",
   });
+}
+
+function logSessionDiagnostic(request: FastifyRequest, env: Env, sessionStatus: "created" | "authenticated" | "unauthenticated", cookiePresent: boolean) {
+  if (!env.AUTH_SESSION_DIAGNOSTICS) return;
+  request.log.info({
+    cookiePresent,
+    cookieDomain: env.SESSION_COOKIE_DOMAIN ?? "host-only",
+    sameSite: env.SESSION_COOKIE_SAME_SITE,
+    secure: env.COOKIE_SECURE,
+    httpOnly: true,
+    sessionStatus,
+    requestOrigin: safeOrigin(request.headers.origin),
+    apiOrigin: safeOrigin(`${request.protocol}://${request.host}`),
+  }, "Player Hub session diagnostic");
+}
+
+function safeOrigin(value: string | undefined) {
+  if (!value) return null;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
 }
 
 function safeReturnTo(value: string | undefined) {

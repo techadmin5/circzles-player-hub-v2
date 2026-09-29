@@ -77,8 +77,9 @@ Optional request fields `captchaToken` and `captchaType` (`RECAPTCHA` or `INVISI
 - Renewal after at least 24 hours through `GET /api/auth/session`
 - Persistent cookie expiry follows the authoritative database expiry
 - `POST /api/auth/logout` revokes the row immediately and clears the cookie
-- Production cookie security is controlled by `COOKIE_SECURE`, `SESSION_COOKIE_SAME_SITE`, and optional `SESSION_COOKIE_DOMAIN`
-- `SameSite=None` is rejected unless `Secure=true`
+- Production browser API traffic uses the Player Hub origin (`/api/*`) and is transparently rewritten to the Render backend. The browser never uses the Render hostname as its normal production API base.
+- Production cookies are enforced as `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, with no `Domain` attribute. The callback and session cookie are therefore first-party to the Player Hub host.
+- Authenticated `/api/*` proxy responses are marked private/no-store and must not be CDN cached.
 
 All private APIs continue deriving `player_id` from the session. Client-selected player identity remains invalid.
 
@@ -87,6 +88,10 @@ All private APIs continue deriving `player_id` from the session. Client-selected
 `AuthProvider` checks `/api/auth/session` at startup. That request returns only the authenticated core identity, allowing `AuthenticatedRoute` and `GameShell` to render immediately after session authority is established. The provider then hydrates the full gameplay profile asynchronously from `/api/me`; rank, XP, Synapse Points, and other gameplay values remain neutral loading states until that authoritative response arrives. Unauthenticated users are sent to `/login` with a safe local return path. `/login`, `/signup`, and `/auth/handoff` are the small public authentication surface. Production builds reject mock data mode.
 
 Development auto-login remains limited to development, API mode, explicit opt-in, and localhost/127.0.0.1 APIs. `/api/dev/login` remains forbidden in production.
+
+Email login and signup reset only the CAPTCHA token/widget after every completed failed provider request while preserving the entered fields and provider-specific error. Browser-side validation failures do not consume or reset a token. A successful email-verification challenge advances to OTP entry without resetting the legitimate flow.
+
+The production direct-auth callback is `https://circzles-player-hub.vercel.app/api/auth/direct/google/callback`. Vercel rewrites that path to Render, and Wix Headless must register the exact same URI. Render's `WIX_DIRECT_AUTH_CALLBACK_URL` must also use that exact public URI.
 
 ## Migration Status
 
