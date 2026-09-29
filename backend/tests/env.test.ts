@@ -31,7 +31,26 @@ describe("authentication environment safety", () => {
     expect(() => loadEnv({ ...production, COOKIE_SECURE: "false" })).toThrow(/Secure/);
     expect(() => loadEnv({ ...production, SESSION_COOKIE_SAME_SITE: "none" })).toThrow(/SameSite=Lax/);
     expect(() => loadEnv({ ...production, SESSION_COOKIE_DOMAIN: ".vercel.app" })).toThrow(/host-only/);
-    expect(() => loadEnv({ ...production, WIX_DIRECT_AUTH_CALLBACK_URL: "https://circzles-player-hub-api.onrender.com/api/auth/direct/google/callback" })).toThrow(/frontend origin/);
+    expect(() => loadEnv({ ...production, WIX_DIRECT_AUTH_CALLBACK_URL: "https://circzles-player-hub-api.onrender.com/api/auth/direct/google/callback" })).toThrow(/exact Player Hub frontend callback URL/);
+    expect(() => loadEnv({ ...production, WIX_DIRECT_AUTH_CALLBACK_URL: "https://circzles-player-hub.vercel.app/api/auth/direct/wrong-callback" })).toThrow(/exact Player Hub frontend callback URL/);
+  });
+
+  it("enforces hosted frontend auth safety even when NODE_ENV was not set to production", () => {
+    const hosted = {
+      ...base,
+      NODE_ENV: "development" as const,
+      FRONTEND_ORIGIN: "https://circzles-player-hub.vercel.app",
+      COOKIE_SECURE: "true",
+      SESSION_COOKIE_SAME_SITE: "lax",
+    };
+    expect(loadEnv({
+      ...hosted,
+      WIX_DIRECT_AUTH_CALLBACK_URL: "https://circzles-player-hub.vercel.app/api/auth/direct/google/callback",
+    })).toMatchObject({ WIX_DIRECT_AUTH_CALLBACK_URL: "https://circzles-player-hub.vercel.app/api/auth/direct/google/callback" });
+    expect(() => loadEnv({
+      ...hosted,
+      WIX_DIRECT_AUTH_CALLBACK_URL: "https://circzles-player-hub-api.onrender.com/api/auth/direct/google/callback",
+    })).toThrow(/exact Player Hub frontend callback URL/);
   });
 
   it("rejects short handoff secrets", () => {
