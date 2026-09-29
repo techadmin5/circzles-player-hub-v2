@@ -3,6 +3,7 @@ import { z } from "zod";
 
 const optionalTrimmedString = z.preprocess((value) => typeof value === "string" && !value.trim() ? undefined : value, z.string().trim().min(1).optional());
 const optionalUrl = z.preprocess((value) => typeof value === "string" && !value.trim() ? undefined : value, z.string().url().optional());
+const DIRECT_AUTH_CALLBACK_PATH = "/api/auth/direct/google/callback";
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -46,12 +47,18 @@ const envSchema = z.object({
   if (env.SESSION_COOKIE_SAME_SITE === "none" && !env.COOKIE_SECURE) {
     context.addIssue({ code: "custom", path: ["COOKIE_SECURE"], message: "COOKIE_SECURE must be true when SESSION_COOKIE_SAME_SITE is none." });
   }
-  if (env.NODE_ENV === "production") {
+  const frontendUrl = new URL(env.FRONTEND_ORIGIN);
+  const hostedFrontend = frontendUrl.protocol === "https:"
+    && frontendUrl.hostname !== "localhost"
+    && frontendUrl.hostname !== "127.0.0.1"
+    && frontendUrl.hostname !== "[::1]";
+  if (env.NODE_ENV === "production" || hostedFrontend) {
     if (!env.COOKIE_SECURE) context.addIssue({ code: "custom", path: ["COOKIE_SECURE"], message: "Production session cookies must be Secure." });
     if (env.SESSION_COOKIE_SAME_SITE !== "lax") context.addIssue({ code: "custom", path: ["SESSION_COOKIE_SAME_SITE"], message: "Production Player Hub session cookies must use SameSite=Lax." });
     if (env.SESSION_COOKIE_DOMAIN) context.addIssue({ code: "custom", path: ["SESSION_COOKIE_DOMAIN"], message: "Production Player Hub session cookies must remain host-only." });
-    if (env.WIX_DIRECT_AUTH_CALLBACK_URL && new URL(env.WIX_DIRECT_AUTH_CALLBACK_URL).origin !== new URL(env.FRONTEND_ORIGIN).origin) {
-      context.addIssue({ code: "custom", path: ["WIX_DIRECT_AUTH_CALLBACK_URL"], message: "Production Wix callback must use the Player Hub frontend origin." });
+    const expectedCallbackUrl = new URL(DIRECT_AUTH_CALLBACK_PATH, frontendUrl.origin).toString();
+    if (env.WIX_DIRECT_AUTH_CALLBACK_URL && env.WIX_DIRECT_AUTH_CALLBACK_URL !== expectedCallbackUrl) {
+      context.addIssue({ code: "custom", path: ["WIX_DIRECT_AUTH_CALLBACK_URL"], message: "Production Wix callback must use the exact Player Hub frontend callback URL." });
     }
   }
 });

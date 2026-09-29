@@ -8,6 +8,7 @@ const config = {
   stateSecret: "test-state-secret-with-at-least-32-characters",
   apiBaseUrl: "https://wix.example.test",
 };
+const productionCallbackUrl = "https://circzles-player-hub.vercel.app/api/auth/direct/google/callback";
 
 const verifiedMember = {
   member: {
@@ -38,6 +39,7 @@ describe("WixDirectAuthProvider", () => {
       password: "safe-password",
       captcha_tokens: [{ Recaptcha: "visible-captcha-token" }],
     });
+    expect(bodyAt(wix.calls, 2).auth.authRequest.redirectUri).toBe(config.callbackUrl);
     const redirectBody = bodyAt(wix.calls, 2);
     expect(redirectBody.auth.authRequest).toMatchObject({ clientId: config.clientId, responseMode: "query", responseType: "code", scope: "offline_access" });
     expect(redirectBody.auth.authRequest.sessionToken).toBe("member-session-token");
@@ -241,6 +243,7 @@ describe("WixDirectAuthProvider", () => {
       captcha_tokens: [{ Recaptcha: "visible-captcha-token" }],
     });
     expect(bodyAt(wix.calls, 2).auth.authRequest.sessionToken).toBe("signup-session-token");
+    expect(bodyAt(wix.calls, 2).auth.authRequest.redirectUri).toBe(config.callbackUrl);
     expect(bodyAt(wix.calls, 2).auth.sessionToken).toBeUndefined();
   });
 
@@ -277,6 +280,7 @@ describe("WixDirectAuthProvider", () => {
     expect(redirect.authorizationUrl).toBe("https://wix.example.test/authorize-login-verification");
     expect(bodyAt(wix.calls, 2)).toEqual({ code: "123456", stateToken: "login-verification-state" });
     expect(bodyAt(wix.calls, 3).auth.authRequest.sessionToken).toBe("verified-session-token");
+    expect(bodyAt(wix.calls, 3).auth.authRequest.redirectUri).toBe(config.callbackUrl);
     expect(bodyAt(wix.calls, 3).auth.sessionToken).toBeUndefined();
   });
 
@@ -402,6 +406,7 @@ describe("WixDirectAuthProvider", () => {
   it("requests the full Wix member projection and returns a verified Google identity", async () => {
     const { provider, state, wix } = await startGoogleFlow();
     expect(bodyAt(wix.calls, 1).auth.authRequest).toMatchObject({ idp: "0e6a50f5-b523-4e29-990d-f37fa2ffdd69", responseMode: "query" });
+    expect(bodyAt(wix.calls, 1).auth.authRequest.redirectUri).toBe(config.callbackUrl);
     expect(bodyAt(wix.calls, 1).auth.authRequest.sessionToken).toBeUndefined();
     expect(bodyAt(wix.calls, 1).auth.sessionToken).toBeUndefined();
     await expect(provider.completeAuthorization({ code: "code", state: `${state}tampered` })).rejects.toMatchObject({ code: "WIX_AUTH_STATE_INVALID", statusCode: 400 });
@@ -409,6 +414,23 @@ describe("WixDirectAuthProvider", () => {
     const completed = await provider.completeAuthorization({ code: "code", state });
     expect(wix.calls[3].url).toBe("https://wix.example.test/members/v1/members/my?fieldsets=FULL");
     expect(completed.identity).toMatchObject({ sourceSite: "CIRCZLES_COM", provider: "GOOGLE", externalIdentityId: "wix-member-1", emailVerified: true });
+  });
+
+  it("uses the exact public callback for redirect creation and code exchange", async () => {
+    const wix = mockWix(
+      ok({ access_token: "visitor-token" }),
+      ok({ state: "SUCCESS", session_token: "member-session-token", identity: authIdentity }),
+      ok({ redirectSession: { fullUrl: "https://wix.example.test/authorize-email" } }),
+      ok({ access_token: "member-token", refresh_token: "ignored-refresh-token" }),
+      ok(verifiedMember),
+    );
+    const provider = new WixDirectAuthProvider({ ...config, callbackUrl: productionCallbackUrl }, wix.fetch);
+    await provider.loginWithEmail({ email: "player@example.com", password: "safe-password", returnTo: "/hub" });
+    expect(bodyAt(wix.calls, 2).auth.authRequest.redirectUri).toBe(productionCallbackUrl);
+
+    const state = bodyAt(wix.calls, 2).auth.authRequest.state as string;
+    await provider.completeAuthorization({ code: "code", state });
+    expect(bodyAt(wix.calls, 3).redirectUri).toBe(productionCallbackUrl);
   });
 
   it("rejects a member identity that does not match the email authenticated by Wix", async () => {
