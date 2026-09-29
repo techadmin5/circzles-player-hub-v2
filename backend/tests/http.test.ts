@@ -30,6 +30,7 @@ function env(overrides: Partial<Env> = {}): Env {
     SESSION_SECRET: "test-session-secret-with-at-least-32-chars",
     COOKIE_SECURE: false,
     SESSION_COOKIE_SAME_SITE: "lax",
+    AUTH_SESSION_DIAGNOSTICS: false,
     MISSION_PROCESSOR_INTERVAL_MS: 5000,
     MISSION_PROCESSOR_BATCH_SIZE: 50,
     ...overrides,
@@ -248,6 +249,39 @@ describe("http auth poc", () => {
     const rejected = await other.app.inject({ method: "GET", url: "/api/auth/direct/google/callback?code=code&state=state" });
     expect(rejected.statusCode).toBe(502);
     expect(rejected.json().code).toBe("DIRECT_AUTH_IDENTITY_INVALID");
+  });
+
+  it("issues a host-only production cookie that survives the callback-to-session chain", async () => {
+    const verified = { sourceSite: "CIRCZLES_COM" as const, provider: "EMAIL" as const, externalIdentityId: "canonical-member", verifiedEmail: "player@example.com", emailVerified: true as const, displayName: "Verified Player" };
+    const directAuth: DirectAuthProvider = {
+      loginWithEmail: async () => ({ authorizationUrl: "https://identity.example.test/email" }),
+      startEmailSignup: async () => ({ state: "EMAIL_VERIFICATION_REQUIRED", challengeId: "challenge" }),
+      verifyEmailSignup: async () => ({ authorizationUrl: "https://identity.example.test/verify" }),
+      getGoogleAuthorizationUrl: async () => ({ authorizationUrl: "https://identity.example.test/start" }),
+      completeAuthorization: async () => ({ identity: verified, returnTo: "/hub" }),
+    };
+    const { app } = await appWithFakes({
+      NODE_ENV: "production",
+      FRONTEND_ORIGIN: "https://circzles-player-hub.vercel.app",
+      COOKIE_SECURE: true,
+      SESSION_COOKIE_DOMAIN: undefined,
+      SESSION_COOKIE_SAME_SITE: "lax",
+    }, directAuth);
+    const callback = await app.inject({ method: "GET", url: "/api/auth/direct/google/callback?code=code&state=state", headers: { origin: "https://circzles-player-hub.vercel.app" } });
+    expect(callback.statusCode).toBe(302);
+    expect(callback.headers.location).toBe("https://circzles-player-hub.vercel.app/hub");
+    const setCookie = Array.isArray(callback.headers["set-cookie"]) ? callback.headers["set-cookie"][0] : callback.headers["set-cookie"] ?? "";
+    expect(setCookie).toContain("HttpOnly");
+    expect(setCookie).toContain("Secure");
+    expect(setCookie).toContain("SameSite=Lax");
+    expect(setCookie).toContain("Path=/");
+    expect(setCookie).not.toMatch(/(?:^|;)\s*Domain=/i);
+
+    const sessionCookie = setCookie.split(";", 1)[0];
+    const session = await app.inject({ method: "GET", url: "/api/auth/session", headers: { cookie: sessionCookie, origin: "https://circzles-player-hub.vercel.app" } });
+    expect(session.statusCode).toBe(200);
+    expect(session.json()).toMatchObject({ publicPlayerId: expect.stringMatching(/^CZ-/), displayName: "Verified Player" });
+    expect(session.headers["set-cookie"]).toContain("SameSite=Lax");
   });
 
   it("returns an email-verification challenge without creating a Player Hub session", async () => {

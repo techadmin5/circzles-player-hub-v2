@@ -9,7 +9,10 @@ if (process.env.NODE_ENV === "production" && requestedDataMode !== "api") {
   throw new Error("Production Player Hub requires NEXT_PUBLIC_DATA_MODE=api; mock identity is forbidden.");
 }
 export const dataMode: DataMode = requestedDataMode;
-export const apiBaseUrl = configuredApiBaseUrl?.trim() || undefined;
+// Production browser traffic stays first-party and is proxied by Next.js.
+export const apiBaseUrl = process.env.NODE_ENV === "production"
+  ? ""
+  : configuredApiBaseUrl?.trim().replace(/\/$/, "") || undefined;
 const devAutoLoginRequested = ["true", "1", "yes"].includes(configuredDevAutoLogin?.trim().toLowerCase() ?? "");
 export const devAutoLoginEnabled = process.env.NODE_ENV === "development"
   && dataMode === "api"
@@ -17,7 +20,7 @@ export const devAutoLoginEnabled = process.env.NODE_ENV === "development"
   && isLocalApiBaseUrl(apiBaseUrl);
 let publicConfigLogged = false;
 
-if (dataMode === "api" && !apiBaseUrl) {
+if (dataMode === "api" && apiBaseUrl === undefined) {
   throw new Error("NEXT_PUBLIC_API_BASE_URL is required when NEXT_PUBLIC_DATA_MODE resolves to api.");
 }
 
@@ -26,7 +29,7 @@ export function logPublicFrontendConfig() {
   publicConfigLogged = true;
   console.info("[CircZles public config]", {
     dataMode,
-    apiBaseUrlConfigured: Boolean(apiBaseUrl),
+    apiBaseUrlConfigured: apiBaseUrl !== undefined,
     devAutoLoginEnabled,
   });
 }

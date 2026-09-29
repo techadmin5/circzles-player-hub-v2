@@ -14,6 +14,26 @@ describe("authentication environment safety", () => {
     expect(loadEnv({ ...base, COOKIE_SECURE: "true", SESSION_COOKIE_SAME_SITE: "none" })).toMatchObject({ COOKIE_SECURE: true, SESSION_COOKIE_SAME_SITE: "none" });
   });
 
+  it("requires first-party production cookie and callback settings", () => {
+    const production = {
+      ...base,
+      NODE_ENV: "production" as const,
+      FRONTEND_ORIGIN: "https://circzles-player-hub.vercel.app",
+      COOKIE_SECURE: "true",
+      SESSION_COOKIE_SAME_SITE: "lax",
+      WIX_DIRECT_AUTH_CALLBACK_URL: "https://circzles-player-hub.vercel.app/api/auth/direct/google/callback",
+    };
+    expect(loadEnv({ ...production, SESSION_COOKIE_DOMAIN: "" })).toMatchObject({
+      COOKIE_SECURE: true,
+      SESSION_COOKIE_DOMAIN: undefined,
+      SESSION_COOKIE_SAME_SITE: "lax",
+    });
+    expect(() => loadEnv({ ...production, COOKIE_SECURE: "false" })).toThrow(/Secure/);
+    expect(() => loadEnv({ ...production, SESSION_COOKIE_SAME_SITE: "none" })).toThrow(/SameSite=Lax/);
+    expect(() => loadEnv({ ...production, SESSION_COOKIE_DOMAIN: ".vercel.app" })).toThrow(/host-only/);
+    expect(() => loadEnv({ ...production, WIX_DIRECT_AUTH_CALLBACK_URL: "https://circzles-player-hub-api.onrender.com/api/auth/direct/google/callback" })).toThrow(/frontend origin/);
+  });
+
   it("rejects short handoff secrets", () => {
     expect(() => loadEnv({ ...base, AUTH_HANDOFF_CIRCZLES_COM_SECRET: "too-short" })).toThrow();
   });
