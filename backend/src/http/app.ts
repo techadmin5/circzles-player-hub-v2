@@ -27,7 +27,7 @@ import type { CouponService } from "../domain/coupons.js";
 import type { CouponRedemptionWebhookHandler } from "../integrations/couponRedemptionWebhooks.js";
 import { couponWebhookRoutes } from "./couponWebhookRoutes.js";
 import { AuthHandoffVerifier } from "../domain/authHandoff.js";
-import { UnconfiguredDirectAuthProvider, type DirectAuthProvider } from "../domain/directAuth.js";
+import { UnconfiguredDirectAuthProvider, type DirectAuthorizationCallback, type DirectAuthProvider } from "../domain/directAuth.js";
 
 export interface AppDeps {
   env: Env;
@@ -65,6 +65,14 @@ const googleCallbackQuerySchema = z.union([
   z.object({
     error: z.string().min(1).max(256),
     error_description: z.string().min(1).max(1024).optional(),
+    state: z.string().min(1).max(4096),
+  }).strict(),
+]);
+const googleCallbackBodySchema = z.union([
+  z.object({ code: z.string().min(1).max(4096), state: z.string().min(1).max(4096) }).strict(),
+  z.object({
+    error: z.string().min(1).max(256),
+    errorDescription: z.string().min(1).max(1024).optional(),
     state: z.string().min(1).max(4096),
   }).strict(),
 ]);
@@ -211,14 +219,15 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
     const callback = "code" in query.data
       ? query.data
       : { error: query.data.error, errorDescription: query.data.error_description, state: query.data.state };
-    const completed = await directAuthProvider.completeAuthorization(callback);
-    const verified = requireCanonicalDirectIdentity(completed.identity, completed.identity.provider);
-    const account = await identity.resolveVerifiedIdentity(verified);
-    const session = await identity.createSession(account.userId);
-    setSessionCookie(reply, env, session.token, session.expiresAt);
-    logSessionDiagnostic(request, env, "created", true);
-    await gameState.ensurePlayerGameState(account.player.internalId);
-    return reply.redirect(`${env.FRONTEND_ORIGIN}${safeReturnTo(completed.returnTo)}`);
+    const returnTo = await completeDirectAuthorization(callback, request, reply, directAuthProvider, identity, gameState, env);
+    return reply.redirect(`${env.FRONTEND_ORIGIN}${returnTo}`);
+  });
+
+  app.post("/api/auth/direct/google/callback", async (request, reply) => {
+    const body = googleCallbackBodySchema.safeParse(request.body);
+    if (!body.success) throw validationFailed("Invalid Wix authentication callback.", body.error.flatten());
+    const returnTo = await completeDirectAuthorization(body.data, request, reply, directAuthProvider, identity, gameState, env);
+    return reply.send({ returnTo });
   });
 
   app.get("/api/me", async (request, reply) => {
@@ -480,6 +489,25 @@ async function finishAuthentication(account: { userId: string; player: PlayerDto
   const session = await identity.createSession(account.userId);
   setSessionCookie(reply, env, session.token, session.expiresAt);
   return reply.send(await withGameState(account.player, gameState));
+}
+
+async function completeDirectAuthorization(
+  callback: DirectAuthorizationCallback,
+  request: FastifyRequest,
+  reply: FastifyReply,
+  directAuth: DirectAuthProvider,
+  identity: IdentityService,
+  gameState: GameStateService,
+  env: Env,
+) {
+  const completed = await directAuth.completeAuthorization(callback);
+  const verified = requireCanonicalDirectIdentity(completed.identity, completed.identity.provider);
+  const account = await identity.resolveVerifiedIdentity(verified);
+  const session = await identity.createSession(account.userId);
+  setSessionCookie(reply, env, session.token, session.expiresAt);
+  logSessionDiagnostic(request, env, "created", true);
+  await gameState.ensurePlayerGameState(account.player.internalId);
+  return safeReturnTo(completed.returnTo);
 }
 
 function setSessionCookie(reply: FastifyReply, env: Env, token: string, expiresAt: Date) {

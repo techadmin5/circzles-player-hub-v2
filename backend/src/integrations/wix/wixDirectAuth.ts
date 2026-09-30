@@ -252,7 +252,7 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
       clientId: this.config.clientId,
       codeChallenge,
       codeChallengeMethod: "S256",
-      responseMode: "query",
+      responseMode: input.flow === "GOOGLE" ? "fragment" : "query",
       responseType: "code",
       scope: "offline_access",
       state,

@@ -39,10 +39,10 @@ Required to activate the real adapter:
 
 ```text
 WIX_CLIENT_ID=<circzles.com Headless OAuth client ID>
-WIX_DIRECT_AUTH_CALLBACK_URL=<exact backend callback URL>
+WIX_DIRECT_AUTH_CALLBACK_URL=<exact frontend callback URL>
 ```
 
-The callback URL path is `/api/auth/direct/google/callback`. `SESSION_SECRET` also protects opaque direct-auth state and remains required by the existing session system. Wix Headless visitor/member OAuth does not require an app secret for these flows. If either direct-auth variable is absent, the backend uses `UnconfiguredDirectAuthProvider` and returns `DIRECT_AUTH_PROVIDER_NOT_CONFIGURED`.
+The configured Wix callback URL path is `/auth/callback`. Google returns its result in the fragment and email keeps query mode; the frontend page forwards either strict result to `POST /api/auth/direct/google/callback`. `SESSION_SECRET` protects opaque direct-auth state and remains required by the existing session system. Wix Headless visitor/member OAuth does not require an app secret for these flows. If either direct-auth variable is absent, the backend uses `UnconfiguredDirectAuthProvider` and returns `DIRECT_AUTH_PROVIDER_NOT_CONFIGURED`.
 
 ## Manual Wix Setup
 

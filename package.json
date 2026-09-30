@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:auth-callback": "node --test src/lib/wixAuthCallback.test.mjs"
   },
   "dependencies": {
     "@tailwindcss/postcss": "latest",

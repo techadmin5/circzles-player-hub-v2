@@ -1,5 +1,6 @@
 import type { ApiMissionDto, ApiStoreCatalogItem, AuthenticatedPlayerIdentity, EquipmentSlot, InventoryResponse, LeaderboardCatalog, LeaderboardResponse, Mission, MissionClaimResult, PlayerProfile, PlayerPuzzle, PublicPlayerProfile, Puzzle, RenameDisplayNameResult, RewardWheelResult, RewardWheelStatus, SignedVideoUpload, StorePurchaseResult, Submission } from "@/types";
 import { apiBaseUrl } from "@/config/dataMode";
+import type { WixAuthorizationCallback } from "@/lib/wixAuthCallback";
 
 const phase3aDefaultStats: PlayerProfile["stats"] = {
   ownedPuzzles: 0,
@@ -147,6 +148,7 @@ export const apiClient = {
   startEmailSignup: async (displayName: string, email: string, password: string, returnTo = "/hub", captcha?: { token: string; type: "RECAPTCHA" | "INVISIBLE_RECAPTCHA" }) => requestEmailAuth<{ authorizationUrl: string } | { state: "EMAIL_VERIFICATION_REQUIRED"; challengeId: string; expiresAt?: string }>("/api/auth/direct/email/signup", { method: "POST", body: JSON.stringify({ displayName, email, password, returnTo, captchaToken: captcha?.token, captchaType: captcha?.type }) }),
   verifyEmailSignup: async (challengeId: string, code: string, returnTo = "/hub") => requestEmailAuth<{ authorizationUrl: string }>("/api/auth/direct/email/verify", { method: "POST", body: JSON.stringify({ challengeId, code, returnTo }) }),
   getGoogleAuthorization: async (returnTo = "/hub") => request<{ authorizationUrl: string }>(`/api/auth/direct/google/start?returnTo=${encodeURIComponent(returnTo)}`),
+  completeWixAuthorization: async (callback: WixAuthorizationCallback) => request<{ returnTo: string }>("/api/auth/direct/google/callback", { method: "POST", body: JSON.stringify(callback) }),
   logout: async () => request<{ ok: true }>("/api/auth/logout", { method: "POST", body: JSON.stringify({}) }),
   devLogin: async () => adaptPhase3aPlayer(await request<Partial<PlayerProfile> & Pick<PlayerProfile, "internalId" | "publicPlayerId" | "displayName">>("/api/dev/login", {
     method: "POST",

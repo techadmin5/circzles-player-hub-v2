@@ -21,7 +21,7 @@ describe("authentication environment safety", () => {
       FRONTEND_ORIGIN: "https://circzles-player-hub.vercel.app",
       COOKIE_SECURE: "true",
       SESSION_COOKIE_SAME_SITE: "lax",
-      WIX_DIRECT_AUTH_CALLBACK_URL: "https://circzles-player-hub.vercel.app/api/auth/direct/google/callback",
+      WIX_DIRECT_AUTH_CALLBACK_URL: "https://circzles-player-hub.vercel.app/auth/callback",
     };
     expect(loadEnv({ ...production, SESSION_COOKIE_DOMAIN: "" })).toMatchObject({
       COOKIE_SECURE: true,
@@ -45,8 +45,8 @@ describe("authentication environment safety", () => {
     };
     expect(loadEnv({
       ...hosted,
-      WIX_DIRECT_AUTH_CALLBACK_URL: "https://circzles-player-hub.vercel.app/api/auth/direct/google/callback",
-    })).toMatchObject({ WIX_DIRECT_AUTH_CALLBACK_URL: "https://circzles-player-hub.vercel.app/api/auth/direct/google/callback" });
+      WIX_DIRECT_AUTH_CALLBACK_URL: "https://circzles-player-hub.vercel.app/auth/callback",
+    })).toMatchObject({ WIX_DIRECT_AUTH_CALLBACK_URL: "https://circzles-player-hub.vercel.app/auth/callback" });
     expect(() => loadEnv({
       ...hosted,
       WIX_DIRECT_AUTH_CALLBACK_URL: "https://circzles-player-hub-api.onrender.com/api/auth/direct/google/callback",
@@ -63,9 +63,9 @@ describe("authentication environment safety", () => {
       WIX_DIRECT_AUTH_CALLBACK_URL: undefined,
     });
     expect(() => loadEnv({ ...base, WIX_CLIENT_ID: "client-id", WIX_DIRECT_AUTH_CALLBACK_URL: "not-a-url" })).toThrow();
-    expect(loadEnv({ ...base, WIX_CLIENT_ID: " client-id ", WIX_DIRECT_AUTH_CALLBACK_URL: "https://api.example.test/api/auth/direct/google/callback" })).toMatchObject({
+    expect(loadEnv({ ...base, WIX_CLIENT_ID: " client-id ", WIX_DIRECT_AUTH_CALLBACK_URL: "https://app.example.test/auth/callback" })).toMatchObject({
       WIX_CLIENT_ID: "client-id",
-      WIX_DIRECT_AUTH_CALLBACK_URL: "https://api.example.test/api/auth/direct/google/callback",
+      WIX_DIRECT_AUTH_CALLBACK_URL: "https://app.example.test/auth/callback",
     });
   });
 });

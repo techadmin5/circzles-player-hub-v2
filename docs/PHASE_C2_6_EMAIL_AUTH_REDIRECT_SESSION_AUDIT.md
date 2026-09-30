@@ -4,6 +4,8 @@
 
 IMPLEMENTED AND AUTOMATED-TESTED. Production configuration correction and live browser verification remain required.
 
+The callback transport described in the original audit below was subsequently hardened for Wix's documented Google fragment response. The current configured public callback is the frontend route `https://circzles-player-hub.vercel.app/auth/callback`; the earlier Render and `/api/...` callback URLs remain historical evidence only.
+
 ## Production Evidence
 
 The captured production email login request reached the first-party Vercel path and returned HTTP 200 with a Wix `authorizationUrl`. That URL contained this callback:
@@ -19,7 +21,7 @@ After the flow, the browser requested the first-party Vercel `/api/auth/session`
 - `auth.authRequest.redirectUri` sent to Wix Create Redirect Session.
 - `redirectUri` sent during authorization-code exchange.
 
-Login, immediate signup, signup OTP completion, and Google all use the same `createAuthorizationRedirect()` implementation and shared `/api/auth/direct/google/callback` route. The provider returns Wix's `redirectSession.fullUrl` without changing its embedded callback. There is no hardcoded Render callback and no callback fallback in application source.
+Login, immediate signup, signup OTP completion, and Google all use the same `createAuthorizationRedirect()` implementation and configured frontend callback URL. Email keeps query response mode while Google uses fragment response mode. The provider returns Wix's `redirectSession.fullUrl` without changing its embedded callback. There is no hardcoded Render callback and no callback fallback in application source.
 
 The captured Render callback therefore proves that the deployed backend supplied the Render URL as `WIX_DIRECT_AUTH_CALLBACK_URL`, or was running older configuration/code equivalent to it. The repository cannot inspect the deployed Render environment in this audit.
 
@@ -38,7 +40,7 @@ Render must use:
 ```text
 NODE_ENV=production
 FRONTEND_ORIGIN=https://circzles-player-hub.vercel.app
-WIX_DIRECT_AUTH_CALLBACK_URL=https://circzles-player-hub.vercel.app/api/auth/direct/google/callback
+WIX_DIRECT_AUTH_CALLBACK_URL=https://circzles-player-hub.vercel.app/auth/callback
 COOKIE_SECURE=true
 SESSION_COOKIE_SAME_SITE=lax
 SESSION_COOKIE_DOMAIN=
@@ -46,7 +48,7 @@ SESSION_COOKIE_DOMAIN=
 
 Wix Headless allowed authorization redirect URIs must include this exact URI:
 
-`https://circzles-player-hub.vercel.app/api/auth/direct/google/callback`
+`https://circzles-player-hub.vercel.app/auth/callback`
 
 This matches Wix's official Headless login guidance: the `redirectUri` passed to Create Redirect Session must be listed as an allowed authorization redirect URI and must match exactly. The relevant Wix reference is [Add a Wix Login Page (REST)](https://dev.wix.com/docs/go-headless/authentication/members/wix-login-page/add-a-wix-login-page-rest).
 
@@ -54,15 +56,15 @@ Vercel must set server-only `PLAYER_HUB_API_ORIGIN=https://circzles-player-hub-a
 
 ## Rewrite And Cookie Flow
 
-`next.config.ts` rewrites `/api/:path*` to `${PLAYER_HUB_API_ORIGIN}/api/:path*`. This covers direct auth, callback, session, logout, `/api/me`, and all authenticated `/api` routes. Next.js defines rewrites as URL proxies that preserve the browser-visible URL. The wildcard path preserves the callback query string; the proxy forwards the HTTP request and backend response rather than issuing a browser redirect. API paths receive `private, no-store, no-cache` headers.
+`next.config.ts` rewrites `/api/:path*` to `${PLAYER_HUB_API_ORIGIN}/api/:path*`. This covers direct auth, callback completion, session, logout, `/api/me`, and all authenticated `/api` routes. Next.js defines rewrites as URL proxies that preserve the browser-visible URL. The frontend `/auth/callback` page is not proxied; it extracts Wix's fragment or query result and posts it to the proxied API callback. API paths receive `private, no-store, no-cache` headers.
 
-The callback exchanges the code, validates the canonical Wix member identity, resolves the internal player, creates the backend session, and sets `cz_session` on its redirect response. Production cookie policy is host-only (no `Domain`), `Path=/`, `HttpOnly`, `Secure`, and `SameSite=Lax`, with expiry matching the backend session. The callback-to-session integration test proves that this cookie authenticates `/api/auth/session` at the backend boundary. Repository tests and configuration cannot prove Vercel's live edge preserved `Set-Cookie`; that requires a deployed response capture.
+The backend callback POST exchanges the code, validates the canonical Wix member identity, resolves the internal player, creates the backend session, and sets `cz_session` on its JSON response containing only a safe local `returnTo`. Production cookie policy is host-only (no `Domain`), `Path=/`, `HttpOnly`, `Secure`, and `SameSite=Lax`, with expiry matching the backend session. The callback-to-session integration test proves that this cookie authenticates `/api/auth/session` at the backend boundary. Repository tests and configuration cannot prove Vercel's live edge preserved `Set-Cookie`; that requires a deployed response capture.
 
 ## Flows Audited
 
-- Email login: Login V2 success -> redirect session with public callback -> shared callback -> Player Hub session -> `/hub`.
-- Email signup: Register V2 immediate success or email verification challenge -> OTP verification -> redirect session with the same public callback -> shared callback -> Player Hub session.
-- Google: visitor token -> redirect session with Google IdP and the same callback -> shared callback -> Player Hub session.
+- Email login: Login V2 success -> query-mode redirect to frontend callback -> backend callback POST -> Player Hub session -> `/hub`.
+- Email signup: Register V2 immediate success or email verification challenge -> OTP verification -> query-mode frontend callback -> backend callback POST -> Player Hub session.
+- Google: visitor token -> redirect session with Google IdP -> fragment-mode frontend callback -> backend callback POST -> Player Hub session.
 - Session restore: first-party `/api/auth/session` forwards `cz_session` to Render; Render refreshes a valid session and returns the player identity.
 - Logout: local identity clearing and backend `/api/auth/logout` behavior are unchanged; the backend clears the cookie before revocation and rejects the old session afterward.
 - CAPTCHA: visible reCAPTCHA token shape and retry behavior are unchanged.
