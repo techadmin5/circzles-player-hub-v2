@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "lint": "eslint",
-    "test:auth-callback": "node --test src/lib/wixAuthCallback.test.mjs"
+    "test:auth-callback": "node --test src/lib/wixAuthCallback.test.mjs",
+    "test:api-proxy": "node --test src/lib/server/apiProxy.test.mjs",
+    "test": "node --test src/lib/wixAuthCallback.test.mjs src/lib/server/apiProxy.test.mjs"
   },
   "dependencies": {
     "@tailwindcss/postcss": "latest",
