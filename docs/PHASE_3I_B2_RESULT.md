@@ -9,7 +9,7 @@ Phase 3I-B2 implements the real outbound Wix coupon adapter for the four confirm
 | Storefront | Domain | Wix site ID | Currency |
 | --- | --- | --- | --- |
 | `WIX_CIRCZLES_IN` | `https://www.circzles.in/` | `5cd5bcc4-823e-485a-b791-c22fb487aaf8` | INR |
-| `WIX_CIRCZLES_COM` | `https://www.circzles.com/` | `b5d3a6d5-bc44-44d4-9b14-e7b673bfd171` | USD |
+| `WIX_CIRCZLES_COM` | `https://www.circzles.com/` | `3da04df5-2750-4b5b-a925-089d88e9f79d` | USD |
 | `WIX_COGZART_IN` | `https://www.cogzart.in/` | `d37a119e-a978-451f-a39f-c33f6b1d145f` | INR |
 | `WIX_COGZART_COM` | `https://www.cogzart.com/` | `35afe62f-b860-4e10-b033-918b8577a870` | USD |
 
@@ -18,11 +18,11 @@ All four self-managed app installations are confirmed:
 | Storefront | Wix app instance ID |
 | --- | --- |
 | `WIX_CIRCZLES_IN` | `17b5821b-ed4c-46ca-acfb-597fa311099d` |
-| `WIX_CIRCZLES_COM` | `3faf71ce-2e7f-4f12-8d65-c4dca4773615` |
+| `WIX_CIRCZLES_COM` | Environment-provided through `WIX_CIRCZLES_COM_INSTANCE_ID` |
 | `WIX_COGZART_IN` | `171975f0-0a17-4d45-a115-c8c1766fe7a5` |
 | `WIX_COGZART_COM` | `9e80b75f-990d-4bc4-9301-ff12afe489d2` |
 
-These installation identifiers are non-secret configuration. `SHOPIFY_COGZART` is rejected by the Wix adapter and remains deferred to Phase 3I-B3.
+These installation identifiers are non-secret configuration. The `circzles.com` installation moved with the replacement Wix site, so its current instance ID must be supplied at deployment and is deliberately not hardcoded in the adapter. `SHOPIFY_COGZART` is rejected by the Wix adapter and remains deferred to Phase 3I-B3.
 
 ## Wix API Boundary
 

@@ -93,6 +93,10 @@ Email login and signup reset only the CAPTCHA token/widget after every completed
 
 The production direct-auth callback is `https://circzles-player-hub.vercel.app/api/auth/direct/google/callback`. Vercel rewrites that path to Render, and Wix Headless must register the exact same URI. Render's `WIX_DIRECT_AUTH_CALLBACK_URL` must also use that exact public URI.
 
+The callback accepts only Wix's two documented OAuth result shapes: `code` plus `state` on success, or `error` plus `state` and an optional `error_description` on failure. Both paths require valid, authenticated, unexpired local state. Provider failures return a controlled application error before code exchange, member lookup, identity resolution, or Player Hub session creation; raw provider descriptions are not exposed. Unknown callback parameters remain rejected.
+
+Direct Google login uses Wix's documented built-in Google connection ID `0e6a50f5-b523-4e29-990d-f37fa2ffdd69`. That identifier is provider-wide in Wix's REST contract rather than a site installation ID, so it is intentionally not environment-configurable. `WIX_CLIENT_ID` remains the Headless OAuth client ID; it must not be replaced with the custom Wix app ID or app instance ID.
+
 ## Migration Status
 
 `0019_glossy_polaris.sql`: **APPLIED AND VERIFIED ON NEON DEVELOPMENT ONLY**.

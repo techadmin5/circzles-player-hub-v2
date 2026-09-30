@@ -31,7 +31,7 @@ The canonical Wix site must be configured to require signup email verification. 
 
 ## Google
 
-Google authentication is initiated through a Wix Redirect Session with connection ID `0e6a50f5-b523-4e29-990d-f37fa2ffdd69`. Wix owns the Google interaction. The callback validates authenticated state and expiry, exchanges the code using the PKCE verifier, obtains the current Wix member, and creates a Player Hub session without an extra OTP.
+Google authentication is initiated through a Wix Redirect Session with connection ID `0e6a50f5-b523-4e29-990d-f37fa2ffdd69`. Wix documents this as its built-in Google connection ID; it is not an old-site or custom-app installation identifier and therefore is not an environment variable. Wix owns the Google interaction. A successful callback validates authenticated state and expiry, exchanges the code using the PKCE verifier, obtains the current Wix member, and creates a Player Hub session without an extra OTP. A documented OAuth error callback validates the same state and stops with a sanitized application error before any exchange or Player Hub session creation.
 
 ## Environment
 

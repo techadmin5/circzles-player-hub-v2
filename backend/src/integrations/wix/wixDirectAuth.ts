@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
-import type { CaptchaType, CompletedDirectAuthorization, DirectAuthProvider, DirectAuthRedirect, DirectEmailLoginResult, DirectEmailSignupResult } from "../../domain/directAuth.js";
+import type { CaptchaType, CompletedDirectAuthorization, DirectAuthorizationCallback, DirectAuthProvider, DirectAuthRedirect, DirectEmailLoginResult, DirectEmailSignupResult } from "../../domain/directAuth.js";
 import { AppError } from "../../domain/errors.js";
 import type { IdentityProvider, VerifiedExternalIdentity } from "../../domain/identity.js";
 
@@ -182,8 +182,14 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
     return this.createAuthorizationRedirect({ visitorAccessToken, flow: "GOOGLE", returnTo: input.returnTo });
   }
 
-  async completeAuthorization(input: { code: string; state: string }): Promise<CompletedDirectAuthorization> {
+  async completeAuthorization(input: DirectAuthorizationCallback): Promise<CompletedDirectAuthorization> {
     const flow = this.open(input.state, authorizationStateSchema, "WIX_AUTH_STATE_INVALID");
+    if ("error" in input) {
+      if (input.error === "access_denied") {
+        throw new AppError("WIX_AUTHORIZATION_DECLINED", "Wix authentication was cancelled or declined.", 401);
+      }
+      throw new AppError("WIX_AUTHORIZATION_FAILED", "Wix authentication could not be completed.", 502);
+    }
     const tokens = await this.requestJson("/oauth2/token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

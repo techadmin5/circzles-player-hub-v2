@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createHmac } from "crypto";
 import { buildApp } from "../src/http/app.js";
+import { AppError } from "../src/domain/errors.js";
 import { GameStateService, temporaryDevelopmentProgressionLevels } from "../src/domain/gameState.js";
 import { IdentityService } from "../src/domain/identity.js";
 import { PuzzleOwnershipService } from "../src/domain/puzzles.js";
@@ -249,6 +250,56 @@ describe("http auth poc", () => {
     const rejected = await other.app.inject({ method: "GET", url: "/api/auth/direct/google/callback?code=code&state=state" });
     expect(rejected.statusCode).toBe(502);
     expect(rejected.json().code).toBe("DIRECT_AUTH_IDENTITY_INVALID");
+  });
+
+  it("accepts a strict Wix error callback without creating a Player Hub session", async () => {
+    let receivedCallback: unknown;
+    const directAuth: DirectAuthProvider = {
+      loginWithEmail: async () => ({ authorizationUrl: "https://identity.example.test/email" }),
+      startEmailSignup: async () => ({ state: "EMAIL_VERIFICATION_REQUIRED", challengeId: "challenge" }),
+      verifyEmailSignup: async () => ({ authorizationUrl: "https://identity.example.test/verify" }),
+      getGoogleAuthorizationUrl: async () => ({ authorizationUrl: "https://identity.example.test/start" }),
+      completeAuthorization: async (input) => {
+        receivedCallback = input;
+        throw new AppError("WIX_AUTHORIZATION_FAILED", "Wix authentication could not be completed.", 502);
+      },
+    };
+    const { app, identityRepo, gameRepo } = await appWithFakes({}, directAuth);
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/auth/direct/google/callback?error=unknown_error&error_description=provider%20detail&state=signed-state",
+    });
+
+    expect(response.statusCode).toBe(502);
+    expect(response.json()).toMatchObject({ code: "WIX_AUTHORIZATION_FAILED", requestId: expect.any(String) });
+    expect(receivedCallback).toEqual({ error: "unknown_error", errorDescription: "provider detail", state: "signed-state" });
+    expect(identityRepo.accounts).toHaveLength(0);
+    expect(gameRepo.ensureCalls).toEqual([]);
+    expect(response.headers["set-cookie"]).toBeUndefined();
+  });
+
+  it.each([
+    "/api/auth/direct/google/callback?error=unknown_error",
+    "/api/auth/direct/google/callback?state=state",
+    "/api/auth/direct/google/callback?code=code&error=unknown_error&state=state",
+    "/api/auth/direct/google/callback?error=unknown_error&state=state&unexpected=value",
+  ])("rejects malformed or ambiguous Wix callbacks without invoking the provider: %s", async (url) => {
+    let callbackCalls = 0;
+    const directAuth: DirectAuthProvider = {
+      loginWithEmail: async () => ({ authorizationUrl: "https://identity.example.test/email" }),
+      startEmailSignup: async () => ({ state: "EMAIL_VERIFICATION_REQUIRED", challengeId: "challenge" }),
+      verifyEmailSignup: async () => ({ authorizationUrl: "https://identity.example.test/verify" }),
+      getGoogleAuthorizationUrl: async () => ({ authorizationUrl: "https://identity.example.test/start" }),
+      completeAuthorization: async () => {
+        callbackCalls += 1;
+        throw new Error("Not called");
+      },
+    };
+    const { app } = await appWithFakes({}, directAuth);
+    const response = await app.inject({ method: "GET", url });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().code).toBe("VALIDATION_FAILED");
+    expect(callbackCalls).toBe(0);
   });
 
   it("issues a host-only production cookie that survives the callback-to-session chain", async () => {

@@ -416,6 +416,26 @@ describe("WixDirectAuthProvider", () => {
     expect(completed.identity).toMatchObject({ sourceSite: "CIRCZLES_COM", provider: "GOOGLE", externalIdentityId: "wix-member-1", emailVerified: true });
   });
 
+  it("validates Wix error callback state without exchanging a code or loading a member", async () => {
+    const { provider, state, wix } = await startGoogleFlow();
+    const error = await captureError(provider.completeAuthorization({
+      error: "unknown_error",
+      errorDescription: "provider detail must not escape",
+      state,
+    }));
+
+    expect(error).toMatchObject({ code: "WIX_AUTHORIZATION_FAILED", statusCode: 502 });
+    expect(JSON.stringify(error)).not.toContain("provider detail");
+    expect(wix.calls).toHaveLength(2);
+  });
+
+  it("fails closed when a Wix error callback contains tampered state", async () => {
+    const { provider, state, wix } = await startGoogleFlow();
+    await expect(provider.completeAuthorization({ error: "unknown_error", state: `${state}tampered` }))
+      .rejects.toMatchObject({ code: "WIX_AUTH_STATE_INVALID", statusCode: 400 });
+    expect(wix.calls).toHaveLength(2);
+  });
+
   it("uses the exact public callback for redirect creation and code exchange", async () => {
     const wix = mockWix(
       ok({ access_token: "visitor-token" }),
