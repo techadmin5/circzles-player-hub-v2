@@ -8,7 +8,7 @@ const appSecret = "test-app-secret-never-log";
 const circzlesInAppId = "b984c368-a4e7-4ccf-8d5e-d598fb3707c8";
 const circzlesInAppSecret = "test-circzles-in-app-secret-never-log";
 const circzlesInInstanceId = "17b5821b-ed4c-46ca-acfb-597fa311099d";
-const circzlesComInstanceId = "3faf71ce-2e7f-4f12-8d65-c4dca4773615";
+const circzlesComInstanceId = "30000000-0000-4000-8000-000000000002";
 const cogzartInInstanceId = "171975f0-0a17-4d45-a115-c8c1766fe7a5";
 const cogzartComInstanceId = "9e80b75f-990d-4bc4-9301-ff12afe489d2";
 

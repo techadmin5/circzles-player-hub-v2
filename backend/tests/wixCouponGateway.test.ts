@@ -66,7 +66,7 @@ describe("Wix coupon storefront configuration", () => {
   it("maps all four Wix storefronts to the confirmed site, domain, and currency", () => {
     expect(wixCouponStorefronts).toEqual({
       WIX_CIRCZLES_IN: { domain: "https://www.circzles.in/", wixSiteId: "5cd5bcc4-823e-485a-b791-c22fb487aaf8", currency: "INR" },
-      WIX_CIRCZLES_COM: { domain: "https://www.circzles.com/", wixSiteId: "b5d3a6d5-bc44-44d4-9b14-e7b673bfd171", currency: "USD" },
+      WIX_CIRCZLES_COM: { domain: "https://www.circzles.com/", wixSiteId: "3da04df5-2750-4b5b-a925-089d88e9f79d", currency: "USD" },
       WIX_COGZART_IN: { domain: "https://www.cogzart.in/", wixSiteId: "d37a119e-a978-451f-a39f-c33f6b1d145f", currency: "INR" },
       WIX_COGZART_COM: { domain: "https://www.cogzart.com/", wixSiteId: "35afe62f-b860-4e10-b033-918b8577a870", currency: "USD" },
     });

@@ -60,7 +60,14 @@ const emailLoginBodySchema = z.object({ email: z.string().email().max(320), pass
 const emailSignupBodySchema = z.object({ displayName: z.string().trim().min(2).max(80), email: z.string().email().max(320), password: z.string().min(8).max(256), returnTo: z.string().optional(), ...captchaFields }).strict();
 const emailVerificationBodySchema = z.object({ challengeId: z.string().min(1).max(8192), code: z.string().trim().min(4).max(12), returnTo: z.string().optional() }).strict();
 const googleStartQuerySchema = z.object({ returnTo: z.string().optional() }).strict();
-const googleCallbackQuerySchema = z.object({ code: z.string().min(1).max(4096), state: z.string().min(1).max(4096) }).strict();
+const googleCallbackQuerySchema = z.union([
+  z.object({ code: z.string().min(1).max(4096), state: z.string().min(1).max(4096) }).strict(),
+  z.object({
+    error: z.string().min(1).max(256),
+    error_description: z.string().min(1).max(1024).optional(),
+    state: z.string().min(1).max(4096),
+  }).strict(),
+]);
 
 const devGrantBodySchema = z.object({
   amount: z.number().int().positive().max(1_000_000),
@@ -201,7 +208,10 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
   app.get("/api/auth/direct/google/callback", async (request, reply) => {
     const query = googleCallbackQuerySchema.safeParse(request.query);
     if (!query.success) throw validationFailed("Invalid Wix authentication callback.", query.error.flatten());
-    const completed = await directAuthProvider.completeAuthorization(query.data);
+    const callback = "code" in query.data
+      ? query.data
+      : { error: query.data.error, errorDescription: query.data.error_description, state: query.data.state };
+    const completed = await directAuthProvider.completeAuthorization(callback);
     const verified = requireCanonicalDirectIdentity(completed.identity, completed.identity.provider);
     const account = await identity.resolveVerifiedIdentity(verified);
     const session = await identity.createSession(account.userId);

@@ -24,12 +24,16 @@ export interface CompletedDirectAuthorization {
   returnTo: string;
 }
 
+export type DirectAuthorizationCallback =
+  | { code: string; state: string }
+  | { error: string; errorDescription?: string; state: string };
+
 export interface DirectAuthProvider {
   loginWithEmail(input: { email: string; password: string; captchaToken?: string; captchaType?: CaptchaType; returnTo: string }): Promise<DirectEmailLoginResult>;
   startEmailSignup(input: { displayName: string; email: string; password: string; captchaToken?: string; captchaType?: CaptchaType; returnTo: string }): Promise<DirectEmailSignupResult>;
   verifyEmailSignup(input: { challengeId: string; code: string; returnTo: string }): Promise<DirectAuthRedirect>;
   getGoogleAuthorizationUrl(input: { returnTo: string }): Promise<{ authorizationUrl: string }>;
-  completeAuthorization(input: { code: string; state: string }): Promise<CompletedDirectAuthorization>;
+  completeAuthorization(input: DirectAuthorizationCallback): Promise<CompletedDirectAuthorization>;
 }
 
 export class UnconfiguredDirectAuthProvider implements DirectAuthProvider {
