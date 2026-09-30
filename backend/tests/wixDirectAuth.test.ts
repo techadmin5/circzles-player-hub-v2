@@ -4,11 +4,11 @@ import { WixDirectAuthProvider } from "../src/integrations/wix/wixDirectAuth.js"
 
 const config = {
   clientId: "canonical-circzles-com-client",
-  callbackUrl: "https://api.example.test/api/auth/direct/google/callback",
+  callbackUrl: "https://app.example.test/auth/callback",
   stateSecret: "test-state-secret-with-at-least-32-characters",
   apiBaseUrl: "https://wix.example.test",
 };
-const productionCallbackUrl = "https://circzles-player-hub.vercel.app/api/auth/direct/google/callback";
+const productionCallbackUrl = "https://circzles-player-hub.vercel.app/auth/callback";
 
 const verifiedMember = {
   member: {
@@ -405,7 +405,7 @@ describe("WixDirectAuthProvider", () => {
 
   it("requests the full Wix member projection and returns a verified Google identity", async () => {
     const { provider, state, wix } = await startGoogleFlow();
-    expect(bodyAt(wix.calls, 1).auth.authRequest).toMatchObject({ idp: "0e6a50f5-b523-4e29-990d-f37fa2ffdd69", responseMode: "query" });
+    expect(bodyAt(wix.calls, 1).auth.authRequest).toMatchObject({ idp: "0e6a50f5-b523-4e29-990d-f37fa2ffdd69", responseMode: "fragment" });
     expect(bodyAt(wix.calls, 1).auth.authRequest.redirectUri).toBe(config.callbackUrl);
     expect(bodyAt(wix.calls, 1).auth.authRequest.sessionToken).toBeUndefined();
     expect(bodyAt(wix.calls, 1).auth.sessionToken).toBeUndefined();
@@ -432,6 +432,19 @@ describe("WixDirectAuthProvider", () => {
   it("fails closed when a Wix error callback contains tampered state", async () => {
     const { provider, state, wix } = await startGoogleFlow();
     await expect(provider.completeAuthorization({ error: "unknown_error", state: `${state}tampered` }))
+      .rejects.toMatchObject({ code: "WIX_AUTH_STATE_INVALID", statusCode: 400 });
+    expect(wix.calls).toHaveLength(2);
+  });
+
+  it("fails closed when Google callback state has expired", async () => {
+    let now = Date.parse("2026-09-30T00:00:00.000Z");
+    const wix = mockWix(ok({ access_token: "visitor-token" }), ok({ redirectSession: { fullUrl: "https://wix.example.test/google" } }));
+    const provider = new WixDirectAuthProvider({ ...config, now: () => now }, wix.fetch);
+    await provider.getGoogleAuthorizationUrl({ returnTo: "/hub" });
+    const state = bodyAt(wix.calls, 1).auth.authRequest.state as string;
+    now += 11 * 60 * 1000;
+
+    await expect(provider.completeAuthorization({ code: "code", state }))
       .rejects.toMatchObject({ code: "WIX_AUTH_STATE_INVALID", statusCode: 400 });
     expect(wix.calls).toHaveLength(2);
   });

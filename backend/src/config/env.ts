@@ -3,7 +3,7 @@ import { z } from "zod";
 
 const optionalTrimmedString = z.preprocess((value) => typeof value === "string" && !value.trim() ? undefined : value, z.string().trim().min(1).optional());
 const optionalUrl = z.preprocess((value) => typeof value === "string" && !value.trim() ? undefined : value, z.string().url().optional());
-const DIRECT_AUTH_CALLBACK_PATH = "/api/auth/direct/google/callback";
+const DIRECT_AUTH_CALLBACK_PATH = "/auth/callback";
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),

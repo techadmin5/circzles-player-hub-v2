@@ -28,10 +28,10 @@ All `/api/*` responses receive `Cache-Control: private, no-store, no-cache, max-
 The exact public callback is:
 
 ```text
-https://circzles-player-hub.vercel.app/api/auth/direct/google/callback
+https://circzles-player-hub.vercel.app/auth/callback
 ```
 
-It must be identical in Render's `WIX_DIRECT_AUTH_CALLBACK_URL`, the Create Redirect Session request, and the Wix Headless allowed redirect URI. Vercel proxies it to Render's `/api/auth/direct/google/callback`. The response is browser-visible as Vercel, so its host-only cookie belongs to the Player Hub origin.
+It must be identical in Render's `WIX_DIRECT_AUTH_CALLBACK_URL`, the Create Redirect Session request, the code exchange, and the Wix Headless allowed redirect URI. Google returns a fragment to this frontend page and email returns query parameters. The page posts the strict callback result to Vercel's same-origin `/api/auth/direct/google/callback` proxy, so the backend session response remains browser-visible as Vercel and its host-only cookie belongs to the Player Hub origin.
 
 Production environment validation now requires:
 
@@ -110,7 +110,7 @@ FRONTEND_ORIGIN=https://circzles-player-hub.vercel.app
 COOKIE_SECURE=true
 SESSION_COOKIE_SAME_SITE=lax
 SESSION_COOKIE_DOMAIN=
-WIX_DIRECT_AUTH_CALLBACK_URL=https://circzles-player-hub.vercel.app/api/auth/direct/google/callback
+WIX_DIRECT_AUTH_CALLBACK_URL=https://circzles-player-hub.vercel.app/auth/callback
 AUTH_SESSION_DIAGNOSTICS=false
 ```
 
@@ -121,7 +121,7 @@ Enable `AUTH_SESSION_DIAGNOSTICS` only for the controlled cookie check. No cooki
 Register exactly:
 
 ```text
-https://circzles-player-hub.vercel.app/api/auth/direct/google/callback
+https://circzles-player-hub.vercel.app/auth/callback
 ```
 
 Repository changes cannot update the Wix dashboard. Coordinate Wix allowed-URI configuration, Render environment changes, and the Vercel deployment before exercising email or Google authentication. Do not deploy the backend production validation while it still has the old Render callback or cross-site cookie settings.

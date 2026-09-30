@@ -26,7 +26,7 @@ The incorrect placement could send an already-authenticated email user to a Wix-
 - **Register SUCCESS:** follows the same redirect path with the registration session token and preserves the safe local `returnTo`.
 - **Email verification SUCCESS:** keeps the encrypted challenge and provider state token server-side, verifies the code with Wix, and places the returned session token inside `authRequest` before callback completion.
 
-The callback remains `/api/auth/direct/google/callback` for both `EMAIL` and `GOOGLE` authorization states. Its code exchange, PKCE validation, canonical member lookup, verified-email requirement, identity resolution, session cookie issuance, and safe return path are unchanged.
+The later fragment-callback hardening moved the configured public callback to frontend `/auth/callback`. Email still uses query response mode; Google uses Wix's documented fragment mode. The frontend forwards either strict result to `POST /api/auth/direct/google/callback`, while code exchange, PKCE validation, canonical member lookup, verified-email enforcement, identity resolution, session cookie issuance, and safe return-path validation remain backend-owned.
 
 ## Account Errors
 
