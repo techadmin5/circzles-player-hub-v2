@@ -346,6 +346,8 @@ describe("http auth poc", () => {
   });
 
   it.each([
+    "/api/auth/direct/google/callback",
+    "/api/auth/direct/google/callback?code=code",
     "/api/auth/direct/google/callback?error=unknown_error",
     "/api/auth/direct/google/callback?state=state",
     "/api/auth/direct/google/callback?code=code&error=unknown_error&state=state",
@@ -369,8 +371,8 @@ describe("http auth poc", () => {
     expect(callbackCalls).toBe(0);
   });
 
-  it("issues a host-only production cookie that survives the callback-to-session chain", async () => {
-    const verified = { sourceSite: "CIRCZLES_COM" as const, provider: "EMAIL" as const, externalIdentityId: "canonical-member", verifiedEmail: "player@example.com", emailVerified: true as const, displayName: "Verified Player" };
+  it.each(["EMAIL", "GOOGLE"] as const)("issues a host-only production cookie that survives the %s GET callback-to-session chain", async (provider) => {
+    const verified = { sourceSite: "CIRCZLES_COM" as const, provider, externalIdentityId: "canonical-member", verifiedEmail: "player@example.com", emailVerified: true as const, displayName: "Verified Player" };
     const directAuth: DirectAuthProvider = {
       loginWithEmail: async () => ({ authorizationUrl: "https://identity.example.test/email" }),
       startEmailSignup: async () => ({ state: "EMAIL_VERIFICATION_REQUIRED", challengeId: "challenge" }),

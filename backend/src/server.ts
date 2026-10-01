@@ -43,6 +43,7 @@ const directAuth = env.WIX_CLIENT_ID && env.WIX_DIRECT_AUTH_CALLBACK_URL
   ? new WixDirectAuthProvider({
     clientId: env.WIX_CLIENT_ID,
     callbackUrl: env.WIX_DIRECT_AUTH_CALLBACK_URL,
+    emailCallbackUrl: new URL("/auth/callback", env.FRONTEND_ORIGIN).toString(),
     stateSecret: env.SESSION_SECRET,
     onDiagnostic: (diagnostic) => console.warn("Wix email authentication outcome", diagnostic),
   })

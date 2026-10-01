@@ -68,6 +68,7 @@ const authorizationStateSchema = z.object({
 interface WixDirectAuthConfig {
   clientId: string;
   callbackUrl: string;
+  emailCallbackUrl?: string;
   stateSecret: string;
   apiBaseUrl?: string;
   now?: () => number;
@@ -94,6 +95,7 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
     }
     try {
       new URL(config.callbackUrl);
+      if (config.emailCallbackUrl) new URL(config.emailCallbackUrl);
     } catch {
       throw new AppError("DIRECT_AUTH_PROVIDER_NOT_CONFIGURED", "Direct Player Hub authentication is not configured.", 503);
     }
@@ -198,7 +200,7 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
         grantType: "authorization_code",
         code: input.code,
         codeVerifier: flow.codeVerifier,
-        redirectUri: this.config.callbackUrl,
+        redirectUri: this.callbackUrlForFlow(flow.flow),
       }),
     }, "token exchange");
     const parsedTokens = tokenResponseSchema.safeParse(tokens);
@@ -248,11 +250,11 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
       nonce: randomBytes(18).toString("base64url"),
     });
     const authRequest: Record<string, string> = {
-      redirectUri: this.config.callbackUrl,
+      redirectUri: this.callbackUrlForFlow(input.flow),
       clientId: this.config.clientId,
       codeChallenge,
       codeChallengeMethod: "S256",
-      responseMode: input.flow === "GOOGLE" ? "fragment" : "query",
+      responseMode: "query",
       responseType: "code",
       scope: "offline_access",
       state,
@@ -267,6 +269,11 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
     const parsed = redirectResponseSchema.safeParse(response);
     if (!parsed.success) throw providerMalformed("authorization redirect");
     return { authorizationUrl: parsed.data.redirectSession.fullUrl };
+  }
+
+  private callbackUrlForFlow(flow: IdentityProvider) {
+    // The exchange uses the authenticated flow from sealed state, never browser input.
+    return flow === "EMAIL" ? this.config.emailCallbackUrl ?? this.config.callbackUrl : this.config.callbackUrl;
   }
 
   private createEmailVerificationChallenge(
