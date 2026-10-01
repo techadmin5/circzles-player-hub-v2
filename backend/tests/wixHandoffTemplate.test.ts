@@ -70,9 +70,27 @@ describe("Wix Velo handoff template ↔ Player Hub verifier", () => {
 
   it("requires authoritative member-level email verification", async () => {
     const { buildHandoffClaims } = await core();
-    expect(() => buildHandoffClaims({ ...member, loginEmailVerified: false }, { issuer: "circzles.com", now })).toThrowError(expect.objectContaining({ code: "EMAIL_NOT_VERIFIED" }));
-    const { loginEmailVerified: _omit, ...withoutVerification } = member;
-    expect(() => buildHandoffClaims(withoutVerification, { issuer: "circzles.com", now })).toThrowError(expect.objectContaining({ code: "EMAIL_NOT_VERIFIED" }));
+
+    expect(() =>
+      buildHandoffClaims(
+        { ...member, loginEmailVerified: false },
+        { issuer: "circzles.com", now }
+      )
+    ).toThrowError(
+      expect.objectContaining({ code: "EMAIL_NOT_VERIFIED" })
+    );
+
+    const withoutVerification = { ...member } as Partial<typeof member>;
+    delete withoutVerification.loginEmailVerified;
+
+    expect(() =>
+      buildHandoffClaims(
+        withoutVerification,
+        { issuer: "circzles.com", now }
+      )
+    ).toThrowError(
+      expect.objectContaining({ code: "EMAIL_NOT_VERIFIED" })
+    );
   });
 
   it.each(["PENDING", "BLOCKED", undefined])("refuses members with status %s", async (status) => {
