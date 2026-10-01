@@ -21,7 +21,7 @@ describe("authentication environment safety", () => {
       FRONTEND_ORIGIN: "https://circzles-player-hub.vercel.app",
       COOKIE_SECURE: "true",
       SESSION_COOKIE_SAME_SITE: "lax",
-      WIX_DIRECT_AUTH_CALLBACK_URL: "https://circzles-player-hub.vercel.app/auth/callback",
+      WIX_DIRECT_AUTH_CALLBACK_URL: "https://circzles-player-hub.vercel.app/api/auth/direct/google/callback",
     };
     expect(loadEnv({ ...production, SESSION_COOKIE_DOMAIN: "" })).toMatchObject({
       COOKIE_SECURE: true,
@@ -31,6 +31,9 @@ describe("authentication environment safety", () => {
     expect(() => loadEnv({ ...production, COOKIE_SECURE: "false" })).toThrow(/Secure/);
     expect(() => loadEnv({ ...production, SESSION_COOKIE_SAME_SITE: "none" })).toThrow(/SameSite=Lax/);
     expect(() => loadEnv({ ...production, SESSION_COOKIE_DOMAIN: ".vercel.app" })).toThrow(/host-only/);
+    for (const suffix of ["/auth/callback", "/api/auth/direct/google/callback/", "/api/auth/direct/google/callback?extra=1"]) {
+      expect(() => loadEnv({ ...production, WIX_DIRECT_AUTH_CALLBACK_URL: `https://circzles-player-hub.vercel.app${suffix}` })).toThrow(/exact Player Hub frontend callback URL/);
+    }
     expect(() => loadEnv({ ...production, WIX_DIRECT_AUTH_CALLBACK_URL: "https://circzles-player-hub-api.onrender.com/api/auth/direct/google/callback" })).toThrow(/exact Player Hub frontend callback URL/);
     expect(() => loadEnv({ ...production, WIX_DIRECT_AUTH_CALLBACK_URL: "https://circzles-player-hub.vercel.app/api/auth/direct/wrong-callback" })).toThrow(/exact Player Hub frontend callback URL/);
   });
@@ -45,8 +48,8 @@ describe("authentication environment safety", () => {
     };
     expect(loadEnv({
       ...hosted,
-      WIX_DIRECT_AUTH_CALLBACK_URL: "https://circzles-player-hub.vercel.app/auth/callback",
-    })).toMatchObject({ WIX_DIRECT_AUTH_CALLBACK_URL: "https://circzles-player-hub.vercel.app/auth/callback" });
+      WIX_DIRECT_AUTH_CALLBACK_URL: "https://circzles-player-hub.vercel.app/api/auth/direct/google/callback",
+    })).toMatchObject({ WIX_DIRECT_AUTH_CALLBACK_URL: "https://circzles-player-hub.vercel.app/api/auth/direct/google/callback" });
     expect(() => loadEnv({
       ...hosted,
       WIX_DIRECT_AUTH_CALLBACK_URL: "https://circzles-player-hub-api.onrender.com/api/auth/direct/google/callback",

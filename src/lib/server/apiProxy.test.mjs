@@ -199,6 +199,27 @@ test("arbitrary hosts in paths, query and headers cannot change destination; red
   }
 });
 
+test("real GET callback transport preserves query, 302 Location and cookies without following redirect", async (t) => {
+  let calls = 0;
+  const cookies = ["cz_session=opaque; HttpOnly; Secure; SameSite=Lax; Path=/", "other=1; Path=/"];
+  const server = createServer((req, res) => {
+    calls++;
+    assert.equal(req.method, "GET");
+    assert.equal(req.url, "/api/auth/direct/google/callback?code=one%2Buse&state=sealed%2Fstate");
+    res.writeHead(302, { location: "/hub", "set-cookie": cookies, "x-request-id": "callback-id" });
+    res.end();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const { proxy } = setup(fetch, { origin: `http://127.0.0.1:${server.address().port}` });
+  const response = await proxy(request("/api/auth/direct/google/callback?code=one%2Buse&state=sealed%2Fstate"));
+  assert.equal(response.status, 302);
+  assert.equal(response.headers.get("location"), "/hub");
+  assert.equal(response.headers.get("x-request-id"), "callback-id");
+  assert.deepEqual(response.headers.getSetCookie(), cookies);
+  assert.equal(calls, 1);
+});
+
 test("rejects missing/invalid origin without falling back to public configuration", async () => {
   for (const invalid of ["", "ftp://backend.example", "https://user:pass@backend.example", "https://backend.example/api", "https://backend.example/?url=x", "https://backend.example/#x"]) {
     const { proxy } = setup(async () => assert.fail("must not fetch"), { origin: invalid });
