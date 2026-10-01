@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient } from "@/lib/apiClient";
+import { handoffFragmentFreeUrl, readHandoffFromHash } from "@/lib/handoffFragment";
 import { useAuth } from "./AuthProvider";
 import { authMessage } from "./LoginForm";
 
@@ -11,12 +12,16 @@ export function HandoffExchange() {
   const router = useRouter();
   const { acceptAuthentication } = useAuth();
   const [error, setError] = useState("");
+  // The handoff is single-use. React Strict Mode (development) runs effects twice, and the fragment is
+  // removed on the first run, so the guard prevents the second run from reporting a false "missing" error.
+  const started = useRef(false);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.hash.slice(1));
-    const token = params.get("handoff");
-    window.history.replaceState(null, "", window.location.pathname);
+    if (started.current) return;
+    const token = readHandoffFromHash(window.location.hash);
+    window.history.replaceState(null, "", handoffFragmentFreeUrl(window.location.pathname));
     if (!token) { queueMicrotask(() => setError("Authentication handoff is missing.")); return; }
+    started.current = true;
     apiClient.exchangeAuthHandoff(token).then((player) => {
       acceptAuthentication(player);
       router.replace("/hub");
