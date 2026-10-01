@@ -178,6 +178,59 @@ describe("http auth poc", () => {
     expect(identityRepo.accounts).toHaveLength(1);
   });
 
+  it("sets a production-grade host-only cz_session cookie on a successful handoff exchange", async () => {
+    const comSecret = "com-handoff-secret-with-at-least-32-characters";
+    const { app } = await appWithFakes({ NODE_ENV: "production", COOKIE_SECURE: true, AUTH_HANDOFF_CIRCZLES_COM_SECRET: comSecret });
+    const res = await app.inject({ method: "POST", url: "/api/auth/handoff/exchange", payload: { token: signHandoff({ iss: "circzles.com", sub: "cookie-member", email: "cookie@example.com", jti: "http-handoff-cookie-1" }, comSecret) } });
+    expect(res.statusCode).toBe(200);
+    const raw = res.headers["set-cookie"];
+    const cookie = Array.isArray(raw) ? raw[0] : raw ?? "";
+    expect(cookie).toMatch(/^cz_session=[^;]+/);
+    expect(cookie).toContain("HttpOnly");
+    expect(cookie).toContain("Secure");
+    expect(cookie).toContain("SameSite=Lax");
+    expect(cookie).toContain("Path=/");
+    expect(cookie).not.toMatch(/Domain=/i);
+    const session = await app.inject({ method: "GET", url: "/api/auth/session", headers: { cookie: cookie.split(";")[0] } });
+    expect(session.statusCode).toBe(200);
+    expect(session.json().internalId).toBe(res.json().internalId);
+  });
+
+  it("refuses to replay a handoff and issues no cookie the second time", async () => {
+    const comSecret = "com-handoff-secret-with-at-least-32-characters";
+    const { app, identityRepo } = await appWithFakes({ AUTH_HANDOFF_CIRCZLES_COM_SECRET: comSecret });
+    const token = signHandoff({ iss: "circzles.com", sub: "replay-member", email: "replay@example.com", jti: "http-handoff-replay-1" }, comSecret);
+    expect((await app.inject({ method: "POST", url: "/api/auth/handoff/exchange", payload: { token } })).statusCode).toBe(200);
+    const replay = await app.inject({ method: "POST", url: "/api/auth/handoff/exchange", payload: { token } });
+    expect(replay.statusCode).toBe(409);
+    expect(replay.json().code).toBe("AUTH_HANDOFF_ALREADY_USED");
+    expect(replay.headers["set-cookie"]).toBeUndefined();
+    expect(identityRepo.accounts).toHaveLength(1);
+  });
+
+  it("rejects a handoff whose Wix member now presents a different verified email", async () => {
+    const comSecret = "com-handoff-secret-with-at-least-32-characters";
+    const { app, identityRepo } = await appWithFakes({ AUTH_HANDOFF_CIRCZLES_COM_SECRET: comSecret });
+    expect((await app.inject({ method: "POST", url: "/api/auth/handoff/exchange", payload: { token: signHandoff({ iss: "circzles.com", sub: "same-member", email: "first@example.com", jti: "http-handoff-conflict-1" }, comSecret) } })).statusCode).toBe(200);
+    const conflict = await app.inject({ method: "POST", url: "/api/auth/handoff/exchange", payload: { token: signHandoff({ iss: "circzles.com", sub: "same-member", email: "other@example.com", jti: "http-handoff-conflict-2" }, comSecret) } });
+    expect(conflict.statusCode).toBe(409);
+    expect(conflict.json().code).toBe("IDENTITY_LINK_CONFLICT");
+    expect(conflict.headers["set-cookie"]).toBeUndefined();
+    expect(identityRepo.accounts).toHaveLength(1);
+  });
+
+  it("does not authenticate from a raw member id, email, or an unsigned/forged token", async () => {
+    const comSecret = "com-handoff-secret-with-at-least-32-characters";
+    const { app, identityRepo } = await appWithFakes({ AUTH_HANDOFF_CIRCZLES_COM_SECRET: comSecret });
+    const raw = await app.inject({ method: "POST", url: "/api/auth/handoff/exchange", payload: { wixMemberId: "com-member", email: "victim@example.com" } });
+    expect(raw.statusCode).toBe(400);
+    const forged = await app.inject({ method: "POST", url: "/api/auth/handoff/exchange", payload: { token: signHandoff({ iss: "circzles.com", sub: "forged", email: "victim@example.com", jti: "http-handoff-forged-1" }, "f".repeat(40)) } });
+    expect(forged.statusCode).toBe(401);
+    expect(forged.json().code).toBe("AUTH_HANDOFF_INVALID");
+    expect(forged.headers["set-cookie"]).toBeUndefined();
+    expect(identityRepo.accounts).toHaveLength(0);
+  });
+
   it("bootstraps a persistent session and logout invalidates it", async () => {
     const { app, gameRepo } = await appWithFakes({ NODE_ENV: "development" });
     const cookie = await login(app);
