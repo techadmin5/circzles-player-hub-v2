@@ -1,3 +1,5 @@
+> Legacy: native Player Hub auth no longer accepts Wix SSO handoff. These templates are retained for published-code reference and regression tests. Update Wix buttons to navigate directly to `https://circzles-player-hub.vercel.app/login`. See [native auth rollout](../NATIVE_PLAYER_HUB_AUTH.md).
+
 # Wix → Player Hub SSO handoff (circzles.com and circzles.in)
 
 The Player Hub already contains the receiving side of this flow (`POST /api/auth/handoff/exchange`,
