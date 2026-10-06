@@ -2,11 +2,16 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:
 import { z } from "zod";
 import type { CaptchaType, CompletedDirectAuthorization, DirectAuthorizationCallback, DirectAuthProvider, DirectAuthRedirect, DirectEmailLoginResult, DirectEmailSignupResult } from "../../domain/directAuth.js";
 import { AppError } from "../../domain/errors.js";
-import type { IdentityProvider, VerifiedExternalIdentity } from "../../domain/identity.js";
+import type { VerifiedExternalIdentity } from "../../domain/identity.js";
 
 const WIX_API_BASE_URL = "https://www.wixapis.com";
-const GOOGLE_CONNECTION_ID = "0e6a50f5-b523-4e29-990d-f37fa2ffdd69";
 const FLOW_TTL_MS = 10 * 60 * 1000;
+
+// EMAIL: Player Hub's own form authenticates with Wix, then authorizes via sessionToken.
+// WIX_HOSTED: temporary fallback behind "Continue with Google". Wix shows its hosted
+// login page, so the actual login method is not authoritatively known and the resulting
+// identity is recorded as provider WIX rather than being inferred as GOOGLE.
+type AuthorizationFlow = "EMAIL" | "WIX_HOSTED";
 
 const wixAuthResponseSchema = z.object({
   state: z.string().optional(),
@@ -57,7 +62,7 @@ const signupChallengeSchema = z.object({
 
 const authorizationStateSchema = z.object({
   type: z.literal("AUTHORIZATION_STATE"),
-  flow: z.enum(["EMAIL", "GOOGLE"]),
+  flow: z.enum(["EMAIL", "WIX_HOSTED"]),
   codeVerifier: z.string().min(43).max(128),
   expectedEmail: z.string().email().optional(),
   returnTo: z.string().min(1).max(512),
@@ -181,7 +186,7 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
 
   async getGoogleAuthorizationUrl(input: { returnTo: string }): Promise<DirectAuthRedirect> {
     const visitorAccessToken = await this.createVisitorToken();
-    return this.createAuthorizationRedirect({ visitorAccessToken, flow: "GOOGLE", returnTo: input.returnTo });
+    return this.createAuthorizationRedirect({ visitorAccessToken, flow: "WIX_HOSTED", returnTo: input.returnTo });
   }
 
   async completeAuthorization(input: DirectAuthorizationCallback): Promise<CompletedDirectAuthorization> {
@@ -220,7 +225,7 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
       throw new AppError("WIX_MEMBER_IDENTITY_INVALID", "Wix did not return the expected canonical member identity.", 502);
     }
     return {
-      identity: toVerifiedIdentity(memberId, verifiedEmail, flow.flow, member),
+      identity: toVerifiedIdentity(memberId, verifiedEmail, flow.flow === "EMAIL" ? "EMAIL" : "WIX", member),
       returnTo: flow.returnTo,
     };
   }
@@ -236,8 +241,7 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
     return parsed.data.access_token;
   }
 
-  private async createAuthorizationRedirect(input: { visitorAccessToken: string; sessionToken?: string; flow: IdentityProvider; expectedEmail?: string; returnTo: string }) {
-    if (input.flow !== "EMAIL" && input.flow !== "GOOGLE") throw providerMalformed("authorization flow");
+  private async createAuthorizationRedirect(input: { visitorAccessToken: string; sessionToken?: string; flow: AuthorizationFlow; expectedEmail?: string; returnTo: string }) {
     const codeVerifier = randomBytes(48).toString("base64url");
     const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
     const state = this.seal({
@@ -254,13 +258,12 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
       clientId: this.config.clientId,
       codeChallenge,
       codeChallengeMethod: "S256",
-      responseMode: "query",
+      responseMode: input.flow === "WIX_HOSTED" ? "fragment" : "query",
       responseType: "code",
       scope: "offline_access",
       state,
     };
     if (input.sessionToken) authRequest.sessionToken = input.sessionToken;
-    if (input.flow === "GOOGLE") authRequest.idp = GOOGLE_CONNECTION_ID;
     const response = await this.requestJson("/_api/redirects-api/v1/redirect-session", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: input.visitorAccessToken },
@@ -271,9 +274,13 @@ export class WixDirectAuthProvider implements DirectAuthProvider {
     return { authorizationUrl: parsed.data.redirectSession.fullUrl };
   }
 
-  private callbackUrlForFlow(flow: IdentityProvider) {
+  private callbackUrlForFlow(flow: AuthorizationFlow) {
     // The exchange uses the authenticated flow from sealed state, never browser input.
-    return flow === "EMAIL" ? this.config.emailCallbackUrl ?? this.config.callbackUrl : this.config.callbackUrl;
+    if (flow === "EMAIL") return this.config.emailCallbackUrl ?? this.config.callbackUrl;
+    // URL fragments never reach a server callback, so hosted login must use the
+    // existing browser callback page that parses the fragment and POSTs it onward.
+    if (!this.config.emailCallbackUrl) throw new AppError("DIRECT_AUTH_PROVIDER_NOT_CONFIGURED", "Direct Player Hub authentication is not configured.", 503);
+    return this.config.emailCallbackUrl;
   }
 
   private createEmailVerificationChallenge(
@@ -503,7 +510,7 @@ function wixAuthFailure(value: unknown, operation: string, status: number) {
 function toVerifiedIdentity(
   memberId: string,
   verifiedEmail: string,
-  provider: "EMAIL" | "GOOGLE",
+  provider: "EMAIL" | "WIX",
   member: z.infer<typeof memberResponseSchema>["member"],
 ): VerifiedExternalIdentity {
   const photo = member.profile?.photo?.url ?? member.profile?.picture;

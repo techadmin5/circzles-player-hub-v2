@@ -560,7 +560,7 @@ function safeReturnTo(value: string | undefined) {
 }
 
 function requireCanonicalDirectIdentity(identity: VerifiedExternalIdentity, provider: IdentityProvider) {
-  if (identity.sourceSite !== "CIRCZLES_COM" || !["EMAIL", "GOOGLE"].includes(provider) || identity.provider !== provider || identity.emailVerified !== true) {
+  if (identity.sourceSite !== "CIRCZLES_COM" || !["EMAIL", "GOOGLE", "WIX"].includes(provider) || identity.provider !== provider || identity.emailVerified !== true) {
     throw new AppError("DIRECT_AUTH_IDENTITY_INVALID", "The identity provider returned an invalid verified identity.", 502);
   }
   return identity;

@@ -26,10 +26,10 @@ export function WixAuthorizationCallback() {
       .then(({ returnTo }) => window.location.replace(returnTo))
       .catch((caught) => {
         if (caught instanceof ApiClientError && caught.code === "WIX_AUTHORIZATION_DECLINED") {
-          setError("Google authentication was cancelled. Please try again when you are ready.");
+          setError("Authentication was cancelled. Please try again when you are ready.");
           return;
         }
-        setError("Google authentication could not be completed. Please try again.");
+        setError("Authentication could not be completed. Please try again.");
       });
   }, []);
 

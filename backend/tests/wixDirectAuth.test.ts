@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { AppError } from "../src/domain/errors.js";
 import { WixDirectAuthProvider } from "../src/integrations/wix/wixDirectAuth.js";
@@ -76,11 +77,19 @@ describe("WixDirectAuthProvider", () => {
     expect(bodyAt(wix.calls, 1)).toEqual({ login_id: { email: "player@example.com" }, password: "safe-password" });
   });
 
-  it("rejects a Google-authenticated Wix member whose login email is explicitly unverified", async () => {
+  it("rejects a hosted-login Wix member whose login email is explicitly unverified", async () => {
     const { provider, state, wix } = await startGoogleFlow();
     wix.responses.push(ok({ access_token: "member-token" }), ok({ member: { ...verifiedMember.member, loginEmailVerified: false } }));
     await expect(provider.completeAuthorization({ code: "code", state })).rejects.toMatchObject({ code: "WIX_MEMBER_IDENTITY_INVALID", statusCode: 502 });
     expect(wix.calls[3].url).toBe("https://wix.example.test/members/v1/members/my?fieldsets=FULL");
+  });
+
+  it("rejects a hosted-login Wix member with no loginEmailVerified flag", async () => {
+    const { provider, state, wix } = await startGoogleFlow();
+    const unflagged = { ...verifiedMember.member };
+    delete (unflagged as Partial<typeof verifiedMember.member>).loginEmailVerified;
+    wix.responses.push(ok({ access_token: "member-token" }), ok({ member: unflagged }));
+    await expect(provider.completeAuthorization({ code: "code", state })).rejects.toMatchObject({ code: "WIX_MEMBER_IDENTITY_INVALID", statusCode: 502 });
   });
 
   it("maps an incorrect password safely without returning provider data", async () => {
@@ -405,34 +414,66 @@ describe("WixDirectAuthProvider", () => {
     await expect(retryProvider.verifyEmailSignup({ challengeId: retryChallenge.challengeId, code: "000000", returnTo: "/hub" })).rejects.toMatchObject({ code: "WIX_SIGNUP_VERIFICATION_INVALID", statusCode: 400 });
   });
 
-  it("requests the full Wix member projection and returns a verified Google identity", async () => {
+  it("starts hosted Wix login with no idp in fragment mode and returns a verified WIX identity", async () => {
     const { provider, state, wix } = await startGoogleFlow();
-    expect(bodyAt(wix.calls, 1).auth.authRequest).toMatchObject({ idp: "0e6a50f5-b523-4e29-990d-f37fa2ffdd69", responseMode: "query", codeChallengeMethod: "S256", responseType: "code" });
-    expect(bodyAt(wix.calls, 1).auth.authRequest.redirectUri).toBe(config.callbackUrl);
+    expect(bodyAt(wix.calls, 1).auth.authRequest).toMatchObject({ responseMode: "fragment", codeChallengeMethod: "S256", responseType: "code" });
+    expect(bodyAt(wix.calls, 1).auth.authRequest).not.toHaveProperty("idp");
+    expect(bodyAt(wix.calls, 1).auth.authRequest.redirectUri).toBe(config.emailCallbackUrl);
     expect(bodyAt(wix.calls, 1).auth.authRequest.sessionToken).toBeUndefined();
     expect(bodyAt(wix.calls, 1).auth.sessionToken).toBeUndefined();
     await expect(provider.completeAuthorization({ code: "code", state: `${state}tampered` })).rejects.toMatchObject({ code: "WIX_AUTH_STATE_INVALID", statusCode: 400 });
-    wix.responses.push(ok({ access_token: "google-member-token" }), ok(verifiedMember));
+    wix.responses.push(ok({ access_token: "hosted-member-token" }), ok(verifiedMember));
     const completed = await provider.completeAuthorization({ code: "code", state });
     expect(wix.calls[3].url).toBe("https://wix.example.test/members/v1/members/my?fieldsets=FULL");
-    expect(completed.identity).toMatchObject({ sourceSite: "CIRCZLES_COM", provider: "GOOGLE", externalIdentityId: "wix-member-1", emailVerified: true });
+    expect(completed.identity).toMatchObject({ sourceSite: "CIRCZLES_COM", provider: "WIX", externalIdentityId: "wix-member-1", emailVerified: true });
+    expect(completed.identity.provider).not.toBe("GOOGLE");
   });
 
-  it("uses the exact production Google GET callback for query authorization and exchange", async () => {
+  it("uses the production frontend callback in fragment mode for hosted login and code exchange", async () => {
     const wix = mockWix(
       ok({ access_token: "visitor-token" }),
-      ok({ redirectSession: { fullUrl: "https://wix.example.test/google" } }),
-      ok({ access_token: "google-member-token", refresh_token: "private-refresh" }),
+      ok({ redirectSession: { fullUrl: "https://wix.example.test/hosted-login" } }),
+      ok({ access_token: "member-token", refresh_token: "private-refresh" }),
       ok(verifiedMember),
     );
     const provider = new WixDirectAuthProvider({ ...config, callbackUrl: productionCallbackUrl, emailCallbackUrl: productionEmailCallbackUrl }, wix.fetch);
     await provider.getGoogleAuthorizationUrl({ returnTo: "/hub" });
     const auth = bodyAt(wix.calls, 1).auth.authRequest;
-    expect(auth).toMatchObject({ redirectUri: productionCallbackUrl, responseMode: "query", responseType: "code", codeChallengeMethod: "S256" });
-    const completed = await provider.completeAuthorization({ code: "google-code", state: auth.state as string });
-    expect(bodyAt(wix.calls, 2)).toMatchObject({ redirectUri: productionCallbackUrl, code: "google-code", codeVerifier: expect.any(String) });
-    expect(completed).toMatchObject({ returnTo: "/hub", identity: { provider: "GOOGLE", emailVerified: true } });
-    expect(JSON.stringify(completed)).not.toMatch(/google-member-token|private-refresh/);
+    expect(auth).toMatchObject({ redirectUri: productionEmailCallbackUrl, responseMode: "fragment", responseType: "code", codeChallengeMethod: "S256" });
+    expect(auth).not.toHaveProperty("idp");
+    const completed = await provider.completeAuthorization({ code: "hosted-code", state: auth.state as string });
+    expect(bodyAt(wix.calls, 2)).toMatchObject({ redirectUri: productionEmailCallbackUrl, code: "hosted-code", codeVerifier: expect.any(String) });
+    expect(completed).toMatchObject({ returnTo: "/hub", identity: { provider: "WIX", emailVerified: true } });
+    expect(JSON.stringify(completed)).not.toMatch(/member-token|private-refresh/);
+  });
+
+  it("keeps PKCE S256, the visitor token and exact request shape for hosted login", async () => {
+    const wix = mockWix(
+      ok({ access_token: "visitor-token" }),
+      ok({ redirectSession: { fullUrl: "https://wix.example.test/hosted-login" } }),
+      ok({ access_token: "member-token", refresh_token: "private-refresh" }),
+      ok(verifiedMember),
+    );
+    const provider = new WixDirectAuthProvider(config, wix.fetch);
+    await expect(provider.getGoogleAuthorizationUrl({ returnTo: "/missions" })).resolves.toEqual({ authorizationUrl: "https://wix.example.test/hosted-login" });
+    expect(bodyAt(wix.calls, 0)).toEqual({ clientId: config.clientId, grantType: "anonymous" });
+    expect(wix.calls[1].init?.headers).toEqual({ "Content-Type": "application/json", Authorization: "visitor-token" });
+    const authRequest = bodyAt(wix.calls, 1).auth.authRequest;
+    expect(Object.keys(authRequest).sort()).toEqual(["clientId", "codeChallenge", "codeChallengeMethod", "redirectUri", "responseMode", "responseType", "scope", "state"]);
+    const completed = await provider.completeAuthorization({ code: "hosted-code", state: authRequest.state as string });
+    const exchange = bodyAt(wix.calls, 2);
+    expect(createHash("sha256").update(String(exchange.codeVerifier)).digest("base64url")).toBe(authRequest.codeChallenge);
+    expect(wix.calls[3].url).toBe("https://wix.example.test/members/v1/members/my?fieldsets=FULL");
+    expect(wix.calls[3].init?.headers).toEqual({ Authorization: "member-token" });
+    expect(completed).toMatchObject({ returnTo: "/missions", identity: { provider: "WIX", verifiedEmail: "player@example.com" } });
+    expect(JSON.stringify(completed)).not.toMatch(/member-token|private-refresh/);
+  });
+
+  it("fails closed for hosted login when the frontend callback URL is not configured", async () => {
+    const wix = mockWix(ok({ access_token: "visitor-token" }));
+    const provider = new WixDirectAuthProvider({ ...config, emailCallbackUrl: undefined }, wix.fetch);
+    await expect(provider.getGoogleAuthorizationUrl({ returnTo: "/hub" })).rejects.toMatchObject({ code: "DIRECT_AUTH_PROVIDER_NOT_CONFIGURED", statusCode: 503 });
+    expect(wix.calls.some((call) => call.url.includes("redirect-session"))).toBe(false);
   });
 
   it("validates Wix error callback state without exchanging a code or loading a member", async () => {
@@ -479,6 +520,8 @@ describe("WixDirectAuthProvider", () => {
     const provider = new WixDirectAuthProvider({ ...config, callbackUrl: productionCallbackUrl, emailCallbackUrl: productionEmailCallbackUrl }, wix.fetch);
     await provider.loginWithEmail({ email: "player@example.com", password: "safe-password", returnTo: "/hub" });
     expect(bodyAt(wix.calls, 2).auth.authRequest.redirectUri).toBe(productionEmailCallbackUrl);
+    expect(bodyAt(wix.calls, 2).auth.authRequest).toMatchObject({ responseMode: "query" });
+    expect(bodyAt(wix.calls, 2).auth.authRequest).not.toHaveProperty("idp");
 
     const state = bodyAt(wix.calls, 2).auth.authRequest.state as string;
     await provider.completeAuthorization({ code: "code", state });
