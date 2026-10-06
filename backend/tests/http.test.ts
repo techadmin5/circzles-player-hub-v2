@@ -1250,24 +1250,66 @@ describe("native auth HTTP integration", () => {
     expect((await app.inject({ method: "POST", url: "/api/auth/handoff/exchange", payload: { token: "wix-token" } })).statusCode).toBe(410);
     await app.close();
   });
-  it("Google start binds an HttpOnly cookie; callback accepts normal Google query fields and rotates the session", async () => {
+  it.each([undefined, "https://accounts.google.com"])("Google callback accepts issuer %s, reaches the provider and rotates the session", async (issuer) => {
     const { app, googleAuth, account } = await setup({ COOKIE_SECURE: true });
     vi.spyOn(googleAuth, "start").mockResolvedValue({ authorizationUrl: "https://accounts.google.com/authorize", binding: authToken() });
-    vi.spyOn(googleAuth, "complete").mockResolvedValue({ account, returnTo: "/hub" });
+    const complete = vi.spyOn(googleAuth, "complete").mockResolvedValue({ account, returnTo: "/hub" });
     const start = await app.inject({ method: "GET", url: "/api/auth/google/start?returnTo=%2Fhub" });
     expect(start.json().authorizationUrl).toContain("accounts.google.com");
     expect(String(start.headers["set-cookie"])).toContain("cz_google_state="); expect(String(start.headers["set-cookie"])).toContain("HttpOnly");
-    const callback = await app.inject({ method: "GET", url: `/api/auth/google/callback?state=${authToken()}&code=code&scope=openid&authuser=0&prompt=select_account`, headers: { cookie: String(start.headers["set-cookie"]).split(";")[0] } });
+    const state = authToken();
+    const issuerQuery = issuer ? `&iss=${encodeURIComponent(issuer)}` : "";
+    const callback = await app.inject({ method: "GET", url: `/api/auth/google/callback?state=${state}&code=code&scope=openid&authuser=0&prompt=select_account${issuerQuery}`, headers: { cookie: String(start.headers["set-cookie"]).split(";")[0] } });
     expect(callback.statusCode).toBe(302); expect(callback.headers.location).toBe("http://localhost:3000/hub");
+    expect(complete).toHaveBeenCalledExactlyOnceWith({ state, code: "code", scope: "openid", authuser: "0", prompt: "select_account", ...(issuer ? { iss: issuer } : {}) }, expect.any(String));
     expect(String(callback.headers["set-cookie"])).toContain("cz_session=");
     expect(String(callback.headers["set-cookie"])).toContain("cz_google_state=;");
     await app.close();
   });
-  it("Google callback failures return to login without exposing provider details", async () => {
+  it.each([
+    ["unexpected parameter", "unexpected=value"],
+    ["implicit-flow token", "id_token=browser-token"],
+    ["malformed issuer", "iss=not-a-url"],
+    ["unexpected issuer", "iss=https%3A%2F%2Fevil.example"],
+    ["issuer lookalike", "iss=https%3A%2F%2Faccounts.google.com.evil.example"],
+    ["issuer trailing slash", "iss=https%3A%2F%2Faccounts.google.com%2F"],
+    ["empty issuer", "iss="],
+    ["duplicate issuer", "iss=https%3A%2F%2Faccounts.google.com&iss=https%3A%2F%2Faccounts.google.com"],
+    ["empty state", "state="],
+    ["malformed state", "state=invalid"],
+    ["duplicate state", `state=${authToken()}&state=${authToken()}`],
+    ["empty code", "code="],
+    ["oversized code", `code=${"x".repeat(4097)}`],
+    ["duplicate code", "code=one&code=two"],
+  ])("rejects Google callback with %s before calling the provider", async (_name, invalidQuery) => {
     const { app, googleAuth } = await setup();
-    vi.spyOn(googleAuth, "complete").mockRejectedValue(new AppError("GOOGLE_AUTH_FAILED", "provider-sensitive-error", 502));
-    const response = await app.inject({ method: "GET", url: `/api/auth/google/callback?state=${authToken()}&error=access_denied`, headers: { cookie: `cz_google_state=${authToken()}` } });
+    const complete = vi.spyOn(googleAuth, "complete");
+    const query = new URLSearchParams({ state: authToken(), code: "code" });
+    if (invalidQuery.startsWith("state=")) query.delete("state");
+    if (invalidQuery.startsWith("code=")) query.delete("code");
+    const response = await app.inject({ method: "GET", url: `/api/auth/google/callback?${query}&${invalidQuery}` });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ code: "VALIDATION_FAILED", message: "Invalid authentication request." });
+    expect(complete).not.toHaveBeenCalled();
+    await app.close();
+  });
+  it("requires the existing Google callback state parameter even with a valid issuer", async () => {
+    const { app, googleAuth } = await setup();
+    const complete = vi.spyOn(googleAuth, "complete");
+    const response = await app.inject({ method: "GET", url: "/api/auth/google/callback?code=code&iss=https%3A%2F%2Faccounts.google.com" });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().code).toBe("VALIDATION_FAILED");
+    expect(complete).not.toHaveBeenCalled();
+    await app.close();
+  });
+  it.each([undefined, "https://accounts.google.com"])("Google callback failures with issuer %s reach the provider without exposing details", async (issuer) => {
+    const { app, googleAuth } = await setup();
+    const complete = vi.spyOn(googleAuth, "complete").mockRejectedValue(new AppError("GOOGLE_AUTH_FAILED", "provider-sensitive-error", 502));
+    const state = authToken();
+    const issuerQuery = issuer ? `&iss=${encodeURIComponent(issuer)}` : "";
+    const response = await app.inject({ method: "GET", url: `/api/auth/google/callback?state=${state}&error=access_denied${issuerQuery}`, headers: { cookie: `cz_google_state=${authToken()}` } });
     expect(response.statusCode).toBe(302); expect(response.headers.location).toBe("http://localhost:3000/login?authError=google");
+    expect(complete).toHaveBeenCalledExactlyOnceWith({ state, error: "access_denied", ...(issuer ? { iss: issuer } : {}) }, expect.any(String));
     expect(response.body).not.toContain("provider-sensitive-error");
     expect(String(response.headers["set-cookie"])).toContain("cz_google_state=;");
     await app.close();

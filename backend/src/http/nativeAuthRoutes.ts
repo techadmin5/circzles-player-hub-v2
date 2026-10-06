@@ -79,7 +79,8 @@ export function registerNativeAuthRoutes(app: FastifyInstance, deps: { env: Env;
     return { authorizationUrl: result.authorizationUrl };
   });
   app.get("/api/auth/google/callback", async (request, reply) => {
-    const query = parse(z.object({ state: token, code: z.string().min(1).max(4096).optional(), error: z.string().max(256).optional(), error_description: z.string().max(1024).optional(), scope: z.string().max(2048).optional(), authuser: z.string().max(10).optional(), prompt: z.string().max(100).optional() }).strict(), request.query);
+    // RFC 9207 callback metadata only; GoogleAuthService independently verifies the ID-token issuer.
+    const query = parse(z.object({ state: token, iss: z.literal("https://accounts.google.com").optional(), code: z.string().min(1).max(4096).optional(), error: z.string().max(256).optional(), error_description: z.string().max(1024).optional(), scope: z.string().max(2048).optional(), authuser: z.string().max(10).optional(), prompt: z.string().max(100).optional() }).strict(), request.query);
     const binding = request.cookies[googleCookie];
     reply.clearCookie(googleCookie, cookieOptions);
     let result;
