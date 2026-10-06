@@ -1250,25 +1250,47 @@ describe("native auth HTTP integration", () => {
     expect((await app.inject({ method: "POST", url: "/api/auth/handoff/exchange", payload: { token: "wix-token" } })).statusCode).toBe(410);
     await app.close();
   });
-  it.each([undefined, "https://accounts.google.com"])("Google callback accepts issuer %s, reaches the provider and rotates the session", async (issuer) => {
-    const { app, googleAuth, account } = await setup({ COOKIE_SECURE: true });
+  it.each([
+    "",
+    "&iss=https%3A%2F%2Faccounts.google.com",
+    "&iss=https%3A%2F%2Faccounts.google.com&scope=openid%20email%20profile&authuser=0&prompt=consent&hd=example.com",
+    "&foo=bar",
+    "&foo=one&foo=two&email=untrusted%40example.com&sub=untrusted&email_verified=true",
+  ])("Google callback ignores extra metadata %s, reaches the provider and rotates the session", async (extra) => {
+    const { app, googleAuth, account, identity } = await setup({ COOKIE_SECURE: true });
+    const oldSession = await identity.createSession(account.userId);
     vi.spyOn(googleAuth, "start").mockResolvedValue({ authorizationUrl: "https://accounts.google.com/authorize", binding: authToken() });
     const complete = vi.spyOn(googleAuth, "complete").mockResolvedValue({ account, returnTo: "/hub" });
     const start = await app.inject({ method: "GET", url: "/api/auth/google/start?returnTo=%2Fhub" });
     expect(start.json().authorizationUrl).toContain("accounts.google.com");
     expect(String(start.headers["set-cookie"])).toContain("cz_google_state="); expect(String(start.headers["set-cookie"])).toContain("HttpOnly");
     const state = authToken();
-    const issuerQuery = issuer ? `&iss=${encodeURIComponent(issuer)}` : "";
-    const callback = await app.inject({ method: "GET", url: `/api/auth/google/callback?state=${state}&code=code&scope=openid&authuser=0&prompt=select_account${issuerQuery}`, headers: { cookie: String(start.headers["set-cookie"]).split(";")[0] } });
+    const callback = await app.inject({ method: "GET", url: `/api/auth/google/callback?state=${state}&code=code${extra}`, headers: { cookie: `${String(start.headers["set-cookie"]).split(";")[0]}; cz_session=${oldSession.token}` } });
     expect(callback.statusCode).toBe(302); expect(callback.headers.location).toBe("http://localhost:3000/hub");
-    expect(complete).toHaveBeenCalledExactlyOnceWith({ state, code: "code", scope: "openid", authuser: "0", prompt: "select_account", ...(issuer ? { iss: issuer } : {}) }, expect.any(String));
+    expect(complete).toHaveBeenCalledExactlyOnceWith({ state, code: "code" }, expect.any(String));
     expect(String(callback.headers["set-cookie"])).toContain("cz_session=");
     expect(String(callback.headers["set-cookie"])).toContain("cz_google_state=;");
+    expect(String(callback.headers["set-cookie"])).toContain("HttpOnly");
+    expect(String(callback.headers["set-cookie"])).toContain("Secure");
+    expect(String(callback.headers["set-cookie"])).toContain("SameSite=Lax");
+    expect(String(callback.headers["set-cookie"])).not.toContain("Domain=");
+    expect(callback.headers["cache-control"]).toContain("no-store");
+    expect(await identity.getPlayerForToken(oldSession.token)).toBeNull();
+    await app.close();
+  });
+  it("Google callback rejects raw duplicates even if the query object hides them", async () => {
+    const { app, googleAuth } = await setup();
+    const complete = vi.spyOn(googleAuth, "complete");
+    const state = authToken();
+    app.addHook("preValidation", async (request) => { request.query = { state, code: "code" }; });
+    const response = await app.inject({ method: "GET", url: `/api/auth/google/callback?state=${state}&%73tate=${state}&code=code` });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().code).toBe("VALIDATION_FAILED");
+    expect(complete).not.toHaveBeenCalled();
+    expect(String(response.headers["set-cookie"])).toContain("cz_google_state=;");
     await app.close();
   });
   it.each([
-    ["unexpected parameter", "unexpected=value"],
-    ["implicit-flow token", "id_token=browser-token"],
     ["malformed issuer", "iss=not-a-url"],
     ["unexpected issuer", "iss=https%3A%2F%2Fevil.example"],
     ["issuer lookalike", "iss=https%3A%2F%2Faccounts.google.com.evil.example"],
@@ -1281,6 +1303,8 @@ describe("native auth HTTP integration", () => {
     ["empty code", "code="],
     ["oversized code", `code=${"x".repeat(4097)}`],
     ["duplicate code", "code=one&code=two"],
+    ["duplicate error", "error=access_denied&error=access_denied"],
+    ["ambiguous response", "error=access_denied"],
   ])("rejects Google callback with %s before calling the provider", async (_name, invalidQuery) => {
     const { app, googleAuth } = await setup();
     const complete = vi.spyOn(googleAuth, "complete");
@@ -1307,9 +1331,9 @@ describe("native auth HTTP integration", () => {
     const complete = vi.spyOn(googleAuth, "complete").mockRejectedValue(new AppError("GOOGLE_AUTH_FAILED", "provider-sensitive-error", 502));
     const state = authToken();
     const issuerQuery = issuer ? `&iss=${encodeURIComponent(issuer)}` : "";
-    const response = await app.inject({ method: "GET", url: `/api/auth/google/callback?state=${state}&error=access_denied${issuerQuery}`, headers: { cookie: `cz_google_state=${authToken()}` } });
+    const response = await app.inject({ method: "GET", url: `/api/auth/google/callback?state=${state}&error=access_denied&error_description=User%20cancelled&error_uri=https%3A%2F%2Faccounts.google.com%2Ferrors&hd=example.com${issuerQuery}`, headers: { cookie: `cz_google_state=${authToken()}` } });
     expect(response.statusCode).toBe(302); expect(response.headers.location).toBe("http://localhost:3000/login?authError=google");
-    expect(complete).toHaveBeenCalledExactlyOnceWith({ state, error: "access_denied", ...(issuer ? { iss: issuer } : {}) }, expect.any(String));
+    expect(complete).toHaveBeenCalledExactlyOnceWith({ state, error: "access_denied", error_description: "User cancelled", error_uri: "https://accounts.google.com/errors" }, expect.any(String));
     expect(response.body).not.toContain("provider-sensitive-error");
     expect(String(response.headers["set-cookie"])).toContain("cz_google_state=;");
     await app.close();

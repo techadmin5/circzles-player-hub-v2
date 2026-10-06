@@ -9,6 +9,7 @@ import type { GoogleAuthService } from "../domain/googleAuth.js";
 import { AppError, unauthorized, validationFailed } from "../domain/errors.js";
 import { SESSION_COOKIE_NAME } from "../domain/sessions.js";
 import { safeReturnTo } from "../domain/authSecurity.js";
+import { parseGoogleOAuthCallback } from "./googleOAuthCallback.js";
 
 const password = z.string().min(12).max(256);
 const email = z.string().trim().email().max(320);
@@ -79,10 +80,9 @@ export function registerNativeAuthRoutes(app: FastifyInstance, deps: { env: Env;
     return { authorizationUrl: result.authorizationUrl };
   });
   app.get("/api/auth/google/callback", async (request, reply) => {
-    // RFC 9207 callback metadata only; GoogleAuthService independently verifies the ID-token issuer.
-    const query = parse(z.object({ state: token, iss: z.literal("https://accounts.google.com").optional(), code: z.string().min(1).max(4096).optional(), error: z.string().max(256).optional(), error_description: z.string().max(1024).optional(), scope: z.string().max(2048).optional(), authuser: z.string().max(10).optional(), prompt: z.string().max(100).optional() }).strict(), request.query);
     const binding = request.cookies[googleCookie];
     reply.clearCookie(googleCookie, cookieOptions);
+    const query = parseGoogleOAuthCallback(request.raw.url ?? request.url);
     let result;
     try { result = await googleAuth.complete(query, binding); }
     catch (error) {
