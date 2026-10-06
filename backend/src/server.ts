@@ -27,8 +27,10 @@ import { WixCouponAppliedWebhook } from "./integrations/wix/wixWebhook.js";
 import { ShopifyOrdersPaidWebhook } from "./integrations/shopify/shopifyWebhook.js";
 import { ProviderCouponRedemptionWebhookHandler } from "./integrations/couponRedemptionWebhooks.js";
 import { AuthHandoffVerifier } from "./domain/authHandoff.js";
-import { UnconfiguredDirectAuthProvider } from "./domain/directAuth.js";
-import { WixDirectAuthProvider } from "./integrations/wix/wixDirectAuth.js";
+import { NativeAuthService } from "./domain/nativeAuth.js";
+import { DrizzleNativeAuthRepository } from "./domain/nativeAuthRepository.js";
+import { GoogleAuthService } from "./domain/googleAuth.js";
+import { DevelopmentAuthMailer, ResendAuthMailer } from "./domain/authEmail.js";
 
 const env = loadEnv();
 const { pool, db } = createDb(env.DATABASE_URL, (error) => {
@@ -39,15 +41,13 @@ const authHandoff = new AuthHandoffVerifier({
   circzlesCom: env.AUTH_HANDOFF_CIRCZLES_COM_SECRET,
   circzlesIn: env.AUTH_HANDOFF_CIRCZLES_IN_SECRET,
 });
-const directAuth = env.WIX_CLIENT_ID && env.WIX_DIRECT_AUTH_CALLBACK_URL
-  ? new WixDirectAuthProvider({
-    clientId: env.WIX_CLIENT_ID,
-    callbackUrl: env.WIX_DIRECT_AUTH_CALLBACK_URL,
-    emailCallbackUrl: new URL("/auth/callback", env.FRONTEND_ORIGIN).toString(),
-    stateSecret: env.SESSION_SECRET,
-    onDiagnostic: (diagnostic) => console.warn("Wix email authentication outcome", diagnostic),
-  })
-  : new UnconfiguredDirectAuthProvider();
+const nativeRepo = new DrizzleNativeAuthRepository(db);
+const mailer = env.AUTH_EMAIL_PROVIDER === "resend" && env.RESEND_API_KEY && env.AUTH_EMAIL_FROM
+  ? new ResendAuthMailer(env.RESEND_API_KEY, env.AUTH_EMAIL_FROM, env.FRONTEND_ORIGIN)
+  : new DevelopmentAuthMailer();
+const nativeAuth = new NativeAuthService(nativeRepo, mailer);
+const googleAuth = new GoogleAuthService(nativeRepo, env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.GOOGLE_AUTH_CALLBACK_URL
+  ? { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET, callbackUrl: env.GOOGLE_AUTH_CALLBACK_URL } : null);
 const gameState = new GameStateService(new DrizzleGameStateRepository(db));
 const puzzles = new PuzzleOwnershipService(new DrizzlePuzzleRepository(db));
 const videoStorage = new CloudinaryVideoStorage({ cloudName: env.CLOUDINARY_CLOUD_NAME, apiKey: env.CLOUDINARY_API_KEY, apiSecret: env.CLOUDINARY_API_SECRET });
@@ -105,7 +105,8 @@ const app = buildApp({
   rewardWheel,
   couponRedemptionWebhooks,
   authHandoff,
-  directAuth,
+  nativeAuth,
+  googleAuth,
   checkDb: async () => {
     await pool.query("select 1");
   },
@@ -113,6 +114,11 @@ const app = buildApp({
 
 const missionRunner = new MissionProcessorRunner(missionProcessor, env.MISSION_PROCESSOR_INTERVAL_MS, env.MISSION_PROCESSOR_BATCH_SIZE, (error) => app.log.error(error, "Mission processor tick failed"));
 app.addHook("onClose", async () => missionRunner.stop());
+const authCleanup = setInterval(() => {
+  nativeRepo.pruneExpired().catch(() => app.log.warn("Expired authentication record cleanup failed"));
+}, 60 * 60_000);
+authCleanup.unref();
+app.addHook("onClose", async () => { clearInterval(authCleanup); });
 
 const address = await app.listen({ port: env.PORT, host: "0.0.0.0" });
 missionRunner.start();

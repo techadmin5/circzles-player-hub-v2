@@ -1,3 +1,8 @@
+import { NativeAuthService } from "../src/domain/nativeAuth.js";
+import { GoogleAuthService } from "../src/domain/googleAuth.js";
+import type { NativeAuthRepository } from "../src/domain/nativeAuthRepository.js";
+import { DevelopmentAuthMailer } from "../src/domain/authEmail.js";
+import { authToken } from "../src/domain/authSecurity.js";
 import { describe, expect, it, vi } from "vitest";
 import { createHmac } from "crypto";
 import { buildApp } from "../src/http/app.js";
@@ -38,7 +43,7 @@ function env(overrides: Partial<Env> = {}): Env {
   };
 }
 
-async function appWithFakes(overrides: Partial<Env> = {}, directAuth?: DirectAuthProvider) {
+async function appWithFakes(overrides: Partial<Env> = {}, directAuth?: DirectAuthProvider, native?: { nativeAuth: NativeAuthService; googleAuth: GoogleAuthService }) {
   const testEnv = env(overrides);
   const gameRepo = new FakeGameStateRepository();
   const gameState = new GameStateService(gameRepo);
@@ -93,7 +98,7 @@ async function appWithFakes(overrides: Partial<Env> = {}, directAuth?: DirectAut
     getStatus: async () => ({ available: true, wheel: { code: "DEV_WHEEL", name: "Development Wheel", cycleSeconds: 86400, cycleStartedAt: null, cycleEndsAt: null, spinsUsed: 0, maxSpinsPerCycle: 4, spinsRemaining: 4, nextSpinNumber: 1, nextSpinCostSynapsePoints: 0, nextSpinIsFree: true, canAffordNextSpin: true, canSpin: true, unavailableReason: null, segments: [{ wheelSegmentIndex: 4, label: "100 SP", rewardType: "SYNAPSE_POINTS", rewardValue: 100, imageUrl: null, rarity: null, displayMetadata: { tone: "aqua" } }] } }),
     spin: async (input) => { wheelSpinCalls.push(input); return { spinId: "60000000-0000-4000-8000-000000000001", rewardId: "20000000-0000-4000-8000-000000000001", rewardDefinitionId: "20000000-0000-4000-8000-000000000001", rewardType: "SYNAPSE_POINTS", rewardLabel: "100 SP", rewardValue: 100, resultingBalance: 1050, wheelSegmentIndex: 4, spunAt: "2026-09-16T12:00:00.000Z", spinNumber: 1, chargedSynapsePoints: 0, cycleStartedAt: "2026-09-16T12:00:00.000Z", cycleEndsAt: "2026-09-17T12:00:00.000Z", idempotent: false }; },
   } satisfies RewardWheelRepository);
-  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, coupons, playerIdentityActions, rewardWheel, directAuth, checkDb: async () => {} });
+  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, coupons, playerIdentityActions, rewardWheel, directAuth, ...native, checkDb: async () => {} });
   return { app, identity, identityRepo, gameRepo, puzzleRepo, submissionRepo, videoStorage, adminAuthRepo, adminSubmissionRepo, leaderboardRepo, reviewRepo, publicProfileRepo, missionRepo, missionClaimRepo, purchaseCalls, inventoryCalls, couponCalls, renameCalls, wheelSpinCalls, testEnv };
 }
 
@@ -1190,5 +1195,89 @@ describe("public player profile HTTP API", () => {
     const missing = await app.inject({ method: "GET", url: "/api/players/CZ-AAAAAA/public-profile", headers: { cookie } });
     expect(missing.statusCode).toBe(404);
     expect(missing.json().code).toBe("PLAYER_NOT_FOUND");
+  });
+});
+
+
+describe("native auth HTTP integration", () => {
+  async function setup(overrides: Partial<Env> = {}) {
+    const repo = { rateLimit: vi.fn(async () => undefined) } as unknown as NativeAuthRepository;
+    const nativeAuth = new NativeAuthService(repo, new DevelopmentAuthMailer());
+    const googleAuth = new GoogleAuthService(repo, null);
+    const context = await appWithFakes(overrides, undefined, { nativeAuth, googleAuth });
+    const account = await context.identity.findOrCreateWixIdentity({ wixMemberId: "native-http-player", displayName: "Native Player" });
+    vi.spyOn(nativeAuth, "login").mockResolvedValue({ ...account, passwordCredentialHash: "test-hash" });
+    vi.spyOn(nativeAuth, "verify").mockResolvedValue(account);
+    vi.spyOn(nativeAuth, "signup").mockResolvedValue({ state: "EMAIL_VERIFICATION_REQUIRED", message: "Check your email" });
+    vi.spyOn(nativeAuth, "forgot").mockResolvedValue({ ok: true });
+    vi.spyOn(nativeAuth, "reset").mockResolvedValue(account);
+    return { ...context, nativeAuth, googleAuth, account, repo };
+  }
+  it("native login rotates the session and sets a host-only Secure HttpOnly SameSite=Lax 20-day cookie", async () => {
+    const { app, identity, account } = await setup({ COOKIE_SECURE: true });
+    const old = await identity.createSession(account.userId);
+    const response = await app.inject({ method: "POST", url: "/api/auth/email/login", headers: { cookie: `cz_session=${old.token}`, origin: "http://localhost:3000" }, payload: { email: "native@example.test", password: "password" } });
+    expect(response.statusCode).toBe(200);
+    const cookie = String(response.headers["set-cookie"]);
+    expect(cookie).toContain("HttpOnly"); expect(cookie).toContain("Secure"); expect(cookie).toContain("SameSite=Lax"); expect(cookie).not.toContain("Domain=");
+    const expiry = new Date(cookie.match(/Expires=([^;]+)/)![1]).getTime();
+    expect(expiry - Date.now()).toBeGreaterThan(20 * 86400_000 - 5000);
+    expect(await identity.getPlayerForToken(old.token)).toBeNull();
+    expect(response.json().publicPlayerId).toBe(account.player.publicPlayerId);
+    expect(response.headers["cache-control"]).toContain("no-store");
+    await app.close();
+  });
+  it("signup is pending; verification establishes a session; forgot is generic", async () => {
+    const { app, account } = await setup();
+    expect((await app.inject({ method: "POST", url: "/api/auth/email/signup", payload: { email: "native@example.test", password: "twelve characters", displayName: "Player" } })).statusCode).toBe(202);
+    const verified = await app.inject({ method: "POST", url: "/api/auth/email/verify", payload: { token: authToken() } });
+    expect(verified.json().publicPlayerId).toBe(account.player.publicPlayerId); expect(verified.headers["set-cookie"]).toBeDefined();
+    expect((await app.inject({ method: "POST", url: "/api/auth/password/forgot", payload: { email: "missing@example.test" } })).json()).toEqual({ ok: true });
+    await app.close();
+  });
+  it("rejects cross-origin mutations, malformed tokens and first-password requests without a session", async () => {
+    const { app, nativeAuth } = await setup();
+    const blocked = await app.inject({ method: "POST", url: "/api/auth/email/login", headers: { origin: "https://evil.test" }, payload: { email: "player@example.test", password: "password" } });
+    expect(blocked.statusCode).toBe(403); expect(nativeAuth.login).not.toHaveBeenCalled();
+    expect((await app.inject({ method: "POST", url: "/api/auth/password/request-set", payload: {} })).statusCode).toBe(401);
+    expect((await app.inject({ method: "POST", url: "/api/auth/password/set", payload: { token: authToken(), password: "twelve characters" } })).statusCode).toBe(401);
+    expect((await app.inject({ method: "POST", url: "/api/auth/email/verify", payload: { token: "invalid" } })).statusCode).toBe(400);
+    await app.close();
+  });
+  it("retires Wix login and handoff in the native runtime", async () => {
+    const { app } = await setup();
+    expect((await app.inject({ method: "POST", url: "/api/auth/direct/email/login", payload: {} })).statusCode).toBe(410);
+    expect((await app.inject({ method: "POST", url: "/api/auth/handoff/exchange", payload: { token: "wix-token" } })).statusCode).toBe(410);
+    await app.close();
+  });
+  it("Google start binds an HttpOnly cookie; callback accepts normal Google query fields and rotates the session", async () => {
+    const { app, googleAuth, account } = await setup({ COOKIE_SECURE: true });
+    vi.spyOn(googleAuth, "start").mockResolvedValue({ authorizationUrl: "https://accounts.google.com/authorize", binding: authToken() });
+    vi.spyOn(googleAuth, "complete").mockResolvedValue({ account, returnTo: "/hub" });
+    const start = await app.inject({ method: "GET", url: "/api/auth/google/start?returnTo=%2Fhub" });
+    expect(start.json().authorizationUrl).toContain("accounts.google.com");
+    expect(String(start.headers["set-cookie"])).toContain("cz_google_state="); expect(String(start.headers["set-cookie"])).toContain("HttpOnly");
+    const callback = await app.inject({ method: "GET", url: `/api/auth/google/callback?state=${authToken()}&code=code&scope=openid&authuser=0&prompt=select_account`, headers: { cookie: String(start.headers["set-cookie"]).split(";")[0] } });
+    expect(callback.statusCode).toBe(302); expect(callback.headers.location).toBe("http://localhost:3000/hub");
+    expect(String(callback.headers["set-cookie"])).toContain("cz_session=");
+    expect(String(callback.headers["set-cookie"])).toContain("cz_google_state=;");
+    await app.close();
+  });
+  it("Google callback failures return to login without exposing provider details", async () => {
+    const { app, googleAuth } = await setup();
+    vi.spyOn(googleAuth, "complete").mockRejectedValue(new AppError("GOOGLE_AUTH_FAILED", "provider-sensitive-error", 502));
+    const response = await app.inject({ method: "GET", url: `/api/auth/google/callback?state=${authToken()}&error=access_denied`, headers: { cookie: `cz_google_state=${authToken()}` } });
+    expect(response.statusCode).toBe(302); expect(response.headers.location).toBe("http://localhost:3000/login?authError=google");
+    expect(response.body).not.toContain("provider-sensitive-error");
+    expect(String(response.headers["set-cookie"])).toContain("cz_google_state=;");
+    await app.close();
+  });
+  it("requires the server proxy secret in production and trusts its client IP only with that secret", async () => {
+    const secret = "test-proxy-secret-with-at-least-32-chars";
+    const { app, repo } = await setup({ NODE_ENV: "production", COOKIE_SECURE: true, PLAYER_HUB_PROXY_SECRET: secret });
+    const payload = { email: "missing@example.test" };
+    expect((await app.inject({ method: "POST", url: "/api/auth/password/forgot", headers: { "x-player-hub-client-ip": "1.2.3.4" }, payload })).statusCode).toBe(403);
+    expect((await app.inject({ method: "POST", url: "/api/auth/password/forgot", headers: { "x-player-hub-proxy-secret": secret, "x-player-hub-client-ip": "1.2.3.4" }, payload })).statusCode).toBe(200);
+    expect(repo.rateLimit).toHaveBeenCalled(); await app.close();
   });
 });
