@@ -359,6 +359,29 @@ describe("http auth poc", () => {
     expect(response.body).not.toMatch(/access|refresh|member-token|codeVerifier/i);
   });
 
+  it("accepts a hosted-login WIX identity and rejects providers the direct callback cannot produce", async () => {
+    const base = { sourceSite: "CIRCZLES_COM" as const, externalIdentityId: "hosted-member", verifiedEmail: "player@example.com", emailVerified: true as const, displayName: "Verified Player" };
+    const providerFor = (provider: "WIX" | "FACEBOOK"): DirectAuthProvider => ({
+      loginWithEmail: async () => ({ authorizationUrl: "https://identity.example.test/email" }),
+      startEmailSignup: async () => ({ state: "EMAIL_VERIFICATION_REQUIRED", challengeId: "challenge" }),
+      verifyEmailSignup: async () => ({ authorizationUrl: "https://identity.example.test/verify" }),
+      getGoogleAuthorizationUrl: async () => ({ authorizationUrl: "https://identity.example.test/start" }),
+      completeAuthorization: async () => ({ identity: { ...base, provider }, returnTo: "/hub" }),
+    });
+
+    const accepted = await appWithFakes({}, providerFor("WIX"));
+    const ok = await accepted.app.inject({ method: "POST", url: "/api/auth/direct/google/callback", payload: { code: "code", state: "state" } });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json()).toEqual({ returnTo: "/hub" });
+    expect(ok.headers["set-cookie"]).toContain("HttpOnly");
+
+    const rejected = await appWithFakes({}, providerFor("FACEBOOK"));
+    const bad = await rejected.app.inject({ method: "POST", url: "/api/auth/direct/google/callback", payload: { code: "code", state: "state" } });
+    expect(bad.statusCode).toBe(502);
+    expect(bad.json().code).toBe("DIRECT_AUTH_IDENTITY_INVALID");
+    expect(bad.headers["set-cookie"]).toBeUndefined();
+  });
+
   it("constrains a provider return destination before returning it to the browser", async () => {
     const verified = { sourceSite: "CIRCZLES_COM" as const, provider: "GOOGLE" as const, externalIdentityId: "canonical-google-member", verifiedEmail: "player@example.com", emailVerified: true as const, displayName: "Verified Player" };
     const directAuth: DirectAuthProvider = {

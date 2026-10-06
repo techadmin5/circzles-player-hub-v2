@@ -56,12 +56,12 @@ The production `WixDirectAuthProvider` uses the canonical `circzles.com` Wix Hea
 
 - Email login through Authentication API Login V2.
 - Email signup through Register V2 follows Wix's returned state. `SUCCESS` continues directly through the PKCE authorization redirect, while `REQUIRE_EMAIL_VERIFICATION` is completed through Verify During Authentication before entering that same redirect path. `REQUIRE_OWNER_APPROVAL` remains pending and creates no Player Hub session.
-- Google login through a Wix Redirect Session using Wix's Google connection ID.
+- "Continue with Google" through Wix hosted login as a temporary fallback: a Redirect Session without `idp`, so Wix shows its own login page and the member picks an enabled method. The direct-IDP redirect currently returns `error=unknown_error` on the new site; the underlying Wix-side cause remains unproven.
 - A common OAuth 2.0 authorization-code callback with PKCE, followed by `GET /members/v1/members/my`.
 
 Login, registration, verification, redirect, token, and member calls use Wix visitor/member OAuth tokens. Passwords and OTP values are sent only to Wix and are never persisted. Wix state tokens, PKCE verifiers, expected email, flow, expiry, and local return path are carried only inside short-lived AES-GCM authenticated opaque values. Provider access/refresh tokens remain request-local and are never returned to the browser or stored by Player Hub.
 
-After Login V2, Register V2, or Verify During Authentication returns `SUCCESS`, its short-lived session token is serialized only at `auth.authRequest.sessionToken` in Create Redirect Session. Google has no direct-login session token and omits that property. Both paths retain the same PKCE callback, whose sealed state distinguishes `EMAIL` from `GOOGLE`.
+After Login V2, Register V2, or Verify During Authentication returns `SUCCESS`, its short-lived session token is serialized only at `auth.authRequest.sessionToken` in Create Redirect Session. Hosted login has no direct-login session token and omits that property. Both paths retain PKCE, sealed state and expiry; the sealed state distinguishes `EMAIL` from `WIX_HOSTED`.
 
 The callback accepts only unexpired authenticated state, exchanges the code with the configured Headless client and exact callback URI, and requires a canonical member ID, `loginEmail`, and `loginEmailVerified: true`. Email flows additionally require the returned normalized email to match the email Wix authenticated. Only then does the existing identity service create or link the Player Hub user/player and issue its own HttpOnly session.
 
@@ -91,11 +91,13 @@ Development auto-login remains limited to development, API mode, explicit opt-in
 
 Email login and signup reset only the CAPTCHA token/widget after every completed failed provider request while preserving the entered fields and provider-specific error. Browser-side validation failures do not consume or reset a token. A successful email-verification challenge advances to OTP entry without resetting the legitimate flow.
 
-The production Google callback is `https://circzles-player-hub.vercel.app/api/auth/direct/google/callback`, registered exactly in Wix Headless and configured as Render's `WIX_DIRECT_AUTH_CALLBACK_URL`. Google uses query response mode and completes through the authoritative backend GET callback via the same-origin server proxy. Email retains query response mode and the frontend `/auth/callback` page, derived from `FRONTEND_ORIGIN`; keep that URI registered too. The backend selects the matching redirect URI for code exchange from the authenticated flow in sealed state. PKCE S256, verified member lookup, and backend-only Wix access/refresh tokens remain unchanged.
+Hosted login uses `responseMode: fragment` and returns to the frontend `/auth/callback` (`https://circzles-player-hub.vercel.app/auth/callback`, derived from `FRONTEND_ORIGIN`). That page strips the fragment and posts the strict callback to `POST /api/auth/direct/google/callback`. Email keeps query mode on the same frontend callback page. The backend GET callback remains available and registered but is not used by the hosted fallback. The backend selects the matching redirect URI for code exchange from authenticated sealed state. PKCE S256, `loginEmailVerified === true`, canonical `GET /members/v1/members/my`, and backend-only Wix tokens remain unchanged.
 
 The frontend and backend accept only Wix's two documented OAuth result shapes: `code` plus `state` on success, or `error` plus `state` and an optional `error_description` on failure. Both paths require valid, authenticated, unexpired local state. Provider failures return a controlled application error before code exchange, member lookup, identity resolution, or Player Hub session creation; raw provider descriptions are not exposed. Unknown or duplicate callback parameters remain rejected.
 
-Direct Google login uses Wix's documented built-in Google connection ID `0e6a50f5-b523-4e29-990d-f37fa2ffdd69`. That identifier is provider-wide in Wix's REST contract rather than a site installation ID, so it is intentionally not environment-configurable. `WIX_CLIENT_ID` remains the Headless OAuth client ID; it must not be replaced with the custom Wix app ID or app instance ID.
+The built-in Google connection ID `0e6a50f5-b523-4e29-990d-f37fa2ffdd69` is intentionally not sent while this fallback is active. `WIX_CLIENT_ID` remains the Headless OAuth client ID; it must not be replaced with the custom Wix app ID or app instance ID.
+
+Hosted-login identities are stored as provider `WIX` because the authentication method is not authoritatively known from the token/member fields used by this adapter. The application does not infer `GOOGLE` merely because the user originally clicked the "Continue with Google" button.
 
 ## Migration Status
 
