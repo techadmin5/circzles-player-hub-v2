@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -66,6 +67,15 @@ export function createApiProxy(options: ProxyOptions = {}) {
     let phase = "request";
     try {
       const headers = endToEndHeaders(request.headers);
+      headers.delete("x-player-hub-proxy-secret");
+      headers.delete("x-player-hub-client-ip");
+      const proxySecret = process.env.PLAYER_HUB_PROXY_SECRET;
+      if (proxySecret) {
+        headers.set("x-player-hub-proxy-secret", proxySecret);
+        // Vercel overwrites X-Forwarded-For. Trust it only when running on Vercel.
+        const clientIp = process.env.VERCEL === "1" ? request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() : undefined;
+        if (clientIp && isIP(clientIp)) headers.set("x-player-hub-client-ip", clientIp);
+      }
       // Fetch supplies Host/framing. Do not trust client forwarding metadata.
       for (const name of [...headers.keys()]) {
         if (["host", "content-length", "expect", "forwarded", "accept-encoding"].includes(name)
@@ -80,7 +90,7 @@ export function createApiProxy(options: ProxyOptions = {}) {
       try {
         const path = decodeURIComponent(target.pathname).toLowerCase().replace(/\/{2,}/g, "/");
         retryAllowed = safe && (!path.startsWith("/api/auth/")
-          || ["/api/auth/session", "/api/auth/direct/google/start"].includes(path));
+          || ["/api/auth/session", "/api/auth/google/start", "/api/auth/direct/google/start"].includes(path));
       } catch { /* Malformed encoded paths are forwarded once, never replayed. */ }
       const init: RequestInit & { duplex?: "half" } = {
         method: request.method, headers, cache: "no-store", redirect: "manual", signal: controller.signal,

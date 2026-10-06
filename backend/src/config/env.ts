@@ -3,13 +3,13 @@ import { z } from "zod";
 
 const optionalTrimmedString = z.preprocess((value) => typeof value === "string" && !value.trim() ? undefined : value, z.string().trim().min(1).optional());
 const optionalUrl = z.preprocess((value) => typeof value === "string" && !value.trim() ? undefined : value, z.string().url().optional());
-const DIRECT_AUTH_CALLBACK_PATH = "/api/auth/direct/google/callback";
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(4000),
   DATABASE_URL: z.string().min(1),
   FRONTEND_ORIGIN: z.string().url().default("http://localhost:3000"),
+  PLAYER_HUB_PROXY_SECRET: z.string().min(32).optional(),
   SESSION_SECRET: z.string().min(32),
   COOKIE_SECURE: z
     .enum(["true", "false"])
@@ -23,6 +23,12 @@ const envSchema = z.object({
     .transform((value) => value === "true"),
   AUTH_HANDOFF_CIRCZLES_COM_SECRET: z.string().min(32).optional(),
   AUTH_HANDOFF_CIRCZLES_IN_SECRET: z.string().min(32).optional(),
+  GOOGLE_CLIENT_ID: optionalTrimmedString,
+  GOOGLE_CLIENT_SECRET: optionalTrimmedString,
+  GOOGLE_AUTH_CALLBACK_URL: optionalUrl,
+  AUTH_EMAIL_PROVIDER: z.enum(["development", "resend"]).optional(),
+  RESEND_API_KEY: optionalTrimmedString,
+  AUTH_EMAIL_FROM: optionalTrimmedString,
   WIX_CLIENT_ID: optionalTrimmedString,
   WIX_DIRECT_AUTH_CALLBACK_URL: optionalUrl,
   WIX_APP_ID: z.string().optional(),
@@ -47,7 +53,16 @@ const envSchema = z.object({
   if (env.SESSION_COOKIE_SAME_SITE === "none" && !env.COOKIE_SECURE) {
     context.addIssue({ code: "custom", path: ["COOKIE_SECURE"], message: "COOKIE_SECURE must be true when SESSION_COOKIE_SAME_SITE is none." });
   }
+  if (env.NODE_ENV === "production" && (env.AUTH_EMAIL_PROVIDER !== "resend" || !env.RESEND_API_KEY || !env.AUTH_EMAIL_FROM)) {
+    context.addIssue({ code: "custom", path: ["AUTH_EMAIL_PROVIDER"], message: "Production native authentication requires Resend and a configured verified sender." });
+  }
+  if (env.NODE_ENV === "production" && !env.PLAYER_HUB_PROXY_SECRET) context.addIssue({ code: "custom", path: ["PLAYER_HUB_PROXY_SECRET"], message: "Production authentication requires a shared Vercel/Render proxy secret." });
+  const googleValues = [env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET, env.GOOGLE_AUTH_CALLBACK_URL];
+  if (googleValues.some(Boolean) && !googleValues.every(Boolean)) context.addIssue({ code: "custom", path: ["GOOGLE_CLIENT_ID"], message: "Configure all Google authentication variables together." });
   const frontendUrl = new URL(env.FRONTEND_ORIGIN);
+  if (env.GOOGLE_AUTH_CALLBACK_URL && env.GOOGLE_AUTH_CALLBACK_URL !== new URL("/api/auth/google/callback", frontendUrl.origin).toString()) {
+    context.addIssue({ code: "custom", path: ["GOOGLE_AUTH_CALLBACK_URL"], message: "Google callback must be the exact frontend /api/auth/google/callback URL." });
+  }
   const hostedFrontend = frontendUrl.protocol === "https:"
     && frontendUrl.hostname !== "localhost"
     && frontendUrl.hostname !== "127.0.0.1"
@@ -56,10 +71,7 @@ const envSchema = z.object({
     if (!env.COOKIE_SECURE) context.addIssue({ code: "custom", path: ["COOKIE_SECURE"], message: "Production session cookies must be Secure." });
     if (env.SESSION_COOKIE_SAME_SITE !== "lax") context.addIssue({ code: "custom", path: ["SESSION_COOKIE_SAME_SITE"], message: "Production Player Hub session cookies must use SameSite=Lax." });
     if (env.SESSION_COOKIE_DOMAIN) context.addIssue({ code: "custom", path: ["SESSION_COOKIE_DOMAIN"], message: "Production Player Hub session cookies must remain host-only." });
-    const expectedCallbackUrl = new URL(DIRECT_AUTH_CALLBACK_PATH, frontendUrl.origin).toString();
-    if (env.WIX_DIRECT_AUTH_CALLBACK_URL && env.WIX_DIRECT_AUTH_CALLBACK_URL !== expectedCallbackUrl) {
-      context.addIssue({ code: "custom", path: ["WIX_DIRECT_AUTH_CALLBACK_URL"], message: "Production Wix callback must use the exact Player Hub frontend callback URL." });
-    }
+
   }
 });
 

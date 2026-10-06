@@ -1,3 +1,5 @@
+> Authentication update: [Native Player Hub authentication](NATIVE_PLAYER_HUB_AUTH.md) is the authoritative auth architecture and route contract. Wix auth references below describe the retired implementation. Business/gameplay contracts remain applicable.
+
 # API Contracts Blueprint
 
 ## General Rules

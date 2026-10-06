@@ -1,5 +1,5 @@
 import type { Database } from "../db/client.js";
-import { authHandoffExchanges, authSessions, players, users, wixIdentityLinks } from "../db/schema.js";
+import { authHandoffExchanges, authSessions, players, users, wixIdentityLinks, passwordCredentials } from "../db/schema.js";
 import { and, eq, gt, isNull } from "drizzle-orm";
 import { AppError } from "./errors.js";
 import { generatePublicPlayerId } from "./playerId.js";
@@ -54,12 +54,12 @@ export interface VerifiedExternalIdentity {
   handoff?: { tokenIdHash: string; expiresAt: Date };
 }
 
-export interface IdentityAccount { userId: string; player: PlayerDto }
+export interface IdentityAccount { userId: string; player: PlayerDto; passwordCredentialHash?: string }
 export interface SessionRecord extends IdentityAccount { expiresAt: Date; lastSeenAt: Date }
 
 export interface IdentityRepository {
   resolveVerifiedIdentity(input: VerifiedExternalIdentity, now: Date): Promise<IdentityAccount>;
-  createSession(userId: string, tokenHash: string, expiresAt: Date, now: Date): Promise<void>;
+  createSession(userId: string, tokenHash: string, expiresAt: Date, now: Date, expectedPasswordHash?: string): Promise<void>;
   findSession(tokenHash: string, now: Date): Promise<SessionRecord | null>;
   refreshSession(tokenHash: string, now: Date, expiresAt: Date): Promise<boolean>;
   revokeSession(tokenHash: string, now: Date): Promise<boolean>;
@@ -69,7 +69,7 @@ function normalizeVerifiedEmail(value: string) {
   return value.trim().toLowerCase();
 }
 
-function toPlayerDto(row: typeof players.$inferSelect, avatarUrl?: string | null): PlayerDto {
+export function toPlayerDto(row: typeof players.$inferSelect, avatarUrl?: string | null): PlayerDto {
   return {
     internalId: row.playerId,
     publicPlayerId: row.publicPlayerId,
@@ -182,8 +182,17 @@ export class DrizzleIdentityRepository implements IdentityRepository {
     });
   }
 
-  async createSession(userId: string, tokenHash: string, expiresAt: Date, now: Date) {
-    await this.db.insert(authSessions).values({ userId, tokenHash, expiresAt, lastSeenAt: now, updatedAt: now });
+  async createSession(userId: string, tokenHash: string, expiresAt: Date, now: Date, expectedPasswordHash?: string) {
+    await this.db.transaction(async (tx) => {
+      // Serialize session issuance with password reset so a stale password check cannot create a new session after reset.
+      const [user] = await tx.select().from(users).where(eq(users.userId, userId)).for("update");
+      if (!user || user.status !== "ACTIVE") throw new AppError("ACCOUNT_UNAVAILABLE", "This account is not available.", 403);
+      if (expectedPasswordHash) {
+        const [credential] = await tx.select().from(passwordCredentials).where(eq(passwordCredentials.userId, userId));
+        if (credential?.passwordHash !== expectedPasswordHash) throw new AppError("AUTH_LOGIN_FAILED", "Email or password is incorrect, or email verification is incomplete.", 401);
+      }
+      await tx.insert(authSessions).values({ userId, tokenHash, expiresAt, lastSeenAt: now, updatedAt: now });
+    });
   }
 
   async findSession(tokenHash: string, now: Date) {
@@ -218,7 +227,7 @@ export class DrizzleIdentityRepository implements IdentityRepository {
 
 type IdentityTransaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
-async function createPlayer(tx: IdentityTransaction, userId: string, displayName?: string, requestedPublicPlayerId?: string) {
+export async function createPlayer(tx: IdentityTransaction, userId: string, displayName?: string, requestedPublicPlayerId?: string) {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const [player] = await tx.insert(players).values({
       userId,
@@ -247,7 +256,7 @@ function identityLinkUpdates(input: VerifiedExternalIdentity, verifiedEmail: str
   };
 }
 
-const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
+const SESSION_DURATION_MS = 20 * 24 * 60 * 60 * 1000;
 const SESSION_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 export class IdentityService {
@@ -272,12 +281,17 @@ export class IdentityService {
     });
   }
 
-  async createSession(userId: string, now = new Date()) {
+  async createSession(userId: string, now = new Date(), expectedPasswordHash?: string) {
     const token = createSessionToken();
     const tokenHash = hashSessionToken(token, this.sessionSecret);
     const expiresAt = new Date(now.getTime() + SESSION_DURATION_MS);
-    await this.repo.createSession(userId, tokenHash, expiresAt, now);
+    await this.repo.createSession(userId, tokenHash, expiresAt, now, expectedPasswordHash);
     return { token, expiresAt };
+  }
+
+  async getSessionForToken(token: string | undefined, now = new Date()) {
+    if (!token) return null;
+    return this.repo.findSession(hashSessionToken(token, this.sessionSecret), now);
   }
 
   async getPlayerForToken(token: string | undefined, now = new Date()) {

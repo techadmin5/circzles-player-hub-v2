@@ -84,7 +84,7 @@ describe("identity foundation", () => {
     const session = await service.createSession(account.userId, new Date("2026-09-01T00:00:00Z"));
     const refreshed = await service.refreshSession(session.token, new Date("2026-09-03T00:00:00Z"));
     expect(refreshed?.renewed).toBe(true);
-    expect(refreshed?.expiresAt.toISOString()).toBe("2026-10-03T00:00:00.000Z");
+    expect(refreshed?.expiresAt.toISOString()).toBe("2026-09-23T00:00:00.000Z");
     expect(await service.logout(session.token, new Date("2026-09-03T00:01:00Z"))).toBe(true);
     expect(await service.getPlayerForToken(session.token, new Date("2026-09-03T00:02:00Z"))).toBeNull();
   });

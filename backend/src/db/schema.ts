@@ -29,6 +29,7 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
   verifiedEmailUnique: uniqueIndex("users_verified_email_unique").on(table.verifiedEmail),
+  normalizedEmailUnique: uniqueIndex("users_normalized_email_unique").on(sql`lower(btrim(${table.verifiedEmail}))`),
 }));
 
 export const players = pgTable("players", {
@@ -805,3 +806,45 @@ export const rewardWheelSpins = pgTable("reward_wheel_spins", {
   balanceCheck: check("reward_wheel_spins_resulting_balance_check", sql`${table.resultingSynapsePointBalance} >= 0`),
   costLedgerLinkCheck: check("reward_wheel_spins_cost_ledger_link_check", sql`(${table.spinCostSynapsePointsSnapshot} = 0 and ${table.costPointTransactionId} is null) or (${table.spinCostSynapsePointsSnapshot} > 0 and ${table.costPointTransactionId} is not null)`),
 }));
+
+// Native credentials attach to existing users; pending signup never allocates a player.
+export const authIdentities = pgTable("auth_identities", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => users.userId, { onDelete: "restrict" }),
+  provider: text("provider").notNull(),
+  providerSubject: text("provider_subject").notNull(),
+  providerEmail: text("provider_email").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({ subject: uniqueIndex("auth_identity_provider_subject_unique").on(t.provider, t.providerSubject), user: index("auth_identity_user_idx").on(t.userId), providerCheck: check("auth_identity_provider_check", sql`${t.provider} = 'GOOGLE'`) }));
+export const passwordCredentials = pgTable("password_credentials", {
+  userId: uuid("user_id").primaryKey().references(() => users.userId, { onDelete: "restrict" }),
+  passwordHash: text("password_hash").notNull(),
+  passwordChangedAt: timestamp("password_changed_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const authChallenges = pgTable("auth_challenges", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  purpose: text("purpose").notNull(),
+  email: text("email").notNull(),
+  userId: uuid("user_id").references(() => users.userId, { onDelete: "restrict" }),
+  tokenHash: text("token_hash").notNull(),
+  passwordHash: text("password_hash"),
+  displayName: text("display_name"),
+  bindingHash: text("binding_hash"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({ token: uniqueIndex("auth_challenge_token_unique").on(t.tokenHash), email: index("auth_challenge_email_idx").on(t.email), expiry: index("auth_challenge_expiry_idx").on(t.expiresAt), purposeCheck: check("auth_challenge_purpose_check", sql`${t.purpose} in ('VERIFY_EMAIL', 'RESET_PASSWORD', 'SET_PASSWORD')`) }));
+export const googleAuthStates = pgTable("google_auth_states", {
+  stateHash: text("state_hash").primaryKey(),
+  bindingHash: text("binding_hash").notNull(),
+  codeVerifier: text("code_verifier").notNull(),
+  nonce: text("nonce").notNull(),
+  returnTo: text("return_to").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+});
+export const authRateLimits = pgTable("auth_rate_limits", {
+  key: text("key").primaryKey(),
+  attempts: integer("attempts").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+});

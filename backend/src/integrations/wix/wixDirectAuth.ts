@@ -1,3 +1,4 @@
+// LEGACY AUTH: retained for historical contract tests; never constructed by the native server runtime.
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import type { CaptchaType, CompletedDirectAuthorization, DirectAuthorizationCallback, DirectAuthProvider, DirectAuthRedirect, DirectEmailLoginResult, DirectEmailSignupResult } from "../../domain/directAuth.js";

@@ -17,15 +17,18 @@
   "dependencies": {
     "@fastify/cookie": "latest",
     "@fastify/cors": "latest",
+    "argon2": "^0.45.1",
     "cloudinary": "^2.11.0",
     "dotenv": "latest",
     "drizzle-orm": "latest",
     "fastify": "latest",
+    "jose": "^6.2.12",
     "nanoid": "latest",
     "pg": "latest",
     "zod": "latest"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@types/node": "latest",
     "@types/pg": "latest",
     "drizzle-kit": "latest",

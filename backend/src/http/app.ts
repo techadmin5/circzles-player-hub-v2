@@ -1,3 +1,6 @@
+import { registerNativeAuthRoutes } from "./nativeAuthRoutes.js";
+import type { NativeAuthService } from "../domain/nativeAuth.js";
+import type { GoogleAuthService } from "../domain/googleAuth.js";
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import Fastify from "fastify";
@@ -51,6 +54,8 @@ export interface AppDeps {
   couponRedemptionWebhooks?: CouponRedemptionWebhookHandler;
   authHandoff?: AuthHandoffVerifier;
   directAuth?: DirectAuthProvider;
+  nativeAuth?: NativeAuthService;
+  googleAuth?: GoogleAuthService;
   checkDb: () => Promise<void>;
 }
 
@@ -121,13 +126,14 @@ const equipmentParamsSchema = z.object({ slot: z.enum(equipmentSlots) }).strict(
 const equipBodySchema = z.object({ slot: z.enum(equipmentSlots) }).strict();
 const renameDisplayNameBodySchema = z.object({ inventoryItemId: z.string().uuid(), displayName: z.string() }).strict();
 
-export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, coupons, playerIdentityActions, rewardWheel, couponRedemptionWebhooks, authHandoff, directAuth, checkDb }: AppDeps) {
+export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, coupons, playerIdentityActions, rewardWheel, couponRedemptionWebhooks, authHandoff, directAuth, nativeAuth, googleAuth, checkDb }: AppDeps) {
   const handoffVerifier = authHandoff ?? new AuthHandoffVerifier({ circzlesCom: env.AUTH_HANDOFF_CIRCZLES_COM_SECRET, circzlesIn: env.AUTH_HANDOFF_CIRCZLES_IN_SECRET });
   const directAuthProvider = directAuth ?? new UnconfiguredDirectAuthProvider();
   const app = Fastify({
     logger: env.NODE_ENV === "test" ? false : {
       level: "info",
-      redact: ["req.headers.cookie", "req.headers.authorization"],
+      redact: ["req.headers.cookie", "req.headers.authorization", "req.headers.x-player-hub-proxy-secret", "req.body"],
+      serializers: { req: (req) => ({ method: req.method, url: req.url?.split("?")[0], id: req.id }) },
     },
     genReqId: () => crypto.randomUUID(),
   });
@@ -177,6 +183,7 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
   });
 
   app.post("/api/auth/handoff/exchange", async (request, reply) => {
+    if (nativeAuth) throw new AppError("AUTH_HANDOFF_LEGACY", "Use Player Hub login directly.", 410);
     const body = handoffExchangeBodySchema.safeParse(request.body);
     if (!body.success) throw validationFailed("Invalid authentication handoff.", body.error.flatten());
     const verified = handoffVerifier.verify(body.data.token);
@@ -187,48 +194,56 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
     return finishAuthentication(account, identity, gameState, reply, env);
   });
 
-  app.post("/api/auth/direct/email/login", async (request, reply) => {
-    const body = emailLoginBodySchema.safeParse(request.body);
-    if (!body.success) throw validationFailed("Invalid login request.", body.error.flatten());
-    return reply.send(await directAuthProvider.loginWithEmail({ ...body.data, returnTo: safeReturnTo(body.data.returnTo) }));
-  });
+  if (nativeAuth && googleAuth) {
+    registerNativeAuthRoutes(app, { env, identity, nativeAuth, googleAuth, finish: async (account, request, reply) => {
+      await identity.logout(request.cookies[SESSION_COOKIE_NAME]);
+      return finishAuthentication(account, identity, gameState, reply, env);
+    } });
+  } else {
+    // Legacy dependency injection is retained for historical contract tests. server.ts always supplies native auth.
+    app.post("/api/auth/direct/email/login", async (request, reply) => {
+      const body = emailLoginBodySchema.safeParse(request.body);
+      if (!body.success) throw validationFailed("Invalid login request.", body.error.flatten());
+      return reply.send(await directAuthProvider.loginWithEmail({ ...body.data, returnTo: safeReturnTo(body.data.returnTo) }));
+    });
 
-  app.post("/api/auth/direct/email/signup", async (request, reply) => {
-    const body = emailSignupBodySchema.safeParse(request.body);
-    if (!body.success) throw validationFailed("Invalid signup request.", body.error.flatten());
-    const result = await directAuthProvider.startEmailSignup({ ...body.data, returnTo: safeReturnTo(body.data.returnTo) });
-    return "authorizationUrl" in result ? reply.send(result) : reply.status(202).send(result);
-  });
+    app.post("/api/auth/direct/email/signup", async (request, reply) => {
+      const body = emailSignupBodySchema.safeParse(request.body);
+      if (!body.success) throw validationFailed("Invalid signup request.", body.error.flatten());
+      const result = await directAuthProvider.startEmailSignup({ ...body.data, returnTo: safeReturnTo(body.data.returnTo) });
+      return "authorizationUrl" in result ? reply.send(result) : reply.status(202).send(result);
+    });
 
-  app.post("/api/auth/direct/email/verify", async (request, reply) => {
-    const body = emailVerificationBodySchema.safeParse(request.body);
-    if (!body.success) throw validationFailed("Invalid verification request.", body.error.flatten());
-    return reply.send(await directAuthProvider.verifyEmailSignup({ ...body.data, returnTo: safeReturnTo(body.data.returnTo) }));
-  });
+    app.post("/api/auth/direct/email/verify", async (request, reply) => {
+      const body = emailVerificationBodySchema.safeParse(request.body);
+      if (!body.success) throw validationFailed("Invalid verification request.", body.error.flatten());
+      return reply.send(await directAuthProvider.verifyEmailSignup({ ...body.data, returnTo: safeReturnTo(body.data.returnTo) }));
+    });
 
-  app.get("/api/auth/direct/google/start", async (request, reply) => {
-    const query = googleStartQuerySchema.safeParse(request.query);
-    if (!query.success) throw validationFailed("Invalid Google login request.", query.error.flatten());
-    const returnTo = safeReturnTo(query.data.returnTo);
-    return reply.send(await directAuthProvider.getGoogleAuthorizationUrl({ returnTo }));
-  });
+    app.get("/api/auth/direct/google/start", async (request, reply) => {
+      const query = googleStartQuerySchema.safeParse(request.query);
+      if (!query.success) throw validationFailed("Invalid Google login request.", query.error.flatten());
+      const returnTo = safeReturnTo(query.data.returnTo);
+      return reply.send(await directAuthProvider.getGoogleAuthorizationUrl({ returnTo }));
+    });
 
-  app.get("/api/auth/direct/google/callback", async (request, reply) => {
-    const query = googleCallbackQuerySchema.safeParse(request.query);
-    if (!query.success) throw validationFailed("Invalid Wix authentication callback.", query.error.flatten());
-    const callback = "code" in query.data
-      ? query.data
-      : { error: query.data.error, errorDescription: query.data.error_description, state: query.data.state };
-    const returnTo = await completeDirectAuthorization(callback, request, reply, directAuthProvider, identity, gameState, env);
-    return reply.redirect(`${env.FRONTEND_ORIGIN}${returnTo}`);
-  });
+    app.get("/api/auth/direct/google/callback", async (request, reply) => {
+      const query = googleCallbackQuerySchema.safeParse(request.query);
+      if (!query.success) throw validationFailed("Invalid Wix authentication callback.", query.error.flatten());
+      const callback = "code" in query.data
+        ? query.data
+        : { error: query.data.error, errorDescription: query.data.error_description, state: query.data.state };
+      const returnTo = await completeDirectAuthorization(callback, request, reply, directAuthProvider, identity, gameState, env);
+      return reply.redirect(`${env.FRONTEND_ORIGIN}${returnTo}`);
+    });
 
-  app.post("/api/auth/direct/google/callback", async (request, reply) => {
-    const body = googleCallbackBodySchema.safeParse(request.body);
-    if (!body.success) throw validationFailed("Invalid Wix authentication callback.", body.error.flatten());
-    const returnTo = await completeDirectAuthorization(body.data, request, reply, directAuthProvider, identity, gameState, env);
-    return reply.send({ returnTo });
-  });
+    app.post("/api/auth/direct/google/callback", async (request, reply) => {
+      const body = googleCallbackBodySchema.safeParse(request.body);
+      if (!body.success) throw validationFailed("Invalid Wix authentication callback.", body.error.flatten());
+      const returnTo = await completeDirectAuthorization(body.data, request, reply, directAuthProvider, identity, gameState, env);
+      return reply.send({ returnTo });
+    });
+  }
 
   app.get("/api/me", async (request, reply) => {
     const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
@@ -484,9 +499,9 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
   return app;
 }
 
-async function finishAuthentication(account: { userId: string; player: PlayerDto }, identity: IdentityService, gameState: GameStateService, reply: FastifyReply, env: Env) {
+async function finishAuthentication(account: { userId: string; player: PlayerDto; passwordCredentialHash?: string }, identity: IdentityService, gameState: GameStateService, reply: FastifyReply, env: Env) {
   await gameState.ensurePlayerGameState(account.player.internalId);
-  const session = await identity.createSession(account.userId);
+  const session = await identity.createSession(account.userId, new Date(), account.passwordCredentialHash);
   setSessionCookie(reply, env, session.token, session.expiresAt);
   return reply.send(await withGameState(account.player, gameState));
 }

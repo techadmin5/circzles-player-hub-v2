@@ -11,6 +11,48 @@ function setup(fetch, options = {}) {
   return { logs, proxy: createApiProxy({ origin, fetch, retryDelayMs: 0, log: (entry) => logs.push(entry), ...options }) };
 }
 
+test("native Google callback forwards redirect and both cookies exactly once", async () => {
+  let calls = 0;
+  const { proxy } = setup(async (url) => {
+    calls++;
+    assert.equal(String(url), `${origin}/api/auth/google/callback?state=opaque&code=one-use`);
+    const headers = new Headers({ location: "https://hub.example/hub" });
+    headers.append("set-cookie", "cz_google_state=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax");
+    headers.append("set-cookie", "cz_session=session; Path=/; HttpOnly; Secure; SameSite=Lax");
+    return new Response(null, { status: 302, headers });
+  });
+  const response = await proxy(request("/api/auth/google/callback?state=opaque&code=one-use"));
+  assert.equal(response.status, 302); assert.equal(calls, 1);
+  assert.equal(response.headers.get("location"), "https://hub.example/hub");
+  assert.equal(response.headers.getSetCookie().length, 2);
+});
+
+test("native Google callback never retries a provider failure", async () => {
+  let calls = 0;
+  const { proxy } = setup(async () => { calls++; return new Response("unavailable", { status: 502 }); });
+  assert.equal((await proxy(request("/api/auth/google/callback?code=one-use"))).status, 502);
+  assert.equal(calls, 1);
+});
+
+test("proxy strips spoofed trust headers and forwards only its server configuration and Vercel client IP", async () => {
+  const oldSecret = process.env.PLAYER_HUB_PROXY_SECRET, oldVercel = process.env.VERCEL;
+  try {
+    process.env.PLAYER_HUB_PROXY_SECRET = "server-only-secret";
+    process.env.VERCEL = "1";
+    const { proxy, logs } = setup(async (_url, init) => {
+      assert.equal(init.headers.get("x-player-hub-proxy-secret"), "server-only-secret");
+      assert.equal(init.headers.get("x-player-hub-client-ip"), "1.2.3.4");
+      assert.equal(init.headers.get("x-forwarded-for"), null);
+      return Response.json({ ok: true });
+    });
+    await proxy(request("/api/auth/session", { headers: { "x-player-hub-proxy-secret": "spoofed", "x-player-hub-client-ip": "evil", "x-forwarded-for": "1.2.3.4" } }));
+    assert.ok(!JSON.stringify(logs).includes("server-only-secret"));
+  } finally {
+    if (oldSecret === undefined) delete process.env.PLAYER_HUB_PROXY_SECRET; else process.env.PLAYER_HUB_PROXY_SECRET = oldSecret;
+    if (oldVercel === undefined) delete process.env.VERCEL; else process.env.VERCEL = oldVercel;
+  }
+});
+
 test("GET preserves encoded query, cookies, required headers and JSON response", async () => {
   const json = '{"authorizationUrl":"https://www.circzles.com/example"}';
   const { proxy } = setup(async (url, init) => {
