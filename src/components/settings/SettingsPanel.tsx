@@ -1,5 +1,6 @@
 "use client";
 
+import { SecurityPanel } from "@/components/auth/SecurityPanel";
 import { Volume2 } from "lucide-react";
 import { useSound } from "@/hooks/useSound";
 import { cn } from "@/lib/utils";
@@ -45,6 +46,7 @@ export function SettingsPanel() {
         <button className="cz-btn cz-btn-primary mt-1 w-fit" data-testid="save-profile">Save Changes</button>
       </section>}
 
+      {dataMode === "api" && <SecurityPanel />}
       <section className="cz-surface grid content-start gap-3 p-5">
         <h2 className="cz-display flex items-center gap-2 text-base font-bold"><Volume2 size={17} className="text-[var(--cz-aqua)]" />Game & Sound</h2>
         <Toggle label="Master Sound" description="Enable all game audio." checked={master} onChange={(v) => setSound({ master: v })} testid="toggle-master" />

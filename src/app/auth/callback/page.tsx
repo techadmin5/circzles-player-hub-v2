@@ -1,6 +1,3 @@
-import { WixAuthorizationCallback } from "@/components/auth/WixAuthorizationCallback";
-import { PublicShell } from "@/components/public/PublicShell";
-
-export default function Page() {
-  return <PublicShell><div className="mx-auto grid min-h-[70vh] max-w-md content-center px-4 py-16"><WixAuthorizationCallback /></div></PublicShell>;
-}
+import { redirect } from "next/navigation";
+// Legacy Wix callback is retired. Native Google uses the server API callback.
+export default function Page() { redirect("/login"); }
