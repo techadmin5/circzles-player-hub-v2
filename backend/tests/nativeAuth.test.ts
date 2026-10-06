@@ -61,6 +61,17 @@ beforeEach(async () => {
 afterAll(async () => { await pg?.close(); });
 
 describe("native email credentials on PostgreSQL", () => {
+  it("passes the unchanged challenge lifetimes to email presentation", async () => {
+    const now = new Date();
+    await service.signup({ email, password, displayName: "Player" }, now);
+    expect(mailer.messages.at(-1)).toMatchObject({ purpose: "VERIFY_EMAIL", issuedAt: now, expiresAt: new Date(now.getTime() + 60 * 60_000) });
+    await service.verify(lastToken(), now);
+    await service.forgot(email, now);
+    expect(mailer.messages.at(-1)).toMatchObject({ purpose: "RESET_PASSWORD", issuedAt: now, expiresAt: new Date(now.getTime() + 15 * 60_000) });
+    const account = await repo.googleAccount("email-presentation-google", "google@example.test", undefined, now);
+    await service.requestPassword(account.userId, "session-binding", now);
+    expect(mailer.messages.at(-1)).toMatchObject({ purpose: "SET_PASSWORD", issuedAt: now, expiresAt: new Date(now.getTime() + 15 * 60_000) });
+  });
   it("keeps signup pending, normalizes email, hashes credentials and tokens, verifies once, and logs in", async () => {
     await service.signup({ email: " Player@Example.Test ", password, displayName: "Player" });
     expect(await db.select().from(schema.users)).toHaveLength(0);

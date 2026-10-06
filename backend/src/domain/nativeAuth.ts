@@ -50,6 +50,6 @@ export class NativeAuthService {
   private async challenge(email: string, purpose: string, fields: { passwordHash?: string; displayName?: string; userId?: string; bindingHash?: string }, now: Date) {
     const token = authToken(); const expiresAt = new Date(now.getTime() + (purpose === "VERIFY_EMAIL" ? 60 : 15) * 60_000);
     await this.repo.addChallenge({ email, purpose, tokenHash: tokenDigest(token), expiresAt, ...fields });
-    await this.mailer.send({ email, purpose, token, expiresAt });
+    await this.mailer.send({ email, purpose, token, issuedAt: now, expiresAt });
   }
 }

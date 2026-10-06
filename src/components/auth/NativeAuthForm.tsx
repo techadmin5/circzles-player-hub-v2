@@ -1,14 +1,14 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiClient } from "@/lib/apiClient";
 import { useAuth } from "./AuthProvider";
+import { AuthFormNotice, AuthNavigation, PasswordSetupIntroduction, type AuthMode } from "./AuthPresentation";
 
-type Mode = "login" | "signup" | "verify" | "forgot-password" | "reset-password" | "set-password";
+type Mode = AuthMode;
 const inputStyle = "min-h-11 rounded-xl border border-[var(--cz-hairline-strong)] bg-[var(--cz-inset)] px-3.5 text-sm outline-none focus:border-[var(--cz-aqua)]";
-const labels: Record<Mode, string> = { login: "Log in", signup: "Create account", verify: "Verify email", "forgot-password": "Send reset link", "reset-password": "Reset password", "set-password": "Set password" };
+const labels: Record<Mode, string> = { login: "Log in", signup: "Create account", verify: "Verify email", "forgot-password": "Send reset link", "reset-password": "Reset password", "set-password": "Add password" };
 export function NativeAuthForm({ mode, returnTo = "/hub", initialError = "" }: { mode: Mode; returnTo?: string; initialError?: string }) {
   const router = useRouter();
   const { refresh } = useAuth();
@@ -58,7 +58,7 @@ export function NativeAuthForm({ mode, returnTo = "/hub", initialError = "" }: {
   const tokenMode = mode === "verify" || mode === "reset-password" || mode === "set-password";
   return <div className="cz-surface mt-6 grid gap-4 p-5">
     {(mode === "login" || mode === "signup") && <button className="cz-btn cz-btn-primary w-full" disabled={busy} onClick={google}>Continue with Google</button>}
-    {mode === "set-password" && <p className="text-sm text-[var(--cz-text-secondary)]">Keep the browser session that requested this email open. Your password will belong to the same Player ID.</p>}
+    {mode === "set-password" && <><PasswordSetupIntroduction /><p className="text-xs text-[var(--cz-text-tertiary)]">Keep the browser session that requested this email open. Your password will belong to the same Player ID.</p></>}
     <form className="grid gap-4" onSubmit={submit}>
       {mode === "signup" && <label className="grid gap-1 text-sm">Display name<input className={inputStyle} name="displayName" autoComplete="name" minLength={2} maxLength={80} required /></label>}
       {emailMode && <label className="grid gap-1 text-sm">Email<input className={inputStyle} name="email" type="email" autoComplete="email" maxLength={320} required /></label>}
@@ -67,9 +67,7 @@ export function NativeAuthForm({ mode, returnTo = "/hub", initialError = "" }: {
       <button className="cz-btn cz-btn-primary w-full" disabled={busy || (tokenMode && !token)}>{busy ? "Please wait..." : labels[mode]}</button>
     </form>
     {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
-    {message && <p role="status" className="text-sm text-[var(--cz-text-secondary)]">{message}</p>}
-    {mode === "login" && <Link className="text-sm text-[var(--cz-aqua)]" href="/auth/forgot-password">Forgot password?</Link>}
-    <p className="text-center text-sm text-[var(--cz-text-tertiary)]">{mode === "login" ? <Link href={`/signup?returnTo=${encodeURIComponent(returnTo)}`}>Sign up</Link> : <Link href={`/login?returnTo=${encodeURIComponent(returnTo)}`}>Back to login</Link>}</p>
-    {mode === "verify" && <Link className="text-sm text-[var(--cz-aqua)]" href="/signup">Request a new verification link</Link>}
+    <AuthFormNotice mode={mode} message={message} />
+    <AuthNavigation mode={mode} returnTo={returnTo} />
   </div>;
 }
