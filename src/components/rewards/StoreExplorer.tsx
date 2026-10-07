@@ -37,7 +37,7 @@ export function StoreExplorer({ mode }: { mode: DataMode }) {
     try {
       const result = await storeService.purchaseItem(item.id, key);
       keys.current.delete(item.id);
-      if ("balanceAfter" in result) { usePlayerUiState.getState().setSynapsePoints(result.balanceAfter); window.setTimeout(() => usePlayerUiState.getState().setBalancePulse(false), 900); }
+      if (mode === "mock" && "balanceAfter" in result) usePlayerUiState.getState().setSynapsePoints(result.balanceAfter);
       setAttempt((value) => value + 1);
       return true;
     } catch (cause) {

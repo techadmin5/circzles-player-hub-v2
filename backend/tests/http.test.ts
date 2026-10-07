@@ -26,6 +26,50 @@ import { CouponService, type CouponDto } from "../src/domain/coupons.js";
 import { FakeAdminAuthorizationRepository, FakeAdminSubmissionRepository, FakeGameStateRepository, FakeIdentityRepository, FakeLeaderboardRepository, FakeMissionClaimRepository, FakePlayerMissionRepository, FakePublicProfileRepository, FakePuzzleRepository, FakeSubmissionRepository, FakeSubmissionReviewRepository, FakeVideoStorage } from "./fakes.js";
 import type { Env } from "../src/config/env.js";
 import type { DirectAuthProvider } from "../src/domain/directAuth.js";
+import { PlayerProfileService } from "../src/domain/playerProfile.js";
+
+describe("production profile/avatar HTTP ownership and hydration", () => {
+  it.each([
+    ["PATCH", "/api/me/profile", { country: "India" }],
+    ["POST", "/api/me/avatar", { source: "DEFAULT" }],
+    ["POST", "/api/me/avatar/photo", { mimeType: "image/png", base64: "AAAA" }],
+  ] as const)("requires a session for %s %s", async (method, url, payload) => {
+    const profile = new PlayerProfileService(undefined as never, { upload: async () => { throw new Error("Unexpected storage access"); } });
+    const { app } = await appWithFakes({}, undefined, undefined, profile);
+    try { expect((await app.inject({ method, url, payload })).statusCode).toBe(401); }
+    finally { await app.close(); }
+  });
+  it.each([
+    ["PATCH", "/api/me/profile", { playerId: "someone-else", country: "India" }],
+    ["PATCH", "/api/me/profile", { publicPlayerId: "changed_001" }],
+    ["PATCH", "/api/me/profile", { verifiedEmail: "changed@example.test" }],
+    ["POST", "/api/me/avatar", { source: "DEFAULT", avatarUrl: "https://external.test/image" }],
+    ["POST", "/api/me/avatar/photo", { mimeType: "image/svg+xml", base64: "AAAA" }],
+  ] as const)("rejects forbidden profile fields for %s %s", async (method, url, payload) => {
+    const profile = new PlayerProfileService(undefined as never, { upload: async () => { throw new Error("Unexpected storage access"); } });
+    const { app } = await appWithFakes({ NODE_ENV: "development" }, undefined, undefined, profile);
+    try { const cookie = await login(app); expect((await app.inject({ method, url, headers: { cookie }, payload })).statusCode).toBe(400); }
+    finally { await app.close(); }
+  });
+  it("uses the session UUID for edits and /api/me while session bootstrap remains lightweight", async () => {
+    const calls: string[] = [];
+    const profile = new PlayerProfileService(undefined as never, { upload: async () => { throw new Error("Unused"); } });
+    const read = vi.spyOn(profile, "read").mockImplementation(async (id) => { calls.push(id); return { ...identityRepo.accounts[0].player, avatar: "/owned-avatar.svg", avatarSource: "INVENTORY_AVATAR", customAvatarAvailable: false, equippedFrame: "/frame.svg", xp: 15, xpNeeded: 40, progressionLevel: 5, rank: "Farmer", synapsePoints: 750, stats: { ownedPuzzles: 1, completed: 0, approvedAttempts: 0, personalBests: 0, podiums: 0, seasonRank: 0, longestStreak: 0 } }; });
+    const update = vi.spyOn(profile, "update").mockImplementation(async (id) => read(id));
+    const { app, identityRepo } = await appWithFakes({ NODE_ENV: "development" }, undefined, undefined, profile);
+    try {
+      const cookie = await login(app);
+      expect((await app.inject({ method: "GET", url: "/api/auth/session", headers: { cookie } })).statusCode).toBe(200);
+      expect(calls).toHaveLength(0);
+      const me = await app.inject({ method: "GET", url: "/api/me", headers: { cookie } });
+      expect(me.json()).toMatchObject({ avatar: "/owned-avatar.svg", equippedFrame: "/frame.svg", xp: 15, xpNeeded: 40, progressionLevel: 5, rank: "Farmer", synapsePoints: 750 });
+      expect(me.headers["cache-control"]).toBe("private, no-store");
+      await app.inject({ method: "PATCH", url: "/api/me/profile", headers: { cookie }, payload: { country: "India" } });
+      expect(update).toHaveBeenCalledWith(identityRepo.accounts[0].player.internalId, { country: "India" }, undefined);
+      expect(new Set(calls)).toEqual(new Set([identityRepo.accounts[0].player.internalId]));
+    } finally { await app.close(); }
+  });
+});
 
 function env(overrides: Partial<Env> = {}): Env {
   return {
@@ -43,7 +87,7 @@ function env(overrides: Partial<Env> = {}): Env {
   };
 }
 
-async function appWithFakes(overrides: Partial<Env> = {}, directAuth?: DirectAuthProvider, native?: { nativeAuth: NativeAuthService; googleAuth: GoogleAuthService }) {
+async function appWithFakes(overrides: Partial<Env> = {}, directAuth?: DirectAuthProvider, native?: { nativeAuth: NativeAuthService; googleAuth: GoogleAuthService }, playerProfile?: PlayerProfileService) {
   const testEnv = env(overrides);
   const gameRepo = new FakeGameStateRepository();
   const gameState = new GameStateService(gameRepo);
@@ -98,7 +142,7 @@ async function appWithFakes(overrides: Partial<Env> = {}, directAuth?: DirectAut
     getStatus: async () => ({ available: true, wheel: { code: "DEV_WHEEL", name: "Development Wheel", cycleSeconds: 86400, cycleStartedAt: null, cycleEndsAt: null, spinsUsed: 0, maxSpinsPerCycle: 4, spinsRemaining: 4, nextSpinNumber: 1, nextSpinCostSynapsePoints: 0, nextSpinIsFree: true, canAffordNextSpin: true, canSpin: true, unavailableReason: null, segments: [{ wheelSegmentIndex: 4, label: "100 SP", rewardType: "SYNAPSE_POINTS", rewardValue: 100, imageUrl: null, rarity: null, displayMetadata: { tone: "aqua" } }] } }),
     spin: async (input) => { wheelSpinCalls.push(input); return { spinId: "60000000-0000-4000-8000-000000000001", rewardId: "20000000-0000-4000-8000-000000000001", rewardDefinitionId: "20000000-0000-4000-8000-000000000001", rewardType: "SYNAPSE_POINTS", rewardLabel: "100 SP", rewardValue: 100, resultingBalance: 1050, wheelSegmentIndex: 4, spunAt: "2026-09-16T12:00:00.000Z", spinNumber: 1, chargedSynapsePoints: 0, cycleStartedAt: "2026-09-16T12:00:00.000Z", cycleEndsAt: "2026-09-17T12:00:00.000Z", idempotent: false }; },
   } satisfies RewardWheelRepository);
-  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, coupons, playerIdentityActions, rewardWheel, directAuth, ...native, checkDb: async () => {} });
+  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, coupons, playerIdentityActions, rewardWheel, directAuth, playerProfile, ...native, checkDb: async () => {} });
   return { app, identity, identityRepo, gameRepo, puzzleRepo, submissionRepo, videoStorage, adminAuthRepo, adminSubmissionRepo, leaderboardRepo, reviewRepo, publicProfileRepo, missionRepo, missionClaimRepo, purchaseCalls, inventoryCalls, couponCalls, renameCalls, wheelSpinCalls, testEnv };
 }
 

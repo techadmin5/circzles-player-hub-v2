@@ -6,6 +6,8 @@ import { DrizzlePuzzleRepository, PuzzleOwnershipService } from "./domain/puzzle
 import { DrizzleSubmissionRepository, SubmissionService } from "./domain/submissions.js";
 import { buildApp } from "./http/app.js";
 import { CloudinaryVideoStorage } from "./storage/videoStorage.js";
+import { CloudinaryAvatarStorage } from "./storage/avatarStorage.js";
+import { PlayerProfileService } from "./domain/playerProfile.js";
 import { AdminAuthorizationService, DrizzleAdminAuthorizationRepository } from "./domain/adminAuth.js";
 import { AdminSubmissionService, DrizzleAdminSubmissionRepository } from "./domain/adminSubmissions.js";
 import { DrizzleLeaderboardRepository, LeaderboardService } from "./domain/leaderboards.js";
@@ -64,6 +66,7 @@ const missionClaims = new MissionClaimService(new DrizzleMissionClaimRepository(
 const rewardCatalog = new RewardCatalogService(new DrizzleRewardCatalogRepository(db));
 const storePurchases = new StorePurchaseService(new DrizzleStorePurchaseRepository(db));
 const inventory = new InventoryService(new DrizzleInventoryRepository(db));
+const playerProfile = new PlayerProfileService(db, new CloudinaryAvatarStorage({ cloudName: env.CLOUDINARY_CLOUD_NAME, apiKey: env.CLOUDINARY_API_KEY, apiSecret: env.CLOUDINARY_API_SECRET }));
 const coupons = new CouponService(new DrizzleCouponRepository(db));
 const playerIdentityActions = new PlayerIdentityActionService(new DrizzlePlayerIdentityActionRepository(db));
 const rewardWheel = new RewardWheelService(new DrizzleRewardWheelRepository(db));
@@ -100,6 +103,7 @@ const app = buildApp({
   rewardCatalog,
   storePurchases,
   inventory,
+  playerProfile,
   coupons,
   playerIdentityActions,
   rewardWheel,

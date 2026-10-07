@@ -155,6 +155,13 @@
       "when": 1791358780592,
       "tag": "0021_sequential_player_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1791378128273,
+      "tag": "0022_player_profile_avatar",
+      "breakpoints": true
     }
   ]
 }

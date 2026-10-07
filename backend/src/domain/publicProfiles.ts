@@ -2,6 +2,7 @@ import { and, countDistinct, eq } from "drizzle-orm";
 import type { Database } from "../db/client.js";
 import { playerEquipment, playerInventoryItems, playerProgression, players, rewardDefinitions, submissions, users } from "../db/schema.js";
 import { AppError } from "./errors.js";
+import { effectiveAvatar } from "./playerAvatar.js";
 
 export interface PublicPlayerProfileDto {
   publicPlayerId: string;
@@ -34,6 +35,8 @@ export class DrizzlePublicProfileRepository implements PublicProfileRepository {
     const [row] = await this.db.select({
       publicPlayerId: players.publicPlayerId,
       playerId: players.playerId,
+      avatarSource: players.avatarSource,
+      customAvatarUrl: players.customAvatarUrl,
       displayName: players.displayName,
       progressionRank: playerProgression.rankName,
       approvedPuzzlesSolved: countDistinct(submissions.puzzleId).mapWith(Number),
@@ -52,7 +55,7 @@ export class DrizzlePublicProfileRepository implements PublicProfileRepository {
       .innerJoin(playerInventoryItems, eq(playerEquipment.playerInventoryItemId, playerInventoryItems.playerInventoryItemId))
       .innerJoin(rewardDefinitions, eq(playerInventoryItems.rewardDefinitionId, rewardDefinitions.rewardDefinitionId))
       .where(eq(playerEquipment.playerId, row.playerId));
-    const avatarUrl = equipped.find((item) => item.slot === "AVATAR")?.imageUrl ?? null;
+    const avatarUrl = effectiveAvatar(row.avatarSource, row.customAvatarUrl, equipped.find((item) => item.slot === "AVATAR")?.imageUrl);
     const equippedFrame = equipped.find((item) => item.slot === "FRAME")?.name ?? null;
     const displayedBadges = (["BADGE_1", "BADGE_2", "BADGE_3"] as const).flatMap((slot) => equipped.find((item) => item.slot === slot)?.name ?? []);
     return { publicPlayerId: row.publicPlayerId, displayName: row.displayName, progressionRank: row.progressionRank, approvedPuzzlesSolved: row.approvedPuzzlesSolved, avatarUrl, equippedFrame, displayedBadges };

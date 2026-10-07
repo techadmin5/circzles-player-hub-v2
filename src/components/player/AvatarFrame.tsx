@@ -12,9 +12,9 @@ export function AvatarFrame({ avatar, displayName, frame, size = 96, placement =
   return (
     <div className="relative shrink-0" style={{ width: size, height: size }}>
       <div className="absolute inset-[8%] overflow-hidden rounded-full border border-[var(--cz-hairline-strong)] bg-[var(--cz-surface-raised)]">
-        <Image src={avatar || DEFAULT_AVATAR} alt={displayName ?? ""} fill sizes={`${size}px`} className="object-cover" />
+        <Image unoptimized={avatar?.startsWith("https://")} src={avatar || DEFAULT_AVATAR} alt={displayName ?? ""} fill sizes={`${size}px`} className="object-cover" />
       </div>
-      {frameSrc && <Image src={frameSrc} alt="" fill sizes={`${size}px`} className="pointer-events-none select-none" />}
+      {frameSrc && <Image unoptimized={frameSrc.startsWith("https://")} src={frameSrc} alt="" fill sizes={`${size}px`} className="pointer-events-none select-none" />}
       <PlacementBadge placement={placement} size={size} />
     </div>
   );

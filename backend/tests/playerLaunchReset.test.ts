@@ -95,6 +95,7 @@ it("resets only the reviewed 12 identities, preserves all master UUIDs/data and 
 
 it("does not recycle failed allocations and concurrent creates remain unique", async () => {
   await resetTestPlayersAndMigrate(pg, await captureResetPreflight(pg));
+  await pg.exec(await readFile(new URL("../drizzle/0022_player_profile_avatar.sql", import.meta.url), "utf8"));
   const [user] = await db.insert(s.users).values({ verifiedEmail: "gap@example.test", emailVerifiedAt: new Date() }).returning();
   await pg.exec("SAVEPOINT failed_insert");
   await createPlayer(db as unknown as Parameters<typeof createPlayer>[0], user.userId);
@@ -144,6 +145,7 @@ it("normal native signup/verification gives Hazel 001 then a second player 002, 
     await resetTestPlayersAndMigrate(nativePg, await captureResetPreflight(nativePg));
     await nativePg.exec("COMMIT");
     await nativePg.exec(await readFile(new URL("../../docs/player-launch-postflight.sql", import.meta.url), "utf8"));
+    await nativePg.exec(await readFile(new URL("../drizzle/0022_player_profile_avatar.sql", import.meta.url), "utf8"));
     const nativeDb = drizzle(nativePg, { schema: s }) as unknown as Database;
     const mailer = new DevelopmentAuthMailer();
     const service = new NativeAuthService(new DrizzleNativeAuthRepository(nativeDb), mailer);

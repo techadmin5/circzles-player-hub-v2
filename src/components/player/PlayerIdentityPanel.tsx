@@ -34,7 +34,7 @@ function MiniStat({ icon, label, value }: { icon: ReactNode; label: string; valu
 export function PlayerHero({ player, placement = null, profileMode = false, onOpenCodex, onEditAvatar, header, productionData = false }: {
   player: PlayerProfile; placement?: Placement; profileMode?: boolean; onOpenCodex: () => void; onEditAvatar?: () => void; header?: ReactNode; productionData?: boolean;
 }) {
-  const rank = rankFor(player.progressionLevel);
+  const rank = productionData ? progressionRanks.find((item) => item.rank === player.rank) ?? { ...progressionRanks[0], rank: player.rank } : rankFor(player.progressionLevel);
   const next = progressionRanks.find((r) => r.order === rank.order + 1);
   const pct = Math.min(100, Math.round((player.xp / Math.max(1, player.xpNeeded)) * 100));
 
@@ -91,7 +91,7 @@ export function PlayerIdentityPanel({ fallbackPlayer, mode = "mock", placement =
   const [codexOpen, setCodexOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const authoritativeDisplayName = usePlayerUiState((state) => state.displayName);
+  const livePlayer = usePlayerUiState((state) => state.player);
 
   async function devLogin() {
     playSound("button");
@@ -105,7 +105,7 @@ export function PlayerIdentityPanel({ fallbackPlayer, mode = "mock", placement =
     }
   }
 
-  const shown = { ...fallbackPlayer, displayName: mode === "api" ? authoritativeDisplayName ?? fallbackPlayer.displayName : fallbackPlayer.displayName, avatar: previewAvatar ?? fallbackPlayer.avatar };
+  const shown = mode === "api" ? livePlayer ?? fallbackPlayer : { ...fallbackPlayer, avatar: previewAvatar ?? fallbackPlayer.avatar };
   const devControls = process.env.NODE_ENV === "development" && mode === "api" ? (
     <div className="mb-4 flex flex-col gap-2 rounded-xl border border-[var(--cz-hairline)] bg-[var(--cz-inset)] p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
       <div>
@@ -119,9 +119,9 @@ export function PlayerIdentityPanel({ fallbackPlayer, mode = "mock", placement =
 
   return (
     <>
-      <PlayerHero player={shown} placement={placement} profileMode={profileMode} productionData={mode === "api"} onOpenCodex={() => { playSound("modalOpen"); setCodexOpen(true); }} onEditAvatar={mode === "mock" ? () => { playSound("modalOpen"); setPickerOpen(true); } : undefined} header={devControls} />
+      <PlayerHero player={shown} placement={placement} profileMode={profileMode} productionData={mode === "api"} onOpenCodex={() => { playSound("modalOpen"); setCodexOpen(true); }} onEditAvatar={() => { playSound("modalOpen"); setPickerOpen(true); }} header={devControls} />
       <ProgressionCodex open={codexOpen} onClose={() => setCodexOpen(false)} player={shown} showRewardPreview={mode === "mock"} />
-      <AvatarPicker open={pickerOpen} currentAvatar={shown.avatar} onPreview={setPreviewAvatar} onClose={() => setPickerOpen(false)} />
+      <AvatarPicker open={pickerOpen} mode={mode} currentAvatar={shown.avatar} onPreview={setPreviewAvatar} onClose={() => setPickerOpen(false)} />
     </>
   );
 }

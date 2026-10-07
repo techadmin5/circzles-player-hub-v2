@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import type { DataMode } from "@/config/dataMode";
 import { useGameFeedback } from "@/components/feedback/GameFeedbackProvider";
 import { apiClient, ApiClientError } from "@/lib/apiClient";
-import { usePlayerUiState } from "@/stores/playerUiState";
+
 
 const CATEGORY_ICON: Record<InventoryItem["category"], React.ReactNode> = {
   Frames: <FrameIcon size={20} />, Badges: <BadgeCheck size={20} />, Avatars: <CircleUserRound size={20} />, "Rename Cards": <Wrench size={20} />, Coupons: <Ticket size={20} />, Special: <Sparkles size={20} />,
@@ -87,7 +87,7 @@ function RenameCardDialog({ item, onClose, onItemsChange }: { item: InventoryIte
 
   useEffect(() => {
     let cancelled = false;
-    apiClient.getMe().then((me) => { if (!cancelled) { setCurrentName(me.displayName); usePlayerUiState.getState().setDisplayName(me.displayName); } })
+    apiClient.refreshLivePlayer().then((me) => { if (!cancelled) setCurrentName(me.displayName); })
       .catch(() => { if (!cancelled) setError("Current player identity could not be loaded."); })
       .finally(() => { if (!cancelled) setLoadingIdentity(false); });
     return () => { cancelled = true; };
@@ -107,7 +107,7 @@ function RenameCardDialog({ item, onClose, onItemsChange }: { item: InventoryIte
     const key = intentKey.current ?? crypto.randomUUID(); intentKey.current = key; setBusy(true); setError(null);
     try {
       const result = await inventoryService.renameDisplayName(item.id, normalized, key);
-      intentKey.current = null; onItemsChange(result.items); usePlayerUiState.getState().setDisplayName(result.displayName); playSound("success"); onClose();
+      intentKey.current = null; onItemsChange(result.items); playSound("success"); onClose();
     } catch (cause) {
       if (cause instanceof ApiClientError && cause.status > 0 && cause.status < 500) intentKey.current = null;
       const message = renameErrorMessage(cause); setError(message); showErrorFeedback(message);

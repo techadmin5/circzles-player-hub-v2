@@ -7,6 +7,7 @@ import { ApiClientError } from "@/lib/apiClient";
 import { DEFAULT_AVATAR } from "@/config/assets";
 import { playerService } from "@/services";
 import type { PublicPlayerProfile } from "@/types";
+import { usePlayerUiState } from "@/stores/playerUiState";
 
 export function PublicPlayerProfileModal({
   publicPlayerId,
@@ -19,7 +20,9 @@ export function PublicPlayerProfileModal({
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
-  const [profile, setProfile] = useState<PublicPlayerProfile | null>(() => cache.get(publicPlayerId) ?? null);
+  const [savedProfile, setProfile] = useState<PublicPlayerProfile | null>(() => cache.get(publicPlayerId) ?? null);
+  const live = usePlayerUiState((state) => state.player);
+  const profile = savedProfile && live?.publicPlayerId === publicPlayerId ? { ...savedProfile, displayName: live.displayName, avatarUrl: live.avatar, progressionRank: live.rank } : savedProfile;
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
 

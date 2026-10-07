@@ -17,6 +17,7 @@ import { dataMode } from "@/config/dataMode";
 import { usePlayerUiState } from "@/stores/playerUiState";
 import { AuthenticatedRoute, useAuth } from "@/components/auth/AuthProvider";
 import { HubAtmosphere } from "@/components/hub/HubAtmosphere";
+import { apiClient } from "@/lib/apiClient";
 
 function isActive(pathname: string, href: string) {
   return pathname === href || (href !== "/hub" && pathname.startsWith(`${href}/`));
@@ -69,9 +70,9 @@ function Sidebar({ pathname, onLogout }: { pathname: string; onLogout: () => voi
 }
 
 function TopBar({ player, identity, onOpenMenu }: { player?: PlayerProfile; identity?: AuthenticatedPlayerIdentity; onOpenMenu: () => void }) {
-  const displayedSynapsePoints = usePlayerUiState((state) => state.displayedSynapsePoints);
+  const liveBalance = usePlayerUiState((state) => state.player?.synapsePoints);
   const balancePulse = usePlayerUiState((state) => state.balancePulse);
-  const balance = displayedSynapsePoints ?? player?.synapsePoints;
+  const balance = liveBalance ?? player?.synapsePoints;
   return (
     <header className="sticky top-0 z-30 flex shrink-0 items-center gap-3 border-b border-[var(--cz-hairline)] bg-[rgba(9,13,23,0.82)] px-4 py-3 backdrop-blur-xl lg:static lg:px-8">
       <Link href="/hub" className="flex items-center gap-2 lg:hidden">
@@ -86,7 +87,7 @@ function TopBar({ player, identity, onOpenMenu }: { player?: PlayerProfile; iden
         )}
         {dataMode === "mock" && <Link href="/notifications" onClick={() => playSound("navigation")} data-testid="topbar-notifications" aria-label="Notifications" className="grid h-9 w-9 place-items-center rounded-full border border-[var(--cz-hairline)] bg-white/[0.03] text-[var(--cz-text-secondary)] transition-colors hover:text-[var(--cz-text-primary)]"><Bell size={17} /></Link>}
         <Link href="/profile" onClick={() => playSound("navigation")} data-testid="topbar-profile" aria-label="Profile" className="relative hidden h-9 w-9 overflow-hidden rounded-full border border-[var(--cz-hairline-strong)] bg-[var(--cz-surface-raised)] min-[430px]:block">
-          <Image src={player?.avatar || identity?.avatar || DEFAULT_AVATAR} alt="" fill sizes="36px" className="object-cover" />
+          <Image unoptimized src={player?.avatar || identity?.avatar || DEFAULT_AVATAR} alt="" fill sizes="36px" className="object-cover" />
         </Link>
         <button onClick={() => { playSound("button"); onOpenMenu(); }} data-testid="topbar-menu" aria-label="Open menu" className="grid h-9 w-9 place-items-center rounded-full border border-[var(--cz-hairline)] bg-white/[0.03] text-[var(--cz-text-secondary)] lg:hidden">
           <Menu size={18} />
@@ -158,6 +159,7 @@ function MobileNav({ pathname, onOpenMore }: { pathname: string; onOpenMore: () 
 }
 
 export function GameShell({ player, children }: { player?: PlayerProfile; children: ReactNode }) {
+  const syncError = usePlayerUiState((state) => state.syncError);
   const pathname = usePathname();
   const router = useRouter();
   const { logout, identity: authenticatedIdentity, player: authenticatedPlayer } = useAuth();
@@ -181,6 +183,7 @@ export function GameShell({ player, children }: { player?: PlayerProfile; childr
         {pathname === "/hub" && <HubAtmosphere />}
         <TopBar player={dataMode === "api" ? authenticatedPlayer : player} identity={dataMode === "api" ? authenticatedIdentity : player} onOpenMenu={() => setMoreOpen(true)} />
         <div data-testid="game-content-scroll" tabIndex={0} role="region" aria-label="Player Hub content" className="relative z-10 min-h-0 flex-1 lg:overflow-y-auto lg:overscroll-contain">
+          {syncError && <div role="status" className="mx-4 mt-3 flex flex-wrap items-center gap-3 text-sm text-[var(--cz-text-secondary)]">{syncError}<button className="cz-btn cz-btn-ghost cz-btn-sm" onClick={() => apiClient.refreshLivePlayer().catch(() => undefined)}>Refresh player state</button></div>}
           <main className="mx-auto w-full min-w-0 max-w-[1240px] overflow-x-clip px-4 pb-28 pt-6 lg:px-8 lg:pb-12">{children}</main>
         </div>
       </div>

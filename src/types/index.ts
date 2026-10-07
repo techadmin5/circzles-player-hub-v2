@@ -15,6 +15,8 @@ export interface Player {
   publicPlayerId: string;
   displayName: string;
   avatar: string;
+  avatarSource?: "DEFAULT" | "CUSTOM_UPLOAD" | "INVENTORY_AVATAR";
+  customAvatarAvailable?: boolean;
   country: string;
   state: string;
   progressionLevel: number;

@@ -16,7 +16,7 @@ export function PlayerLobbyHeader({ player, showDebug = false }: { player: Playe
   return <section className="game-card glow-border overflow-hidden">
     <div className="grid gap-5 p-5 md:grid-cols-[auto_1fr_auto] md:items-center">
       <div className="relative">
-        <Image src={player.avatar} alt="" width={96} height={96} className="rounded-lg border border-white/15 bg-black/30" />
+        <Image unoptimized src={player.avatar} alt="" width={96} height={96} className="rounded-lg border border-white/15 bg-black/30" />
         <div className="absolute -bottom-2 -right-2"><ProgressionRankEmblem rank={currentRank} state="current" size="sm" /></div>
       </div>
       <div className="min-w-0">

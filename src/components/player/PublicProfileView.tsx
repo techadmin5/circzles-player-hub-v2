@@ -8,9 +8,12 @@ import type { DataMode } from "@/config/dataMode";
 import { apiClient } from "@/lib/apiClient";
 import type { PublicPlayerProfile } from "@/types";
 import { EmptyState, LoadingState, Stat } from "@/components/ui/kit";
+import { usePlayerUiState } from "@/stores/playerUiState";
 
 export function PublicProfileView({ publicPlayerId, mode = "api", initialProfile }: { publicPlayerId: string; mode?: DataMode; initialProfile?: PublicPlayerProfile }) {
-  const [profile, setProfile] = useState<PublicPlayerProfile | undefined>(initialProfile);
+  const [savedProfile, setProfile] = useState<PublicPlayerProfile | undefined>(initialProfile);
+  const live = usePlayerUiState((state) => state.player);
+  const profile = savedProfile && live?.publicPlayerId === publicPlayerId ? { ...savedProfile, displayName: live.displayName, avatarUrl: live.avatar, progressionRank: live.rank } : savedProfile;
   const [error, setError] = useState("");
   useEffect(() => {
     if (mode !== "api") return;
@@ -24,7 +27,7 @@ export function PublicProfileView({ publicPlayerId, mode = "api", initialProfile
   if (!profile) return <LoadingState rows={4} />;
   return <div className="grid min-w-0 gap-5">
     <section className="cz-surface flex min-w-0 flex-col items-center gap-4 p-5 text-center min-[430px]:flex-row min-[430px]:text-left sm:p-7">
-      <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-full border border-[var(--cz-hairline-strong)] bg-[var(--cz-surface-raised)]"><Image src={profile.avatarUrl || DEFAULT_AVATAR} alt="" fill sizes="96px" className="object-cover" /></div>
+      <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-full border border-[var(--cz-hairline-strong)] bg-[var(--cz-surface-raised)]"><Image unoptimized src={profile.avatarUrl || DEFAULT_AVATAR} alt="" fill sizes="96px" className="object-cover" /></div>
       <div className="min-w-0"><h1 className="cz-display truncate text-2xl font-bold">{profile.displayName}</h1><p className="cz-num truncate text-xs text-[var(--cz-text-tertiary)]">{profile.publicPlayerId}</p><p className="mt-2 inline-flex items-center gap-2 text-sm text-[var(--cz-aqua)]"><Shield size={15} />{profile.progressionRank}</p></div>
     </section>
     <div className="grid grid-cols-1 gap-3 min-[360px]:grid-cols-2"><Stat label="Progression Rank" value={profile.progressionRank} icon={<Shield size={12} />} tone="aqua" /><Stat label="Approved Puzzles" value={String(profile.approvedPuzzlesSolved)} icon={<Puzzle size={12} />} tone="gold" /></div>

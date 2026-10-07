@@ -1,6 +1,6 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { Database } from "../db/client.js";
-import { inventoryGrants, playerEquipment, playerInventoryItems, rewardDefinitions } from "../db/schema.js";
+import { inventoryGrants, playerEquipment, playerInventoryItems, players, rewardDefinitions } from "../db/schema.js";
 import { AppError, validationFailed } from "./errors.js";
 import { insertGameEventInTransaction } from "./gameEvents.js";
 import type { GameStateTransaction } from "./gameState.js";
@@ -71,6 +71,7 @@ export class DrizzleInventoryRepository implements InventoryRepository {
       const [otherSlot] = await tx.select().from(playerEquipment).where(and(eq(playerEquipment.playerId, playerId), eq(playerEquipment.playerInventoryItemId, inventoryItemId))).limit(1).for("update");
       if (otherSlot && otherSlot.slot !== slot) throw new AppError("ITEM_ALREADY_EQUIPPED", "This item is already equipped in another slot.", 409);
       const [equipment] = await tx.insert(playerEquipment).values({ playerId, slot, playerInventoryItemId: inventoryItemId }).onConflictDoUpdate({ target: [playerEquipment.playerId, playerEquipment.slot], set: { playerInventoryItemId: inventoryItemId, equippedAt: new Date(), updatedAt: new Date() } }).returning();
+      if (slot === "AVATAR") await tx.update(players).set({ avatarSource: "INVENTORY_AVATAR", updatedAt: new Date() }).where(eq(players.playerId, playerId));
       await insertGameEventInTransaction(tx, { playerId, eventType: "inventory.item.equipped", sourceType: "PLAYER_EQUIPMENT", sourceId: equipment.playerEquipmentId, idempotencyKey: `inventory.item.equipped:${equipment.playerEquipmentId}:${equipment.equippedAt.toISOString()}`, payload: { rewardDefinitionId: owned.reward.rewardDefinitionId, inventoryItemId, slot } });
       return readInventory(tx, playerId);
     });
@@ -81,6 +82,7 @@ export class DrizzleInventoryRepository implements InventoryRepository {
       const [equipped] = await tx.select({ equipment: playerEquipment, item: playerInventoryItems }).from(playerEquipment).innerJoin(playerInventoryItems, eq(playerEquipment.playerInventoryItemId, playerInventoryItems.playerInventoryItemId)).where(and(eq(playerEquipment.playerId, playerId), eq(playerEquipment.slot, slot))).limit(1).for("update");
       if (!equipped) return readInventory(tx, playerId);
       await tx.delete(playerEquipment).where(eq(playerEquipment.playerEquipmentId, equipped.equipment.playerEquipmentId));
+      if (slot === "AVATAR") await tx.update(players).set({ avatarSource: "DEFAULT", updatedAt: new Date() }).where(eq(players.playerId, playerId));
       await insertGameEventInTransaction(tx, { playerId, eventType: "inventory.item.unequipped", sourceType: "PLAYER_EQUIPMENT", sourceId: equipped.equipment.playerEquipmentId, idempotencyKey: `inventory.item.unequipped:${equipped.equipment.playerEquipmentId}:${crypto.randomUUID()}`, payload: { rewardDefinitionId: equipped.item.rewardDefinitionId, inventoryItemId: equipped.item.playerInventoryItemId, slot } });
       return readInventory(tx, playerId);
     });

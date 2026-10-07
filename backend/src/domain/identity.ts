@@ -3,6 +3,7 @@ import { authHandoffExchanges, authSessions, players, users, wixIdentityLinks, p
 import { and, eq, gt, isNull } from "drizzle-orm";
 import { AppError } from "./errors.js";
 import { createSessionToken, hashSessionToken } from "./sessions.js";
+import { effectiveAvatar, type AvatarSource } from "./playerAvatar.js";
 
 export const identitySourceSites = ["CIRCZLES_COM", "CIRCZLES_IN"] as const;
 export const identityProviders = ["WIX", "EMAIL", "GOOGLE", "FACEBOOK"] as const;
@@ -14,6 +15,8 @@ export interface PlayerDto {
   publicPlayerId: string;
   displayName: string;
   avatar: string;
+  avatarSource?: AvatarSource;
+  customAvatarAvailable?: boolean;
   country: string;
   state: string;
   progressionLevel: number;
@@ -69,11 +72,15 @@ function normalizeVerifiedEmail(value: string) {
 }
 
 export function toPlayerDto(row: typeof players.$inferSelect, avatarUrl?: string | null): PlayerDto {
+  // Provider metadata remains identity metadata; it never selects a Hub avatar.
+  void avatarUrl;
   return {
     internalId: row.playerId,
     publicPlayerId: row.publicPlayerId,
     displayName: row.displayName,
-    avatar: avatarUrl || "/brand/avatar.svg",
+    avatar: effectiveAvatar(row.avatarSource, row.customAvatarUrl),
+    avatarSource: row.avatarSource as AvatarSource,
+    customAvatarAvailable: Boolean(row.customAvatarUrl),
     country: row.country ?? "",
     state: row.state ?? "",
     progressionLevel: 1,

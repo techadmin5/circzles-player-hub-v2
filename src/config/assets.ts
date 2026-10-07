@@ -32,6 +32,7 @@ export const FRAME_ASSETS: Record<string, string | undefined> = {
 
 export function frameAsset(name?: string): string | undefined {
   if (!name) return undefined;
+  if (name.startsWith("/") || name.startsWith("https://")) return name;
   return FRAME_ASSETS[name];
 }
 

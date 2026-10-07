@@ -1,5 +1,6 @@
 import type { ApiMissionDto, ApiStoreCatalogItem, AuthenticatedPlayerIdentity, EquipmentSlot, InventoryResponse, LeaderboardCatalog, LeaderboardResponse, Mission, MissionClaimResult, PlayerProfile, PlayerPuzzle, PublicPlayerProfile, Puzzle, RenameDisplayNameResult, RewardWheelResult, RewardWheelStatus, SignedVideoUpload, StorePurchaseResult, Submission } from "@/types";
 import { apiBaseUrl } from "@/config/dataMode";
+import { usePlayerUiState } from "@/stores/playerUiState";
 
 const phase3aDefaultStats: PlayerProfile["stats"] = {
   ownedPuzzles: 0,
@@ -88,6 +89,8 @@ function adaptPhase3aPlayer(player: Partial<PlayerProfile> & Pick<PlayerProfile,
     publicPlayerId: player.publicPlayerId,
     displayName: player.displayName,
     avatar: player.avatar ?? "/brand/avatar.svg",
+    avatarSource: player.avatarSource ?? "DEFAULT",
+    customAvatarAvailable: player.customAvatarAvailable ?? false,
     country: player.country ?? "",
     state: player.state ?? "",
     progressionLevel: player.progressionLevel ?? 1,
@@ -143,7 +146,36 @@ function missionTimeRemaining(endsAt: string | null, now: Date) {
   return `${days}d ${hours % 24}h remaining`;
 }
 
+let snapshotRequest = 0;
+export async function refreshLivePlayer(signal?: AbortSignal) {
+  const ticket = ++snapshotRequest;
+  const generation = usePlayerUiState.getState().sessionVersion;
+  const profile = adaptPhase3aPlayer(await request<PlayerProfile>("/api/me", { signal, cache: "no-store" }));
+  if (!signal?.aborted && ticket === snapshotRequest && generation === usePlayerUiState.getState().sessionVersion) usePlayerUiState.getState().hydrate(profile);
+  return profile;
+}
+
+async function playerMutation<T>(path: string, init: RequestInit): Promise<T> {
+  const generation = usePlayerUiState.getState().sessionVersion;
+  ++snapshotRequest; // Reject hydration begun before this mutation.
+  const result = await request<T>(path, init);
+  if (generation === usePlayerUiState.getState().sessionVersion) {
+    try { await refreshLivePlayer(); }
+    catch { if (generation === usePlayerUiState.getState().sessionVersion) usePlayerUiState.getState().setSyncError("Your action succeeded. Player state could not be refreshed."); }
+  }
+  // A hydration failure must never turn a committed mutation into a retryable failure.
+  return result;
+}
+
 export const apiClient = {
+  refreshLivePlayer,
+  updateProfile: (input: { displayName?: string; country?: string; state?: string; inventoryItemId?: string }, key?: string) => playerMutation<PlayerProfile>("/api/me/profile", { method: "PATCH", headers: key ? { "Idempotency-Key": key } : undefined, body: JSON.stringify(input) }),
+  selectAvatar: (source: "DEFAULT" | "CUSTOM_UPLOAD") => playerMutation<PlayerProfile>("/api/me/avatar", { method: "POST", body: JSON.stringify({ source }) }),
+  uploadAvatar: async (file: File) => {
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || !file.size || file.size > 2 * 1024 * 1024) throw new ApiClientError("AVATAR_INVALID", "Use a JPEG, PNG or WebP photo up to 2 MiB.", 400);
+    const base64 = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onerror = () => reject(new Error("Photo could not be read.")); reader.onload = () => resolve(String(reader.result).split(",")[1]); reader.readAsDataURL(file); });
+    return playerMutation<PlayerProfile>("/api/me/avatar/photo", { method: "POST", body: JSON.stringify({ mimeType: file.type, base64 }) });
+  },
   getMe: async (signal?: AbortSignal) => adaptPhase3aPlayer(await request<Partial<PlayerProfile> & Pick<PlayerProfile, "internalId" | "publicPlayerId" | "displayName">>("/api/me", { signal })),
   getSession: async (signal?: AbortSignal) => adaptSessionIdentity(await requestSession<Partial<AuthenticatedPlayerIdentity> & Pick<AuthenticatedPlayerIdentity, "internalId" | "publicPlayerId" | "displayName">>(signal)),
   exchangeAuthHandoff: async (token: string) => adaptPhase3aPlayer(await request<Partial<PlayerProfile> & Pick<PlayerProfile, "internalId" | "publicPlayerId" | "displayName">>("/api/auth/handoff/exchange", { method: "POST", body: JSON.stringify({ token }) })),
@@ -163,7 +195,7 @@ export const apiClient = {
   })),
   getOwnedPuzzles: async () => request<PlayerPuzzle[]>("/api/me/puzzles"),
   getPuzzle: async (puzzleId: string) => adaptCatalogPuzzle(await request<Puzzle>(`/api/puzzles/${encodeURIComponent(puzzleId)}`)),
-  claimPuzzleByCode: async (code: string) => request<{ success: true; puzzle: PlayerPuzzle }>("/api/puzzles/claim", {
+  claimPuzzleByCode: async (code: string) => playerMutation<{ success: true; puzzle: PlayerPuzzle }>("/api/puzzles/claim", {
     method: "POST",
     body: JSON.stringify({ code }),
   }),
@@ -171,24 +203,24 @@ export const apiClient = {
   completeVideoUpload: async (videoUploadId: string) => request<{ videoUploadId: string; status: "COMPLETE" }>(`/api/uploads/videos/${encodeURIComponent(videoUploadId)}/complete`, { method: "POST", body: JSON.stringify({}) }),
   getSubmissions: async () => request<Submission[]>("/api/submissions"),
   getSubmission: async (submissionId: string) => request<Submission>(`/api/submissions/${encodeURIComponent(submissionId)}`),
-  createSubmission: async (input: { playerPuzzleId: string; completionTimeMs: number; videoUploadId: string }, idempotencyKey: string) => request<Submission>("/api/submissions", { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(input) }),
+  createSubmission: async (input: { playerPuzzleId: string; completionTimeMs: number; videoUploadId: string }, idempotencyKey: string) => playerMutation<Submission>("/api/submissions", { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(input) }),
   getLeaderboardCatalog: async (signal?: AbortSignal) => request<LeaderboardCatalog>("/api/leaderboards/catalog", { signal }),
   getLeaderboard: async (puzzleId: string, signal?: AbortSignal) => request<LeaderboardResponse>(`/api/leaderboards?puzzleId=${encodeURIComponent(puzzleId)}`, { signal }),
   getPublicPlayerProfile: async (publicPlayerId: string, signal?: AbortSignal) => request<PublicPlayerProfile>(`/api/players/${encodeURIComponent(publicPlayerId)}/public-profile`, { signal }),
   getMissions: async (signal?: AbortSignal) => (await request<{ missions: ApiMissionDto[] }>("/api/missions", { signal })).missions.map((mission) => adaptApiMission(mission)),
-  claimMission: async (missionId: string, idempotencyKey: string) => request<MissionClaimResult>(`/api/missions/${encodeURIComponent(missionId)}/claim`, {
+  claimMission: async (missionId: string, idempotencyKey: string) => playerMutation<MissionClaimResult>(`/api/missions/${encodeURIComponent(missionId)}/claim`, {
     method: "POST",
     headers: { "Idempotency-Key": idempotencyKey },
     body: JSON.stringify({}),
   }),
   getStoreCatalog: async (signal?: AbortSignal) => (await request<{ items: ApiStoreCatalogItem[] }>("/api/rewards/store", { signal })).items,
-  purchaseStoreListing: async (listingId: string, idempotencyKey: string) => request<StorePurchaseResult>(`/api/rewards/store/${encodeURIComponent(listingId)}/purchase`, { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify({}) }),
+  purchaseStoreListing: async (listingId: string, idempotencyKey: string) => playerMutation<StorePurchaseResult>(`/api/rewards/store/${encodeURIComponent(listingId)}/purchase`, { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify({}) }),
   getInventory: async (signal?: AbortSignal) => request<InventoryResponse>("/api/me/inventory", { signal }),
-  equipInventoryItem: async (inventoryItemId: string, slot: EquipmentSlot) => request<InventoryResponse>(`/api/me/inventory/${encodeURIComponent(inventoryItemId)}/equip`, { method: "POST", body: JSON.stringify({ slot }) }),
-  unequipSlot: async (slot: EquipmentSlot) => request<InventoryResponse>(`/api/me/equipment/${encodeURIComponent(slot)}`, { method: "DELETE" }),
-  renameDisplayName: async (inventoryItemId: string, displayName: string, idempotencyKey: string) => request<RenameDisplayNameResult>("/api/me/display-name", { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ inventoryItemId, displayName }) }),
+  equipInventoryItem: async (inventoryItemId: string, slot: EquipmentSlot) => playerMutation<InventoryResponse>(`/api/me/inventory/${encodeURIComponent(inventoryItemId)}/equip`, { method: "POST", body: JSON.stringify({ slot }) }),
+  unequipSlot: async (slot: EquipmentSlot) => playerMutation<InventoryResponse>(`/api/me/equipment/${encodeURIComponent(slot)}`, { method: "DELETE" }),
+  renameDisplayName: async (inventoryItemId: string, displayName: string, idempotencyKey: string) => playerMutation<RenameDisplayNameResult>("/api/me/display-name", { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ inventoryItemId, displayName }) }),
   getRewardWheel: async (signal?: AbortSignal) => request<RewardWheelStatus>("/api/wheel", { signal }),
-  spinRewardWheel: async (idempotencyKey: string) => request<RewardWheelResult>("/api/wheel/spin", { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify({}) }),
+  spinRewardWheel: async (idempotencyKey: string) => playerMutation<RewardWheelResult>("/api/wheel/spin", { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify({}) }),
 };
 
 export function uploadVideoDirectly(signed: SignedVideoUpload, file: File, onProgress: (percent: number) => void) {

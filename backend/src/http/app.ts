@@ -30,6 +30,7 @@ import type { CouponService } from "../domain/coupons.js";
 import type { CouponRedemptionWebhookHandler } from "../integrations/couponRedemptionWebhooks.js";
 import { couponWebhookRoutes } from "./couponWebhookRoutes.js";
 import { publicPlayerIdPattern } from "../domain/playerId.js";
+import type { PlayerProfileService } from "../domain/playerProfile.js";
 import { AuthHandoffVerifier } from "../domain/authHandoff.js";
 import { UnconfiguredDirectAuthProvider, type DirectAuthorizationCallback, type DirectAuthProvider } from "../domain/directAuth.js";
 
@@ -57,6 +58,7 @@ export interface AppDeps {
   directAuth?: DirectAuthProvider;
   nativeAuth?: NativeAuthService;
   googleAuth?: GoogleAuthService;
+  playerProfile?: PlayerProfileService;
   checkDb: () => Promise<void>;
 }
 
@@ -127,7 +129,7 @@ const equipmentParamsSchema = z.object({ slot: z.enum(equipmentSlots) }).strict(
 const equipBodySchema = z.object({ slot: z.enum(equipmentSlots) }).strict();
 const renameDisplayNameBodySchema = z.object({ inventoryItemId: z.string().uuid(), displayName: z.string() }).strict();
 
-export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, coupons, playerIdentityActions, rewardWheel, couponRedemptionWebhooks, authHandoff, directAuth, nativeAuth, googleAuth, checkDb }: AppDeps) {
+export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, coupons, playerIdentityActions, rewardWheel, couponRedemptionWebhooks, authHandoff, directAuth, nativeAuth, googleAuth, playerProfile, checkDb }: AppDeps) {
   const handoffVerifier = authHandoff ?? new AuthHandoffVerifier({ circzlesCom: env.AUTH_HANDOFF_CIRCZLES_COM_SECRET, circzlesIn: env.AUTH_HANDOFF_CIRCZLES_IN_SECRET });
   const directAuthProvider = directAuth ?? new UnconfiguredDirectAuthProvider();
   const app = Fastify({
@@ -142,6 +144,7 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
   app.register(cors, {
     origin: env.FRONTEND_ORIGIN,
     credentials: true,
+    methods: ["GET", "HEAD", "POST", "PATCH", "DELETE", "OPTIONS"],
   });
   app.register(cookie, { secret: env.SESSION_SECRET });
   app.register(couponWebhookRoutes, { handler: couponRedemptionWebhooks });
@@ -248,9 +251,26 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
 
   app.get("/api/me", async (request, reply) => {
     const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+    reply.header("Cache-Control", "private, no-store");
+    if (playerProfile) return reply.send(await playerProfile.read(player.internalId));
     await gameState.ensurePlayerGameState(player.internalId);
     return reply.send(await withGameState(player, gameState));
   });
+
+  if (playerProfile) {
+    app.patch("/api/me/profile", async (request, reply) => {
+      const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+      return reply.send(await playerProfile.update(player.internalId, request.body, request.headers["idempotency-key"] as string | undefined));
+    });
+    app.post("/api/me/avatar", async (request, reply) => {
+      const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+      return reply.send(await playerProfile.selectAvatar(player.internalId, request.body));
+    });
+    app.post("/api/me/avatar/photo", { bodyLimit: 3 * 1024 * 1024 }, async (request, reply) => {
+      const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+      return reply.send(await playerProfile.uploadAvatar(player.internalId, request.body));
+    });
+  }
 
   app.get("/api/me/puzzles", async (request, reply) => {
     const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);

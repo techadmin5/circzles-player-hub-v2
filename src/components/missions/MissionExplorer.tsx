@@ -45,12 +45,13 @@ export function MissionExplorer({ mode }: { mode: DataMode }) {
     const idempotencyKey = claimKeys.current.get(missionId) ?? crypto.randomUUID();
     claimKeys.current.set(missionId, idempotencyKey);
     playSound("button");
+    const beforeClaim = usePlayerUiState.getState().player;
 
     try {
       const result = await missionService.claimMission(missionId, idempotencyKey);
-      const previousPlayerState = usePlayerUiState.getState().player
+      const previousPlayerState = beforeClaim
         ?? (mode === "mock" ? snapshotFromProfile(currentPlayer) : snapshotFromClaim(result));
-      const newPlayerState = usePlayerUiState.getState().applyClaim(result, previousPlayerState);
+      const newPlayerState = mode === "api" ? usePlayerUiState.getState().player ?? snapshotFromClaim(result) : usePlayerUiState.getState().applyClaim(result, previousPlayerState);
       setClaimResults((current) => ({ ...current, [missionId]: result }));
       setMissions((current) => current.map((mission) => mission.missionId === missionId ? { ...mission, status: "CLAIMED", claimable: false } : mission));
       claimKeys.current.delete(missionId);

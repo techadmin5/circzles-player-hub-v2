@@ -25,7 +25,7 @@ const samples = [
 
 beforeAll(async () => {
   pg = new PGlite();
-  for (const file of (await readdir(new URL("../drizzle/", import.meta.url))).filter((file) => file.endsWith(".sql") && !file.startsWith("0021_")).sort()) {
+  for (const file of (await readdir(new URL("../drizzle/", import.meta.url))).filter((file) => file.endsWith(".sql") && file.slice(0, 4) < "0021").sort()) {
     await pg.exec((await readFile(new URL(`../drizzle/${file}`, import.meta.url), "utf8")).replace("CREATE EXTENSION IF NOT EXISTS pgcrypto;", ""));
   }
   // Intentionally insert out of creation order and make an old ID collide with a proposed ID.
@@ -71,6 +71,7 @@ beforeAll(async () => {
   expect((await pg.query("SELECT * FROM inventory_consumptions")).rows[0]).toEqual({ ...consumption, metadata: { ...consumption.metadata, publicPlayerId: "hazel_001" } });
   for (const table of preservedTables) expect((await pg.query(`SELECT * FROM ${table}`)).rows).toEqual(preservedRows.get(table));
   await pg.exec(await readFile(new URL("../../docs/player-identity-postflight.sql", import.meta.url), "utf8"));
+  await pg.exec(await readFile(new URL("../drizzle/0022_player_profile_avatar.sql", import.meta.url), "utf8"));
   db = drizzle(pg, { schema }) as unknown as Database;
 }, 60_000);
 afterAll(async () => { await pg?.close(); });
@@ -79,7 +80,7 @@ describe("permanent sequential player identity", () => {
   it.each(["empty", "reserved namespace"])("handles %s migration transaction safely", async (scenario) => {
     const isolated = new PGlite();
     try {
-      for (const file of (await readdir(new URL("../drizzle/", import.meta.url))).filter((file) => file.endsWith(".sql") && !file.startsWith("0021_")).sort()) {
+      for (const file of (await readdir(new URL("../drizzle/", import.meta.url))).filter((file) => file.endsWith(".sql") && file.slice(0, 4) < "0021").sort()) {
         await isolated.exec((await readFile(new URL(`../drizzle/${file}`, import.meta.url), "utf8")).replace("CREATE EXTENSION IF NOT EXISTS pgcrypto;", ""));
       }
       const migration = await readFile(new URL("../drizzle/0021_sequential_player_identity.sql", import.meta.url), "utf8");

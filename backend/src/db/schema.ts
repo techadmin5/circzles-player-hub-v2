@@ -39,6 +39,9 @@ export const players = pgTable("players", {
   // The insert trigger replaces this placeholder with the verified-email prefix + number.
   publicPlayerId: text("public_player_id").notNull().default(""),
   displayName: text("display_name").notNull(),
+  avatarSource: text("avatar_source").notNull().default("DEFAULT"),
+  customAvatarUrl: text("custom_avatar_url"),
+  customAvatarPublicId: text("custom_avatar_public_id"),
   country: text("country"),
   state: text("state"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -48,6 +51,8 @@ export const players = pgTable("players", {
   publicPlayerIdUnique: uniqueIndex("players_public_player_id_unique").on(table.publicPlayerId),
   playerNumberUnique: uniqueIndex("players_player_number_unique").on(table.playerNumber),
   playerNumberPositive: check("players_player_number_positive", sql`${table.playerNumber} > 0`),
+  avatarSourceValid: check("players_avatar_source_valid", sql`${table.avatarSource} in ('DEFAULT', 'CUSTOM_UPLOAD', 'INVENTORY_AVATAR')`),
+  customAvatarValid: check("players_custom_avatar_valid", sql`(${table.customAvatarUrl} is null) = (${table.customAvatarPublicId} is null) and (${table.avatarSource} <> 'CUSTOM_UPLOAD' or ${table.customAvatarUrl} is not null)`),
   displayNameIndex: index("players_display_name_idx").on(table.displayName),
 }));
 

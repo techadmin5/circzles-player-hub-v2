@@ -18,7 +18,8 @@ export const resetOrder = [
 ] as const;
 const userTables = new Set(["auth_sessions", "auth_identities", "password_credentials", "auth_handoff_exchanges", "wix_identity_links", "admin_users", "players", "users"]);
 const quote = (name: string) => `"${name.replaceAll('"', '""')}"`;
-const migrations = () => readMigrationFiles({ migrationsFolder: fileURLToPath(new URL("../../drizzle/", import.meta.url)) });
+// This one-time launch operator remains frozen to its reviewed 0000–0021 chain.
+const migrations = () => readMigrationFiles({ migrationsFolder: fileURLToPath(new URL("../../drizzle/", import.meta.url)) }).slice(0, 22);
 const demand = (condition: unknown, message: string) => { if (!condition) throw new Error(message); };
 
 export interface ResetManifest {

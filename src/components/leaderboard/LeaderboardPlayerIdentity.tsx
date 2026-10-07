@@ -1,5 +1,8 @@
+"use client";
+
 import Image from "next/image";
 import { DEFAULT_AVATAR } from "@/config/assets";
+import { usePlayerUiState } from "@/stores/playerUiState";
 import { cn } from "@/lib/utils";
 
 export function LeaderboardPlayerIdentity({
@@ -13,6 +16,8 @@ export function LeaderboardPlayerIdentity({
   isCurrentPlayer?: boolean;
   compact?: boolean;
 }) {
+  const livePlayer = usePlayerUiState((state) => state.player);
+  const currentPlayer = livePlayer?.publicPlayerId === publicPlayerId ? livePlayer : undefined;
   return (
     <span className="flex min-w-0 items-center gap-2" data-public-player-id={publicPlayerId}>
       <span
@@ -21,10 +26,10 @@ export function LeaderboardPlayerIdentity({
           compact ? "h-8 w-8 text-[0.62rem]" : "h-9 w-9 text-[0.68rem]",
         )}
       >
-        <Image src={DEFAULT_AVATAR} alt="" fill sizes={compact ? "32px" : "36px"} className="object-cover" />
+        <Image unoptimized src={currentPlayer?.avatar ?? DEFAULT_AVATAR} alt="" fill sizes={compact ? "32px" : "36px"} className="object-cover" />
       </span>
       <span className="min-w-0 truncate text-sm font-semibold">
-        {displayName}
+        {currentPlayer?.displayName ?? displayName}
         {isCurrentPlayer && <span className="ml-1.5 text-[0.68rem] font-semibold text-[var(--cz-aqua)]">You</span>}
       </span>
     </span>

@@ -25,7 +25,7 @@ function stateFor(order: number, currentOrder: number): RankState {
 }
 
 export function ProgressionCodex({ open, onClose, player, showRewardPreview = true }: { open: boolean; onClose: () => void; player: PlayerProfile; showRewardPreview?: boolean }) {
-  const current = rankFor(player.progressionLevel);
+  const current = showRewardPreview ? rankFor(player.progressionLevel) : progressionRanks.find((rank) => rank.rank === player.rank) ?? progressionRanks[0];
   const [selectedKey, setSelectedKey] = useState(current.key);
   const selected = progressionRanks.find((r) => r.key === selectedKey) ?? current;
   const state = stateFor(selected.order, current.order);

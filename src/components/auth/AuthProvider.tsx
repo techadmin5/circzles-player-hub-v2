@@ -26,7 +26,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>(dataMode === "mock" ? "authenticated" : "checking");
   const [identity, setIdentity] = useState<AuthenticatedPlayerIdentity>();
-  const [player, setPlayer] = useState<PlayerProfile>();
+  const player = usePlayerUiState((state) => state.player);
   const [profileStatus, setProfileStatus] = useState<ProfileStatus>("idle");
   const sessionRequestRef = useRef<Promise<AuthenticatedPlayerIdentity | PlayerProfile | null> | null>(null);
   const sessionAbortRef = useRef<AbortController | null>(null);
@@ -36,7 +36,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const acceptProfile = useCallback((profile: PlayerProfile) => {
     setIdentity(profile);
-    setPlayer(profile);
+
     usePlayerUiState.getState().hydrate(profile);
     setProfileStatus("ready");
   }, []);
@@ -44,7 +44,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const acceptAuthentication = useCallback((authenticatedPlayer: PlayerProfile) => {
     profileAbortRef.current?.abort();
     profileRequestRef.current = null;
+    usePlayerUiState.getState().clear();
     acceptProfile(authenticatedPlayer);
+    const generation = usePlayerUiState.getState().sessionVersion;
+    if (dataMode === "api") void apiClient.refreshLivePlayer().catch(() => {
+      if (generation === usePlayerUiState.getState().sessionVersion) usePlayerUiState.getState().setSyncError("Player state could not be refreshed.");
+    });
     setStatus("authenticated");
   }, [acceptProfile]);
 
@@ -54,9 +59,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const controller = new AbortController();
     profileAbortRef.current = controller;
     setProfileStatus("loading");
-    const profileRequest = apiClient.getMe(controller.signal)
+    const generation = authGenerationRef.current;
+    const profileRequest = apiClient.refreshLivePlayer(controller.signal)
       .then((profile) => {
-        acceptProfile(profile);
+        if (!controller.signal.aborted && generation === authGenerationRef.current) setProfileStatus("ready");
         return profile;
       })
       .catch((error) => {
@@ -71,7 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
     profileRequestRef.current = profileRequest;
     return profileRequest;
-  }, [acceptProfile]);
+  }, []);
 
   const refresh = useCallback(() => {
     if (dataMode === "mock") return Promise.resolve(null);
@@ -87,7 +93,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         profileAbortRef.current?.abort();
         profileRequestRef.current = null;
         setIdentity(authenticatedIdentity);
-        setPlayer(undefined);
+
         usePlayerUiState.getState().clear();
         setStatus("authenticated");
         void hydrateProfile().catch(() => undefined);
@@ -107,7 +113,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
           }
           setIdentity(undefined);
-          setPlayer(undefined);
+
           setProfileStatus("idle");
           usePlayerUiState.getState().clear();
           setStatus("unauthenticated");
@@ -132,7 +138,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     profileAbortRef.current?.abort();
     profileRequestRef.current = null;
     setIdentity(undefined);
-    setPlayer(undefined);
+
     setProfileStatus("idle");
     usePlayerUiState.getState().clear();
     setStatus("unauthenticated");
@@ -146,7 +152,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(timeout);
   }, [refresh]);
 
-  const value = useMemo(() => ({ status, identity, player, profileStatus, acceptAuthentication, refresh, logout }), [status, identity, player, profileStatus, acceptAuthentication, refresh, logout]);
+  useEffect(() => {
+    if (dataMode !== "api" || status !== "authenticated") return;
+    const controller = new AbortController();
+    const update = () => {
+      if (document.visibilityState !== "visible") return;
+      void apiClient.refreshLivePlayer(controller.signal).catch((error) => {
+        if (controller.signal.aborted) return;
+        if (error instanceof ApiClientError && error.status === 401) void refresh().catch(() => undefined);
+        else usePlayerUiState.getState().setSyncError("Player state could not be refreshed.");
+      });
+    };
+    const interval = window.setInterval(update, 15_000);
+    window.addEventListener("focus", update);
+    document.addEventListener("visibilitychange", update);
+    return () => { controller.abort(); window.clearInterval(interval); window.removeEventListener("focus", update); document.removeEventListener("visibilitychange", update); };
+  }, [status, refresh]);
+
+  const value = useMemo(() => ({ status, identity: player ?? identity, player, profileStatus, acceptAuthentication, refresh, logout }), [status, identity, player, profileStatus, acceptAuthentication, refresh, logout]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

@@ -40,7 +40,7 @@ export function PageFrame({ title, eyebrow, children, action }: { title: string;
 export function PlayerSummary({ player }: { player: PlayerProfile }) {
   const pct = Math.min(100, Math.round((player.xp / player.xpNeeded) * 100));
   return <div className="game-card glow-border grid gap-5 p-5 md:grid-cols-[auto_1fr_auto]">
-    <Image src={player.avatar} alt="" width={84} height={84} className="rounded-lg" />
+    <Image unoptimized src={player.avatar} alt="" width={84} height={84} className="rounded-lg" />
     <div><h2 className="font-display text-4xl font-bold">{player.displayName}</h2><p className="text-sm text-[var(--text-secondary)]">{player.publicPlayerId} · {player.rank} · Progression Level {player.progressionLevel}</p><div className="mt-3 h-3 rounded-full bg-white/10"><div className="h-full rounded-full bg-gradient-to-r from-[var(--cyan)] to-[var(--gold)]" style={{ width: `${pct}%` }} /></div></div>
     <div className="grid grid-cols-2 gap-3 text-right"><StatCard label="Synapse Points" value={player.synapsePoints.toLocaleString()} /><StatCard label="Streak" value={`${player.streak}d`} /></div>
   </div>;
