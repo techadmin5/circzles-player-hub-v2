@@ -14,6 +14,8 @@ Numbers are never recycled by account deletion, suspension, failed insertion, ro
 
 ## Existing-player migration and manual rollout
 
+**Production launch exception:** the current 12 production players are confirmed disposable tests. For that launch, use `docs/PRODUCTION_PLAYER_LAUNCH_RESET.md` and its explicit reviewed operator reset BEFORE 0021 instead of the backfill procedure below. It leaves the table empty and the first real allocation at 1. The general backfill remains appropriate for databases whose existing players must survive. Do not run both rollout procedures.
+
 Migration: `backend/drizzle/0021_sequential_player_identity.sql`, with the corresponding Drizzle journal and `0021_snapshot.json`.
 
 All existing players, including suspended/deleted users, are ordered by **`players.created_at ASC, players.player_id ASC`**. `row_number()` assigns 1..N deterministically; `last_login_at` and display name are irrelevant. A safe temporary ID namespace lets all public IDs change in two phases without dropping their unique index or colliding with old IDs that already equal a proposed ID. Missing/unverified/unusable legacy emails become `player_<number>`; these do not block migration. An orphaned user relation or preexisting reserved migration namespace does block migration before any player row is changed.
