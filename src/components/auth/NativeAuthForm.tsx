@@ -5,14 +5,24 @@ import { useRouter } from "next/navigation";
 import { apiClient } from "@/lib/apiClient";
 import { useAuth } from "./AuthProvider";
 import { AuthFormNotice, AuthNavigation, PasswordSetupIntroduction, type AuthMode } from "./AuthPresentation";
+import { AuthLoadingOverlay } from "./AuthLoadingOverlay";
+import { emailLoadingSlides, loginLoadingSlides } from "./authLoadingSlides";
+import { useAuthLoading } from "./useAuthLoading";
 
 type Mode = AuthMode;
 const inputStyle = "min-h-11 rounded-xl border border-[var(--cz-hairline-strong)] bg-[var(--cz-inset)] px-3.5 text-sm outline-none focus:border-[var(--cz-aqua)]";
 const labels: Record<Mode, string> = { login: "Log in", signup: "Create account", verify: "Verify email", "forgot-password": "Send reset link", "reset-password": "Reset password", "set-password": "Add password" };
-export function NativeAuthForm({ mode, returnTo = "/hub", initialError = "" }: { mode: Mode; returnTo?: string; initialError?: string }) {
+type NativeAuthFormProps = { mode: Mode; returnTo?: string; initialError?: string };
+export function NativeAuthForm(props: NativeAuthFormProps) {
   const router = useRouter();
   const { refresh } = useAuth();
+  return <NativeAuthFormContent {...props} refresh={refresh} onAuthenticated={(path) => router.replace(path)} />;
+}
+
+export function NativeAuthFormContent({ mode, returnTo = "/hub", initialError = "", refresh, onAuthenticated }: NativeAuthFormProps & { refresh: () => Promise<unknown>; onAuthenticated: (path: string) => void }) {
   const [busy, setBusy] = useState(false);
+  const loadingSlides = mode === "login" ? loginLoadingSlides : emailLoadingSlides;
+  const loading = useAuthLoading(loadingSlides.length);
   const [message, setMessage] = useState("");
   const [error, setError] = useState(initialError);
   const [token, setToken] = useState("");
@@ -25,7 +35,9 @@ export function NativeAuthForm({ mode, returnTo = "/hub", initialError = "" }: {
     return () => window.clearTimeout(timer);
   }, []);
   async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true); setError(""); setMessage("");
+    event.preventDefault();
+    if (busy || !loading.start()) return;
+    setBusy(true); setError(""); setMessage("");
     const data = new FormData(event.currentTarget);
     try {
       if (mode === "signup") {
@@ -43,10 +55,10 @@ export function NativeAuthForm({ mode, returnTo = "/hub", initialError = "" }: {
         else await apiClient.setPassword(token, String(data.get("password")));
         const session = await refresh();
         if (!session) throw new Error("Your session could not be verified. Please log in.");
-        router.replace(returnTo);
+        onAuthenticated(returnTo);
       }
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Authentication could not complete."); }
-    finally { setBusy(false); }
+    finally { loading.finish(); setBusy(false); }
   }
   async function google() {
     setBusy(true); setError("");
@@ -59,7 +71,7 @@ export function NativeAuthForm({ mode, returnTo = "/hub", initialError = "" }: {
   return <div className="cz-surface mt-6 grid gap-4 p-5">
     {(mode === "login" || mode === "signup") && <button className="cz-btn cz-btn-primary w-full" disabled={busy} onClick={google}>Continue with Google</button>}
     {mode === "set-password" && <><PasswordSetupIntroduction /><p className="text-xs text-[var(--cz-text-tertiary)]">Keep the browser session that requested this email open. Your password will belong to the same Player ID.</p></>}
-    <form className="grid gap-4" onSubmit={submit}>
+    <form className="grid gap-4" aria-busy={busy} onSubmit={submit}>
       {mode === "signup" && <label className="grid gap-1 text-sm">Display name<input className={inputStyle} name="displayName" autoComplete="name" minLength={2} maxLength={80} required /></label>}
       {emailMode && <label className="grid gap-1 text-sm">Email<input className={inputStyle} name="email" type="email" autoComplete="email" maxLength={320} required /></label>}
       {passwordMode && <label className="grid gap-1 text-sm">{mode === "login" ? "Password" : "New password (at least 12 characters)"}<input className={inputStyle} name="password" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} minLength={mode === "login" ? 1 : 12} maxLength={256} required /></label>}
@@ -69,5 +81,6 @@ export function NativeAuthForm({ mode, returnTo = "/hub", initialError = "" }: {
     {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
     <AuthFormNotice mode={mode} message={message} />
     <AuthNavigation mode={mode} returnTo={returnTo} />
+    {loading.visible && <AuthLoadingOverlay slide={loadingSlides[loading.slideIndex]} />}
   </div>;
 }

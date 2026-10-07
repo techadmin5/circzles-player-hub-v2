@@ -17,6 +17,9 @@ export class ApiClientError extends Error {
   }
 }
 
+// Leave five seconds of headroom below the proxy's 50-second request deadline.
+export const AUTH_REQUEST_TIMEOUT_MS = 45_000;
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (apiBaseUrl === undefined) throw new ApiClientError("API_BASE_URL_MISSING", "NEXT_PUBLIC_API_BASE_URL is not configured.", 500);
   const response = await fetch(`${apiBaseUrl}${path}`, {
@@ -37,8 +40,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 async function requestSession<T>(signal?: AbortSignal): Promise<T> {
   const controller = new AbortController();
   const abort = () => controller.abort();
+  if (signal?.aborted) controller.abort();
   signal?.addEventListener("abort", abort, { once: true });
-  const timeout = window.setTimeout(() => controller.abort(), 20_000);
+  const timeout = window.setTimeout(() => controller.abort(), AUTH_REQUEST_TIMEOUT_MS);
   try {
     return await request<T>("/api/auth/session", { signal: controller.signal });
   } catch (error) {
@@ -54,7 +58,7 @@ async function requestSession<T>(signal?: AbortSignal): Promise<T> {
 
 async function requestEmailAuth<T>(path: string, init: RequestInit): Promise<T> {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 20_000);
+  const timeout = window.setTimeout(() => controller.abort(), AUTH_REQUEST_TIMEOUT_MS);
   try {
     return await request<T>(path, { ...init, signal: controller.signal });
   } catch (error) {
