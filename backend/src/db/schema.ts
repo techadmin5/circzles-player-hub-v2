@@ -35,7 +35,9 @@ export const users = pgTable("users", {
 export const players = pgTable("players", {
   playerId: uuid("player_id").primaryKey().defaultRandom(),
   userId: uuid("user_id").notNull().references(() => users.userId, { onDelete: "restrict" }),
-  publicPlayerId: text("public_player_id").notNull(),
+  playerNumber: bigint("player_number", { mode: "bigint" }).generatedAlwaysAsIdentity({ name: "players_player_number_seq", startWith: 1, increment: 1, cache: 1, cycle: false }),
+  // The insert trigger replaces this placeholder with the verified-email prefix + number.
+  publicPlayerId: text("public_player_id").notNull().default(""),
   displayName: text("display_name").notNull(),
   country: text("country"),
   state: text("state"),
@@ -44,6 +46,8 @@ export const players = pgTable("players", {
 }, (table) => ({
   userIdUnique: uniqueIndex("players_user_id_unique").on(table.userId),
   publicPlayerIdUnique: uniqueIndex("players_public_player_id_unique").on(table.publicPlayerId),
+  playerNumberUnique: uniqueIndex("players_player_number_unique").on(table.playerNumber),
+  playerNumberPositive: check("players_player_number_positive", sql`${table.playerNumber} > 0`),
   displayNameIndex: index("players_display_name_idx").on(table.displayName),
 }));
 

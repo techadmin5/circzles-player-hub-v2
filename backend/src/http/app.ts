@@ -29,6 +29,7 @@ import type { RewardWheelService } from "../domain/rewardWheel.js";
 import type { CouponService } from "../domain/coupons.js";
 import type { CouponRedemptionWebhookHandler } from "../integrations/couponRedemptionWebhooks.js";
 import { couponWebhookRoutes } from "./couponWebhookRoutes.js";
+import { publicPlayerIdPattern } from "../domain/playerId.js";
 import { AuthHandoffVerifier } from "../domain/authHandoff.js";
 import { UnconfiguredDirectAuthProvider, type DirectAuthorizationCallback, type DirectAuthProvider } from "../domain/directAuth.js";
 
@@ -114,7 +115,7 @@ const adminSubmissionQuerySchema = z.object({
 const adminSubmissionParamsSchema = z.object({ submissionId: z.string().uuid() }).strict();
 const leaderboardQuerySchema = z.object({ puzzleId: z.string().uuid() }).strict();
 const publicProfileParamsSchema = z.object({
-  publicPlayerId: z.string().regex(/^CZ-[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/),
+  publicPlayerId: z.string().max(84).regex(publicPlayerIdPattern),
 }).strict();
 const reviewSubmissionBodySchema = z.object({
   decision: z.enum(["APPROVED", "REJECTED", "RESUBMISSION_REQUIRED"]),

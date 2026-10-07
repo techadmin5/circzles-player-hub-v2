@@ -166,6 +166,14 @@ button, input, select, textarea { font: inherit; }
 .cz-auth-loading-orbit span { font-family: var(--font-manrope), system-ui, sans-serif; font-size: 32px; font-weight: 800; color: var(--cz-aqua); }
 @keyframes cz-auth-orbit { to { transform: rotate(360deg); } }
 
+/* Dashboard-only atmosphere. Other routes keep the existing opaque surfaces. */
+.cz-hub-atmosphere { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; background: radial-gradient(ellipse at 12% 12%, rgba(61,234,212,.13), transparent 55%), radial-gradient(ellipse at 88% 40%, rgba(138,109,255,.15), transparent 55%), #070a12; }
+.cz-hub-readability { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(7,10,18,.68), rgba(7,10,18,.84)); }
+.cz-hub-ambient { position: absolute; inset: 0; background: radial-gradient(ellipse at 12% 6%, rgba(61,234,212,.12), transparent 48%), radial-gradient(ellipse at 95% 45%, rgba(138,109,255,.12), transparent 48%), radial-gradient(ellipse at 40% 95%, rgba(232,180,80,.05), transparent 45%); }
+.cz-hub-dashboard main .cz-surface { background: rgba(14,20,32,.86); border-color: rgba(185,196,214,.16); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); box-shadow: 0 14px 36px rgba(0,0,0,.24), inset 0 1px 0 rgba(255,255,255,.035); }
+.cz-hub-dashboard main .cz-raised { background: rgba(18,26,44,.9); border-color: rgba(61,234,212,.14); }
+.cz-hub-dashboard main .cz-inset { background: rgba(10,14,24,.84); }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 1ms !important;

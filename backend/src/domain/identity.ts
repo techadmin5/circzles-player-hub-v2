@@ -2,7 +2,6 @@ import type { Database } from "../db/client.js";
 import { authHandoffExchanges, authSessions, players, users, wixIdentityLinks, passwordCredentials } from "../db/schema.js";
 import { and, eq, gt, isNull } from "drizzle-orm";
 import { AppError } from "./errors.js";
-import { generatePublicPlayerId } from "./playerId.js";
 import { createSessionToken, hashSessionToken } from "./sessions.js";
 
 export const identitySourceSites = ["CIRCZLES_COM", "CIRCZLES_IN"] as const;
@@ -154,7 +153,7 @@ export class DrizzleIdentityRepository implements IdentityRepository {
       if (!user || user.status !== "ACTIVE") throw new AppError("IDENTITY_RESOLUTION_FAILED", "The verified identity could not be resolved.", 409);
 
       let [player] = await tx.select().from(players).where(eq(players.userId, user.userId)).limit(1);
-      if (!player) player = await createPlayer(tx, user.userId, input.displayName, input.publicPlayerId);
+      if (!player) player = await createPlayer(tx, user.userId, input.displayName);
 
       const [createdLink] = await tx.insert(wixIdentityLinks).values({
         userId: user.userId,
@@ -227,18 +226,13 @@ export class DrizzleIdentityRepository implements IdentityRepository {
 
 type IdentityTransaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
-export async function createPlayer(tx: IdentityTransaction, userId: string, displayName?: string, requestedPublicPlayerId?: string) {
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const [player] = await tx.insert(players).values({
-      userId,
-      publicPlayerId: requestedPublicPlayerId ?? generatePublicPlayerId(),
-      displayName: displayName?.trim() || "CircZles Player",
-    }).onConflictDoNothing().returning();
-    if (player) return player;
-    if (requestedPublicPlayerId) break;
-    const [existing] = await tx.select().from(players).where(eq(players.userId, userId)).limit(1);
-    if (existing) return existing;
-  }
+export async function createPlayer(tx: IdentityTransaction, userId: string, displayName?: string) {
+  // PostgreSQL assigns the sequence number and derives the permanent ID in this insert.
+  const [player] = await tx.insert(players).values({ userId, displayName: displayName?.trim() || "CircZles Player" })
+    .onConflictDoNothing({ target: players.userId }).returning();
+  if (player) return player;
+  const [existing] = await tx.select().from(players).where(eq(players.userId, userId)).limit(1);
+  if (existing) return existing;
   throw new AppError("CREATE_PLAYER_FAILED", "Could not create player.", 500);
 }
 

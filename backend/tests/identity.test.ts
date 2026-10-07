@@ -6,10 +6,11 @@ import { FakeIdentityRepository } from "./fakes.js";
 const secret = "test-session-secret-with-at-least-32-chars";
 
 describe("identity foundation", () => {
-  it("generates publicPlayerId values in CZ-XXXXXX format with strong uniqueness", () => {
-    const ids = new Set(Array.from({ length: 1000 }, () => generatePublicPlayerId()));
+  it("formats distinct database-issued player numbers beyond three digits", () => {
+    const ids = new Set(Array.from({ length: 1000 }, (_, index) => generatePublicPlayerId("player@example.test", BigInt(index + 1))));
     expect(ids.size).toBe(1000);
-    for (const id of ids) expect(id).toMatch(/^CZ-[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/);
+    expect(ids.has("player_001")).toBe(true);
+    expect(ids.has("player_1000")).toBe(true);
   });
 
   it("creates a first-time Wix player", async () => {

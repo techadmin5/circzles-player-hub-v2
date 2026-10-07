@@ -8,7 +8,7 @@
     "lint": "eslint",
     "test:auth-callback": "node --test src/lib/wixAuthCallback.test.mjs",
     "test:api-proxy": "node --test src/lib/server/apiProxy.test.mjs",
-    "test": "node --import tsx --test src/lib/wixAuthCallback.test.mjs src/lib/handoffFragment.test.mjs src/lib/server/apiProxy.test.mjs src/components/auth/authPresentation.test.mjs src/components/auth/authLoading.test.mjs src/lib/authTimeout.test.mjs"
+    "test": "node --import tsx --test src/lib/wixAuthCallback.test.mjs src/lib/handoffFragment.test.mjs src/lib/server/apiProxy.test.mjs src/components/auth/authPresentation.test.mjs src/components/auth/authLoading.test.mjs src/lib/authTimeout.test.mjs src/components/game-shell/gameShell.test.mjs"
   },
   "dependencies": {
     "@tailwindcss/postcss": "latest",

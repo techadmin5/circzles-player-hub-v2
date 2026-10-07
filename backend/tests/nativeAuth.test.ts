@@ -200,7 +200,7 @@ describe("direct Google authorization", () => {
     const [stored] = await db.select().from(schema.googleAuthStates);
     expect(stored.stateHash).toBe(tokenDigest(flow.state)); expect(stored.bindingHash).toBe(tokenDigest(flow.start.binding));
     const result = await flow.provider.complete({ state: flow.state, code: "one-use-code" }, flow.start.binding);
-    expect(result.account.player.publicPlayerId).toMatch(/^CZ-/);
+    expect(result.account.player.publicPlayerId).toMatch(/^player_[0-9]{3,}$/);
     const init = vi.mocked(flow.fetcher).mock.calls[0][1]!;
     expect(String(init.body)).toContain("client_secret=google-secret"); expect(String(init.body)).toContain("code_verifier=");
     await expect(flow.provider.complete({ state: flow.state, code: "code" }, flow.start.binding)).rejects.toMatchObject({ code: "GOOGLE_STATE_INVALID" });

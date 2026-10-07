@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { dataMode } from "@/config/dataMode";
 import { usePlayerUiState } from "@/stores/playerUiState";
 import { AuthenticatedRoute, useAuth } from "@/components/auth/AuthProvider";
+import { HubAtmosphere } from "@/components/hub/HubAtmosphere";
 
 function isActive(pathname: string, href: string) {
   return pathname === href || (href !== "/hub" && pathname.startsWith(`${href}/`));
@@ -46,15 +47,15 @@ function NavLink({ item, pathname, onClick }: { item: NavItem; pathname: string;
 function Sidebar({ pathname, onLogout }: { pathname: string; onLogout: () => void }) {
   const items = dataMode === "api" ? PRIMARY_NAV.filter((item) => PRODUCTION_NAV.has(item.href)) : PRIMARY_NAV;
   return (
-    <aside className="sticky top-0 hidden h-dvh w-[236px] shrink-0 flex-col border-r border-[var(--cz-hairline)] bg-[var(--cz-surface)] px-3 py-5 lg:flex">
-      <Link href="/hub" data-sound="navigation" className="mb-6 flex items-center gap-2.5 px-2">
+    <aside data-testid="game-sidebar" className="hidden h-full min-h-0 w-[236px] shrink-0 flex-col border-r border-[var(--cz-hairline)] bg-[var(--cz-surface)] px-3 py-5 lg:flex">
+      <Link href="/hub" data-sound="navigation" className="mb-6 flex shrink-0 items-center gap-2.5 px-2">
         <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-[var(--cz-aqua)] to-[#1a8a7c] text-[var(--cz-void)]"><LayoutGrid size={17} /></span>
         <span className="cz-display text-[1.05rem] font-bold tracking-tight">CircZles</span>
       </Link>
-      <nav className="cz-scroll flex flex-1 flex-col gap-0.5 overflow-y-auto pr-1">
+      <nav aria-label="Player Hub navigation" className="cz-scroll flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto pr-1">
         {items.map((item) => <NavLink key={item.href} item={item} pathname={pathname} />)}
       </nav>
-      <div className="mt-2 grid gap-0.5 border-t border-[var(--cz-hairline)] pt-2">
+      <div className="mt-2 grid shrink-0 gap-0.5 border-t border-[var(--cz-hairline)] pt-2">
         <NavLink item={SETTINGS_ITEM} pathname={pathname} />
         {dataMode === "mock" && <Link href="/admin" data-sound="navigation" data-testid="nav-admin" className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-[var(--cz-text-tertiary)] transition-colors hover:bg-[var(--cz-gold-dim)] hover:text-[var(--cz-gold)]">
           <Shield size={18} />Admin Area
@@ -72,7 +73,7 @@ function TopBar({ player, identity, onOpenMenu }: { player?: PlayerProfile; iden
   const balancePulse = usePlayerUiState((state) => state.balancePulse);
   const balance = displayedSynapsePoints ?? player?.synapsePoints;
   return (
-    <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-[var(--cz-hairline)] bg-[rgba(9,13,23,0.82)] px-4 py-3 backdrop-blur-xl lg:px-8">
+    <header className="sticky top-0 z-30 flex shrink-0 items-center gap-3 border-b border-[var(--cz-hairline)] bg-[rgba(9,13,23,0.82)] px-4 py-3 backdrop-blur-xl lg:static lg:px-8">
       <Link href="/hub" className="flex items-center gap-2 lg:hidden">
         <span className="grid h-7 w-7 place-items-center rounded-md bg-gradient-to-br from-[var(--cz-aqua)] to-[#1a8a7c] text-[var(--cz-void)]"><LayoutGrid size={15} /></span>
         <span className="cz-display text-sm font-bold">CircZles</span>
@@ -174,11 +175,14 @@ export function GameShell({ player, children }: { player?: PlayerProfile; childr
   };
 
   return <AuthenticatedRoute>
-    <div className="min-h-dvh lg:flex">
+    <div data-testid="game-shell" className="min-h-dvh lg:flex lg:h-dvh lg:min-h-0 lg:overflow-hidden">
       <Sidebar pathname={pathname} onLogout={handleLogout} />
-      <div className="flex min-h-dvh w-full min-w-0 flex-col">
+      <div className={cn("relative isolate flex min-h-dvh w-full min-w-0 flex-col lg:h-full lg:min-h-0", pathname === "/hub" && "cz-hub-dashboard")}>
+        {pathname === "/hub" && <HubAtmosphere />}
         <TopBar player={dataMode === "api" ? authenticatedPlayer : player} identity={dataMode === "api" ? authenticatedIdentity : player} onOpenMenu={() => setMoreOpen(true)} />
-        <main className="mx-auto min-w-0 w-full max-w-[1240px] flex-1 overflow-x-clip px-4 pb-28 pt-6 lg:px-8 lg:pb-12">{children}</main>
+        <div data-testid="game-content-scroll" tabIndex={0} role="region" aria-label="Player Hub content" className="relative z-10 min-h-0 flex-1 lg:overflow-y-auto lg:overscroll-contain">
+          <main className="mx-auto w-full min-w-0 max-w-[1240px] overflow-x-clip px-4 pb-28 pt-6 lg:px-8 lg:pb-12">{children}</main>
+        </div>
       </div>
       <MobileNav pathname={pathname} onOpenMore={() => setMoreOpen(true)} />
       <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} pathname={pathname} onLogout={handleLogout} />

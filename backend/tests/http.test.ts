@@ -1157,6 +1157,18 @@ describe("missions HTTP API", () => {
 });
 
 describe("public player profile HTTP API", () => {
+  it("accepts sequential public IDs and rejects noncanonical or oversized IDs", async () => {
+    const { app, publicProfileRepo } = await appWithFakes({ NODE_ENV: "development" });
+    const cookie = await login(app);
+    for (const id of ["hazel_001", "john_doe_002", "player_999", "player_1000"]) {
+      publicProfileRepo.profiles.set(id, { publicPlayerId: id, displayName: "Player", progressionRank: "Peasant", approvedPuzzlesSolved: 0, avatarUrl: null, equippedFrame: null, displayedBadges: [] });
+      const response = await app.inject({ method: "GET", url: `/api/players/${id}/public-profile`, headers: { cookie } });
+      expect(response.statusCode).toBe(200); expect(response.json().publicPlayerId).toBe(id);
+    }
+    for (const id of ["hazel_000", "hazel_01", "hazel_0001", "Hazel_001", "hazel@example.com", "x".repeat(85)]) {
+      expect((await app.inject({ method: "GET", url: `/api/players/${id}/public-profile`, headers: { cookie } })).statusCode).toBe(400);
+    }
+  });
   it("requires authentication and validates public player ids", async () => {
     const { app } = await appWithFakes({ NODE_ENV: "development" });
     expect((await app.inject({ method: "GET", url: "/api/players/CZ-8F42KD/public-profile" })).statusCode).toBe(401);

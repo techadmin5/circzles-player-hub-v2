@@ -14,7 +14,7 @@ export default async function Page() {
       <PageHeader kicker="Community" title="Find Players" subtitle="Search by public player ID or display name" />
       <div className="grid gap-4">
         <div className="cz-surface p-4">
-          <input aria-label="Search players" placeholder="CZ-XXXXXX or display name" data-testid="friend-search-input"
+          <input aria-label="Search players" placeholder="Player ID or display name" data-testid="friend-search-input"
             className="min-h-11 w-full rounded-xl border border-[var(--cz-hairline-strong)] bg-[var(--cz-inset)] px-3.5 text-sm outline-none placeholder:text-[var(--cz-text-tertiary)] focus:border-[var(--cz-aqua)]" />
         </div>
         <div className="grid gap-3 sm:grid-cols-2">{others.map((p) => <SearchResultCard key={p.publicPlayerId} player={p} />)}</div>
