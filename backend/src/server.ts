@@ -1,3 +1,5 @@
+import { PlayerStateEvents } from "./domain/playerStateEvents.js";
+import { PlayerStateListener } from "./db/playerStateListener.js";
 import { loadEnv } from "./config/env.js";
 import { createDb } from "./db/client.js";
 import { DrizzleGameStateRepository, GameStateService } from "./domain/gameState.js";
@@ -87,7 +89,9 @@ const couponRedemptionWebhooks = new ProviderCouponRedemptionWebhookHandler(
   new ShopifyOrdersPaidWebhook({ clientSecret: env.SHOPIFY_CLIENT_SECRET, shopDomain: env.SHOPIFY_SHOP_DOMAIN }),
   couponRedemptionSync,
 );
+const playerStateEvents = new PlayerStateEvents();
 const app = buildApp({
+  playerStateEvents,
   env,
   identity,
   gameState,
@@ -123,6 +127,11 @@ const authCleanup = setInterval(() => {
 }, 60 * 60_000);
 authCleanup.unref();
 app.addHook("onClose", async () => { clearInterval(authCleanup); });
+
+const stateListener = new PlayerStateListener(env.PLAYER_STATE_EVENTS_DATABASE_URL ?? env.DATABASE_URL, playerStateEvents, () => app.log.warn("Player state listener disconnected; retrying"));
+app.addHook("preClose", async () => playerStateEvents.setReady(false));
+app.addHook("onClose", async () => stateListener.stop());
+await stateListener.start();
 
 const address = await app.listen({ port: env.PORT, host: "0.0.0.0" });
 missionRunner.start();

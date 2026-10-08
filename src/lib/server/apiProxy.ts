@@ -65,6 +65,8 @@ export function createApiProxy(options: ProxyOptions = {}) {
     if (request.signal.aborted) abort();
     let attempt = 0;
     let phase = "request";
+    let streaming = false;
+    const cleanup = () => { clearTimeout(timeout); request.signal.removeEventListener("abort", abort); };
     try {
       const headers = endToEndHeaders(request.headers);
       headers.delete("x-player-hub-proxy-secret");
@@ -127,6 +129,29 @@ export function createApiProxy(options: ProxyOptions = {}) {
           continue;
         }
 
+        // Only this authenticated, bounded SSE endpoint bypasses JSON buffering.
+        if (request.method === "GET" && target.pathname === "/api/me/events" && upstream.status === 200
+          && upstream.headers.get("content-type")?.split(";")[0].trim() === "text/event-stream" && upstream.body) {
+          const reader = upstream.body.getReader();
+          const responseHeaders = endToEndHeaders(upstream.headers);
+          for (const name of ["content-length", "content-encoding", "cdn-cache-control", "vercel-cdn-cache-control"]) responseHeaders.delete(name);
+          responseHeaders.set("cache-control", `${noStore}, no-transform`);
+          responseHeaders.set("x-accel-buffering", "no");
+          responseHeaders.set("x-proxy-request-id", proxyId);
+          const body = new ReadableStream<Uint8Array>({
+            async pull(stream) {
+              try {
+                const chunk = await reader.read();
+                if (chunk.done) { cleanup(); stream.close(); }
+                else stream.enqueue(chunk.value);
+              } catch (error) { cleanup(); controller.abort(); stream.error(error); }
+            },
+            async cancel() { controller.abort(); cleanup(); await reader.cancel().catch(() => undefined); },
+          });
+          streaming = true;
+          return new Response(body, { status: 200, headers: responseHeaders });
+        }
+
         phase = "body";
         // Buffer API responses so body failures/timeouts remain explicit proxy errors.
         // Large binary uploads already go directly to the signed storage endpoint.
@@ -154,8 +179,7 @@ export function createApiProxy(options: ProxyOptions = {}) {
       if (request.signal.aborted) return failure(499, "PROXY_CLIENT_ABORTED", "API request was cancelled.");
       return failure(502, "PROXY_UPSTREAM_UNREACHABLE", "API upstream response could not be received.");
     } finally {
-      clearTimeout(timeout);
-      request.signal.removeEventListener("abort", abort);
+      if (!streaming) cleanup();
     }
   };
 }

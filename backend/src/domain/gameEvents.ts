@@ -1,4 +1,5 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
+import { PLAYER_STATE_CHANNEL } from "./playerStateEvents.js";
 import type { Database } from "../db/client.js";
 import { gameEvents } from "../db/schema.js";
 import { AppError, validationFailed } from "./errors.js";
@@ -56,7 +57,11 @@ export async function insertGameEventInTransaction(tx: GameStateTransaction, inp
   const [created] = await tx.insert(gameEvents).values(input).onConflictDoNothing({
     target: [gameEvents.playerId, gameEvents.idempotencyKey],
   }).returning();
-  if (created) return { event: created, idempotent: false };
+  if (created) {
+    // NOTIFY is delivered after commit; identical player payloads coalesce within a transaction.
+    await tx.execute(sql`select pg_notify(${PLAYER_STATE_CHANNEL}, ${input.playerId})`);
+    return { event: created, idempotent: false };
+  }
   const [existing] = await tx.select().from(gameEvents).where(and(
     eq(gameEvents.playerId, input.playerId),
     eq(gameEvents.idempotencyKey, input.idempotencyKey),

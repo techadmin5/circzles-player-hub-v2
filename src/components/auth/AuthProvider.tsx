@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { usePathname, useRouter } from "next/navigation";
 import { dataMode, devAutoLoginEnabled, logPublicFrontendConfig } from "@/config/dataMode";
 import { apiClient, ApiClientError } from "@/lib/apiClient";
+import { subscribePlayerStateEvents } from "@/lib/playerStateEvents";
 import { usePlayerUiState } from "@/stores/playerUiState";
 import type { AuthenticatedPlayerIdentity, PlayerProfile } from "@/types";
 import { PlayerHubLoadingSkeleton } from "./PlayerHubLoadingSkeleton";
@@ -154,19 +155,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (dataMode !== "api" || status !== "authenticated") return;
-    const controller = new AbortController();
-    const update = () => {
-      if (document.visibilityState !== "visible") return;
-      void apiClient.refreshLivePlayer(controller.signal).catch((error) => {
-        if (controller.signal.aborted) return;
-        if (error instanceof ApiClientError && error.status === 401) void refresh().catch(() => undefined);
-        else usePlayerUiState.getState().setSyncError("Player state could not be refreshed.");
-      });
-    };
-    const interval = window.setInterval(update, 15_000);
-    window.addEventListener("focus", update);
-    document.addEventListener("visibilitychange", update);
-    return () => { controller.abort(); window.clearInterval(interval); window.removeEventListener("focus", update); document.removeEventListener("visibilitychange", update); };
+    return subscribePlayerStateEvents({
+      refresh: (signal) => apiClient.refreshLivePlayer(signal),
+      onUnauthorized: () => { void refresh().catch(() => undefined); },
+      onError: () => usePlayerUiState.getState().setSyncError("Player state could not be refreshed."),
+    });
   }, [status, refresh]);
 
   const value = useMemo(() => ({ status, identity: player ?? identity, player, profileStatus, acceptAuthentication, refresh, logout }), [status, identity, player, profileStatus, acceptAuthentication, refresh, logout]);

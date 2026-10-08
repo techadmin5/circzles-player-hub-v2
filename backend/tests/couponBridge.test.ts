@@ -1,3 +1,6 @@
+import type { SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
+import { PLAYER_STATE_CHANNEL } from "../src/domain/playerStateEvents.js";
 import { describe, expect, it } from "vitest";
 import { couponOwnerships, couponProviderMappings, couponRedemptions, gameEvents, rewardDefinitions } from "../src/db/schema.js";
 import {
@@ -32,6 +35,14 @@ class CouponBridgeTransactionDouble {
   redemptionRows: RedemptionRow[] = [];
   eventRows: EventRow[] = [];
   rewardMetadata: Record<string, unknown> = { couponBenefit: { type: "PERCENTAGE", percentage: 20 } };
+  invalidations = 0;
+  execute(statement: SQL) {
+    const query = new PgDialect().sqlToQuery(statement);
+    expect(query.sql).toBe("select pg_notify($1, $2)");
+    expect(query.params).toEqual([PLAYER_STATE_CHANNEL, this.eventRows.at(-1)!.playerId]);
+    this.invalidations += 1;
+    return Promise.resolve({ rows: [] });
+  }
   private mappingSequence = 0;
   private redemptionSequence = 0;
   private eventSequence = 0;
@@ -235,6 +246,7 @@ describe("production coupon bridge transaction functions", () => {
     expect(fake.redemptionRows).toHaveLength(1);
     expect(fake.mappingRows.every((row) => row.syncStatus === "PENDING_DISABLE")).toBe(true);
     expect(fake.eventRows).toHaveLength(1);
+    expect(fake.invalidations).toBe(1);
     expect(fake.eventRows[0]).toMatchObject({ eventType: "coupon.redeemed", playerId: "player-1" });
     expect(fake).not.toHaveProperty("inventoryRows");
   });

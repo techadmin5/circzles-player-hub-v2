@@ -312,3 +312,48 @@ test("real Node transport preserves POST bytes and separate cookies, and decodes
   assert.equal(response.headers.getSetCookie().length, 2);
   assert.deepEqual(await response.json(), { ok: true });
 });
+
+
+test("authenticated SSE forwards incremental bytes before EOF over real upstream HTTP", async () => {
+  let send;
+  const upstream = createServer((req, res) => {
+    assert.equal(req.headers.cookie, "cz_session=opaque");
+    res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store" });
+    res.write("event: ready\ndata: {}\n\n");
+    send = () => res.write("event: player-state-changed\ndata: {}\n\n");
+  });
+  await new Promise((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+  try {
+    const { proxy } = setup(fetch, { origin: `http://127.0.0.1:${upstream.address().port}`, timeoutMs: 2000 });
+    const response = await proxy(request("/api/me/events", { headers: { cookie: "cz_session=opaque" } }));
+    assert.equal(response.status, 200); assert.match(response.headers.get("cache-control"), /no-store.*no-transform/);
+    const reader = response.body.getReader();
+    assert.match(new TextDecoder().decode((await reader.read()).value), /event: ready/);
+    send(); assert.match(new TextDecoder().decode((await reader.read()).value), /event: player-state-changed/);
+    await reader.cancel();
+  } finally { upstream.closeAllConnections(); await new Promise((resolve) => upstream.close(resolve)); }
+});
+
+test("cancelling SSE aborts the upstream stream and releases its reader", async () => {
+  let signal; let cancelled = false;
+  const { proxy } = setup(async (_url, init) => {
+    signal = init.signal;
+    return new Response(new ReadableStream({ start(stream) { stream.enqueue(new TextEncoder().encode(": ready\n\n")); }, cancel() { cancelled = true; } }), { headers: { "content-type": "text/event-stream" } });
+  });
+  const response = await proxy(request("/api/me/events")); const reader = response.body.getReader();
+  await reader.read(); await reader.cancel(); assert.equal(signal.aborted, true); assert.equal(cancelled, true);
+});
+
+test("SSE retains a bounded lifetime after headers and propagates transport interruption", async () => {
+  const { proxy } = setup(async (_url, init) => new Response(new ReadableStream({
+    start(stream) { stream.enqueue(new TextEncoder().encode(": ready\n\n")); init.signal.addEventListener("abort", () => stream.error(new Error("stream interrupted"))); },
+  }), { headers: { "content-type": "text/event-stream" } }), { timeoutMs: 30 });
+  const response = await proxy(request("/api/me/events")); const reader = response.body.getReader();
+  await reader.read(); await assert.rejects(reader.read(), /stream interrupted/);
+});
+
+test("SSE authentication errors remain normal buffered HTTP errors", async () => {
+  const { proxy } = setup(async () => Response.json({ code: "UNAUTHORIZED" }, { status: 401 }));
+  const response = await proxy(request("/api/me/events"));
+  assert.equal(response.status, 401); assert.deepEqual(await response.json(), { code: "UNAUTHORIZED" });
+});

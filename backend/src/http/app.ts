@@ -1,3 +1,5 @@
+import { registerPlayerStateEventRoutes } from "./playerStateEventRoutes.js";
+import type { PlayerStateEvents } from "../domain/playerStateEvents.js";
 import { registerNativeAuthRoutes } from "./nativeAuthRoutes.js";
 import type { NativeAuthService } from "../domain/nativeAuth.js";
 import type { GoogleAuthService } from "../domain/googleAuth.js";
@@ -59,6 +61,7 @@ export interface AppDeps {
   nativeAuth?: NativeAuthService;
   googleAuth?: GoogleAuthService;
   playerProfile?: PlayerProfileService;
+  playerStateEvents?: PlayerStateEvents;
   checkDb: () => Promise<void>;
 }
 
@@ -129,7 +132,7 @@ const equipmentParamsSchema = z.object({ slot: z.enum(equipmentSlots) }).strict(
 const equipBodySchema = z.object({ slot: z.enum(equipmentSlots) }).strict();
 const renameDisplayNameBodySchema = z.object({ inventoryItemId: z.string().uuid(), displayName: z.string() }).strict();
 
-export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, coupons, playerIdentityActions, rewardWheel, couponRedemptionWebhooks, authHandoff, directAuth, nativeAuth, googleAuth, playerProfile, checkDb }: AppDeps) {
+export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, coupons, playerIdentityActions, rewardWheel, couponRedemptionWebhooks, authHandoff, directAuth, nativeAuth, googleAuth, playerProfile, playerStateEvents, checkDb }: AppDeps) {
   const handoffVerifier = authHandoff ?? new AuthHandoffVerifier({ circzlesCom: env.AUTH_HANDOFF_CIRCZLES_COM_SECRET, circzlesIn: env.AUTH_HANDOFF_CIRCZLES_IN_SECRET });
   const directAuthProvider = directAuth ?? new UnconfiguredDirectAuthProvider();
   const app = Fastify({
@@ -248,6 +251,8 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
       return reply.send({ returnTo });
     });
   }
+
+  if (playerStateEvents) registerPlayerStateEventRoutes(app, env, identity, playerStateEvents);
 
   app.get("/api/me", async (request, reply) => {
     const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);

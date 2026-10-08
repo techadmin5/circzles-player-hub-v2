@@ -8,6 +8,7 @@ const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(4000),
   DATABASE_URL: z.string().min(1),
+  PLAYER_STATE_EVENTS_DATABASE_URL: optionalTrimmedString,
   FRONTEND_ORIGIN: z.string().url().default("http://localhost:3000"),
   PLAYER_HUB_PROXY_SECRET: z.string().min(32).optional(),
   SESSION_SECRET: z.string().min(32),

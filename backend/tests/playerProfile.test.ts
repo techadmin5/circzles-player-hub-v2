@@ -1,3 +1,5 @@
+import { PLAYER_STATE_CHANNEL, PlayerStateEvents } from "../src/domain/playerStateEvents.js";
+import { DrizzleSubmissionReviewRepository } from "../src/domain/submissionReviews.js";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
@@ -130,6 +132,36 @@ describe("persisted authoritative Player Hub profile", () => {
     const result = await new DrizzleMissionClaimRepository(db).claim({ playerId: id, missionId: mission.missionId, idempotencyKey: crypto.randomUUID(), now });
     expect(result.playerState).toMatchObject({ xp: 12, synapsePoints: 100, progressionLevel: 5, rankName: "Farmer" });
     expect(await profiles.read(id)).toMatchObject({ xp: 12, xpNeeded: 40, synapsePoints: 100, progressionLevel: 5, rank: "Farmer" });
+  });
+  it("external submission approval emits a committed player invalidation with canonical rewarded XP/SP/level/rank", async () => {
+    const { id, account } = await signup();
+    const [admin] = await db.insert(s.adminUsers).values({ userId: account.userId, role: "SUPER_ADMIN" }).returning();
+    const [design] = await db.insert(s.puzzleDesigns).values({ name: "Event fixture" }).returning();
+    const [puzzle] = await db.insert(s.puzzles).values({ puzzleDesignId: design.puzzleDesignId, name: "Event fixture", levelId: 1 }).returning();
+    const [ownedPuzzle] = await db.insert(s.playerPuzzles).values({ playerId: id, puzzleId: puzzle.puzzleId, source: "TEST" }).returning();
+    const [video] = await db.insert(s.videoUploads).values({ playerId: id, storageProvider: "TEST", publicId: crypto.randomUUID(), mimeType: "video/mp4", declaredSizeBytes: 1, status: "COMPLETE", expiresAt: new Date(Date.now()+60_000) }).returning();
+    const [submission] = await db.insert(s.submissions).values({ playerId: id, playerPuzzleId: ownedPuzzle.playerPuzzleId, puzzleId: puzzle.puzzleId, levelId: 1, completionTimeMs: 1000, videoUploadId: video.videoUploadId }).returning();
+    await db.insert(s.puzzleCompetitionSettings).values({ puzzleId: puzzle.puzzleId, category: "MAIN_LEVEL", displayOrder: 0, rewardEnabled: true, synapseReward: 100, xpReward: 12 });
+    const events = new PlayerStateEvents(); events.setReady(true);
+    const changed = vi.fn(), otherChanged = vi.fn();
+    const off = events.subscribe(id, changed, () => undefined)!;
+    const otherOff = events.subscribe(crypto.randomUUID(), otherChanged, () => undefined)!;
+    const notifications: string[] = [];
+    const stop = await pg.listen(PLAYER_STATE_CHANNEL, (payload) => { notifications.push(payload); events.receive(payload); });
+    try {
+      const reviews = new DrizzleSubmissionReviewRepository(db);
+      const input = { submissionId: submission.submissionId, reviewerAdminUserId: admin.adminUserId, decision: "APPROVED" as const, idempotencyKey: crypto.randomUUID() };
+      await reviews.review(input);
+      expect(changed).toHaveBeenCalled(); expect(otherChanged).not.toHaveBeenCalled();
+      expect(notifications.every((payload) => payload === id)).toBe(true);
+      expect(await profiles.read(id)).toMatchObject({ xp: 12, xpNeeded: 40, synapsePoints: 100, progressionLevel: 5, rank: "Farmer" });
+      const delivered = changed.mock.calls.length;
+      await reviews.review(input); expect(changed.mock.calls.length).toBe(delivered);
+      await expect(db.transaction(async (tx) => { await tx.execute((await import("drizzle-orm")).sql`select pg_notify(${PLAYER_STATE_CHANNEL}, ${id})`); throw new Error("rollback"); })).rejects.toThrow("rollback");
+      expect(changed.mock.calls.length).toBe(delivered);
+      await new DrizzleGameStateRepository(db).grantXp({ playerId: id, amount: 1, reason: "ADMIN_TEST", sourceType: "ADMIN" });
+      expect(changed.mock.calls.length).toBeGreaterThan(delivered);
+    } finally { await stop(); off(); otherOff(); }
   });
   it("Wix provider photo changes never override a chosen Hub photo", async () => {
     const identity = new IdentityService(new DrizzleIdentityRepository(db), "test-session-secret-with-at-least-32-characters");

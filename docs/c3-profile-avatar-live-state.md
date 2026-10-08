@@ -13,7 +13,7 @@ Base: `c4deb38aac81b59762f1542a1cbef4680a76032c` (current main at branch creatio
 
 The expanded existing Zustand `playerUiState.player` holds the complete hydrated profile. AuthProvider subscribes to it instead of keeping a separate full player state. Header, Hub metrics, profile, progression presentation, avatar picker and current-player public/leaderboard identities consume that snapshot. Production rank/level come from backend values; frontend code only renders progress percentages and matching presentation assets. Demo-only reward feedback helpers do not overwrite production state.
 
-Every player-state mutation goes through a shared API-client wrapper: successful server mutation -> fresh `/api/me` -> complete store replacement -> mounted consumers rerender. Request ordering and session generations prevent older responses or logged-out sessions from restoring stale state. A committed action whose follow-up hydration fails still returns its successful mutation result; a visible sync warning offers Retry, and background refresh can recover. It does not automatically replay purchases/spins/claims. Async review-derived rewards refresh on focus, visibility change and every 15 seconds while visible. This is polling, not a websocket: external reviews may take up to the next poll to become visible.
+Every player-state mutation goes through a shared API-client wrapper: successful server mutation -> fresh `/api/me` -> complete store replacement -> mounted consumers rerender. Request ordering and session generations prevent older responses or logged-out sessions from restoring stale state. A committed action whose follow-up hydration fails still returns its successful mutation result; a visible sync warning offers Retry, and background refresh can recover. It does not automatically replay purchases/spins/claims. External review-derived rewards now use authenticated SSE invalidations backed by transaction-scoped PostgreSQL NOTIFY. The browser immediately hydrates `/api/me`; focus/visibility and a five-minute reconciliation remain recovery fallbacks. See [the C3 SSE follow-up](c3-player-state-events.md) for transport, reconnection and validation details.
 
 ## Durable photo storage
 
@@ -44,14 +44,14 @@ URLs/identifiers persist in PostgreSQL, not browser storage. Selected photos are
 | Profile name/country/state | Authenticated validated transaction, returns full profile; client canonical refresh |
 | Default/photo selection and upload | Backend-managed storage plus persisted equipment/source transaction; canonical refresh |
 | Puzzle claim/submission creation | Existing domain logic, then `/api/me` for changed ownership/stats |
-| Submission review on another surface | Existing review reward transaction; visible polling/focus fetches fresh `/api/me` |
+| Submission review on another surface | Existing review reward transaction; SSE invalidation immediately fetches `/api/me`; focus/visibility and low-frequency reconciliation are fallbacks |
 | Video upload/sign/complete | Upload bookkeeping only; full state refresh occurs when submission is created |
 
 ## Validation and evidence
 
-- Backend `npm test -- --maxWorkers=2`: **789 passed**, 42 files; no failures/skips.
+- Backend `npm test -- --maxWorkers=2`: **801 passed**, 43 files; no failures/skips.
 - Backend `npm run lint`, `npm run typecheck`, `npm run build`: passed.
-- Frontend `npm test`: **96 passed**; no failures/skips.
+- Frontend `npm test`: **104 passed**; no failures/skips.
 - Frontend `npm run lint`, `npx tsc --noEmit --incremental false`, `npm run build`: passed. No dedicated frontend typecheck script is configured; the direct TypeScript command supplies it.
 - Backend `playerProfile.test.ts` covers real PGlite migrations, native signup/login, Google/Wix avatar decoupling, photo persistence/session renewal, inventory equip/default, owned avatar purchase, actual mission threshold crossing, atomic Rename Card/profile updates, immutable payload rejection, DB wallet/progression reads and storage constraints. No live database is connected.
 - HTTP tests cover session enforcement, immutable/actor/URL injection rejection, canonical full `/api/me`, session identity actor selection and lightweight bootstrap. Existing native email, Google callback, rewards, wheel and Player ID sequence suites remain passing.
@@ -86,7 +86,7 @@ These checks confirm implemented behavior with automated fixtures; they do not c
 - [x] No regression to Player ID sequence - unchanged 0021/sequence logic, migration preservation and existing launch/identity sequence tests.
 - [x] No unrelated C4/C5/Admin work included - change review; no responsive/redesign/admin scope.
 
-## Exact changed files
+## Initial C3 changed files (commit 50782f7)
 
 - `backend/drizzle/0022_player_profile_avatar.sql`
 - `backend/drizzle/meta/0022_snapshot.json`
