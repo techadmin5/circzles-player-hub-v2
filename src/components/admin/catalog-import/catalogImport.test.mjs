@@ -132,7 +132,7 @@ test("final 82-row fixtures retain totals and Lion 29-R2 / 61-R3 decisions", asy
 test("supports 5000 rows with bounded parse and no truncation", () => {
   const rows = Array.from({ length: 5000 }, (_, i) => ["Puzzle", "12", "CircZles", String(i + 100), "R4", "01", "1", `CC-${i + 100}-R4-01-0001`]);
   assert.equal(parseCsv(csv(rows)).rows.length, 5000);
-  assert.throws(() => parseCsv(csv([...rows, rows[0]])), /5,000/);
+  const overflow = normalized([...rows, rows[0]]); assert.match(buildManifest("test", overflow, initialChoices(overflow)).issues.map(e => e.message).join(" "), /5,000/);
 });
 test("mapped formula cells are blocked while formulas in irrelevant columns are ignored", async () => {
   const data = XLSX.utils.aoa_to_sheet([headers, values]); data.I2.f = '"WEB"';
@@ -188,7 +188,7 @@ for (const format of ["xlsx", "xls"]) for (const count of [51, 201]) test(`metad
   assert.ok(calls.slice(1).every(call => call.sheetRows === 25 && call.sheets.length === 1));
   assert.ok(calls.length <= 9);
   const selected = await opened.loadSheet(count - 1);
-  assert.equal(selected.rows.length, 1); assert.equal(calls.at(-1).sheetRows, 5026); assert.deepEqual(calls.at(-1).sheets, [count - 1]);
+  assert.equal(selected.rows.length, 1); assert.equal(calls.at(-1).sheetRows, 0); assert.deepEqual(calls.at(-1).sheets, [count - 1]);
   assert.equal(selected.rows[0][7].text, "CC-29-R2-01-0001");
   const empty = await opened.loadSheet(0); assert.equal(empty.name, "Archive 0"); assert.equal(empty.rows.length, 1);
 });
@@ -198,7 +198,8 @@ test("oversized unselected sheets do not block opening and selected row/column l
   const opened = await parseFile(excelFile("xlsx", [["Final Run SKU", XLSX.utils.aoa_to_sheet([headers, values])], ["Oversized rows", large], ["Oversized columns", wide], ["Empty", XLSX.utils.aoa_to_sheet([])]]));
   assert.equal(opened.sheets.length, 4);
   assert.equal((await opened.loadSheet(0)).rows.length, 1);
-  await assert.rejects(opened.loadSheet(1), /5,000/);
+  const oversized = await opened.loadSheet(1), tooMany = normalizeSheet(oversized, detectColumns(oversized.headers));
+  assert.equal(tooMany.length, 5001); assert.match(buildManifest("test", tooMany, initialChoices(tooMany)).issues.map(e => e.message).join(" "), /5,000/);
   await assert.rejects(opened.loadSheet(2), /100 columns/);
   assert.equal((await opened.loadSheet(3)).rows.length, 0);
   assert.equal((await opened.loadSheet(0)).rows.length, 1);
@@ -213,4 +214,45 @@ test("51-sheet real-catalog-shaped workbook preserves the final 82 rows and 1200
   const choices = createSeparateDecisions(rows, initialChoices(rows)), result = buildManifest("real-shaped", rows, choices);
   assert.equal(result.issues.length, 0); assert.equal(result.summary.found, 82); assert.equal(result.summary.totalUnits, "12001");
   assert.deepEqual(result.manifest.rows, fixture.rows);
+});
+
+for (const location of ["after", "between"]) test(`ignored-column-only rows ${location} catalog data do not become records`, () => {
+  const note = Array(headers.length).fill(""); note[9] = "Reference text";
+  const input = location === "after" ? [values, note, note] : [values, note, values];
+  const rows = normalized(input);
+  assert.equal(rows.length, location === "after" ? 1 : 2);
+  assert.deepEqual(rows.map(r => r.rowNumber), location === "after" ? [2] : [2, 4]);
+});
+test("partial mapped data stays visible, while mapping changes recompute eligibility", () => {
+  const partial = Array(headers.length).fill(""); partial[0] = "Incomplete product";
+  const note = Array(headers.length).fill(""); note[9] = "Reference only";
+  const sheet = parseCsv(csv([values, partial, note])), map = detectColumns(sheet.headers);
+  let rows = normalizeSheet(sheet, map);
+  assert.equal(rows.length, 2); assert.match(rows[1].errors.join(" "), /Units Manufactured is required/); assert.match(rows[1].errors.join(" "), /First Full SKU is required/);
+  rows = normalizeSheet(sheet, { ...map, pieceCount: 9 });
+  assert.equal(rows.length, 3); assert.match(rows[2].errors.join(" "), /Piece Count/);
+  assert.equal(normalizeSheet(sheet, map).length, 2);
+});
+test("mapped zero/formula/error content qualifies and empty or whitespace-only ignored rows do not", () => {
+  const sheet = { name: "Data", headers, headerRow: 1, rowNumbers: [2, 3, 4, 5], rows: [[{ text: "", numeric: 0 }], [{ text: "", issue: "Formula cell" }], [{ text: "" }, ...Array(8).fill({ text: "" }), { text: "reference" }], [{ text: "   " }]] };
+  const rows = normalizeSheet(sheet, { name: 0 }); assert.deepEqual(rows.map(r => r.rowNumber), [2, 3]); assert.ok(rows.every(r => r.errors.length));
+});
+for (const format of ["xlsx", "xls"]) test(`real workbook-shaped ${format} has 82 catalog rows despite 44 distant column-17 references`, async () => {
+  const fixture = readManifest(await readFile(new URL("../../../../docs/circzles-catalog/r1-r2-r3.source.json", import.meta.url), "utf8"));
+  const matrix = Array.from({ length: 248 }, () => []);
+  matrix[0] = ["Business workbook"]; matrix[2] = [...headers.slice(0, 8), ...Array(8).fill(""), "Reference Notes"];
+  fixture.rows.forEach((r, i) => { matrix[i + 3] = [r.name, r.size, r.brand, r.numberIdentifier, r.manufacturingCode, r.level, r.units, r.firstFullSku]; });
+  for (let i = 0; i < 44; i++) matrix[161 + i * 2][16] = fixture.rows[38 + i].name + " (reference only)";
+  const opened = await parseFile(excelFile(format, [["circzles sku", XLSX.utils.aoa_to_sheet(matrix)]]));
+  const selected = await opened.loadSheet(0), rows = normalizeSheet(selected, detectColumns(selected.headers));
+  assert.equal(selected.rows.length, 126); assert.equal(rows.length, 82); assert.deepEqual(rows.map(r => r.rowNumber), Array.from({ length: 82 }, (_, i) => i + 4));
+  const result = buildManifest("real-workbook", rows, initialChoices(rows)); assert.equal(result.summary.found, 82); assert.equal(result.summary.selected, 82); assert.equal(result.summary.totalUnits, "12001");
+  assert.deepEqual(result.manifest.rows, fixture.rows);
+});
+test("distant ignored rows beyond the old raw-row cutoff are retained for deliberate remapping", async () => {
+  const data = XLSX.utils.aoa_to_sheet([headers, values]); data.J6000 = { t: "s", v: "Reference after 6000" }; data["!ref"] = "A1:J6000";
+  const opened = await parseFile(excelFile("xlsx", [["Data", data]])), sheet = await opened.loadSheet(0);
+  assert.equal(normalizeSheet(sheet, detectColumns(sheet.headers)).length, 1);
+  const remapped = normalizeSheet(sheet, { ...detectColumns(sheet.headers), name: 9 });
+  assert.equal(remapped.length, 2); assert.equal(remapped[1].rowNumber, 6000); assert.ok(remapped[1].errors.length);
 });

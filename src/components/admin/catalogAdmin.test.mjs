@@ -253,3 +253,24 @@ test("51-sheet wizard switches on demand and clears selection, mapping and dry-r
   await selectCatalog("Select worksheet", "49"); await click("Preview normalized rows");
   assert.equal(document.querySelectorAll('input[type="checkbox"]').length, 1); assert.equal(fileReads, 1); assert.equal(calls.length, 1);
 });
+
+test("real worksheet preview excludes ignored column-17 notes and remapping recomputes rows", async t => {
+  const XLSX = await import("xlsx"), { readFile } = await import("node:fs/promises"), root = await setup(t);
+  t.mock.method(globalThis, "fetch", async () => Response.json([]));
+  const fixture = JSON.parse(await readFile(new URL("../../../docs/circzles-catalog/r1-r2-r3.source.json", import.meta.url), "utf8"));
+  const matrix = Array.from({ length: 248 }, () => []);
+  matrix[0] = ["Workbook"]; matrix[2] = ["Puzzle Name", "Size", "Brand Name", "Number Identifier", "Manufacturing Code", "Levels", "Units", "Sku Number", ...Array(8).fill(""), "Reference Notes"];
+  fixture.rows.forEach((r, i) => { matrix[i + 3] = [r.name, r.size, r.brand, r.numberIdentifier, r.manufacturingCode, r.level, r.units, r.firstFullSku]; });
+  for (let i = 0; i < 44; i++) matrix[161 + i * 2][16] = "Reference " + i;
+  const book = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(matrix), "circzles sku");
+  const bytes = XLSX.write(book, { bookType: "xlsx", type: "buffer" });
+  await act(async () => root.render(createElement(CatalogAdmin)));
+  const control = document.querySelector('input[type="file"]');
+  await act(async () => { Object.defineProperty(control, "files", { configurable: true, value: [{ name: "_Circzles Cogzart Final Run SKU Oct-25.xlsx", size: bytes.length, arrayBuffer: async () => bytes }] }); control.dispatchEvent(new window.Event("change", { bubbles: true })); await new Promise(setImmediate); });
+  await click("Preview normalized rows"); assert.match(document.body.textContent, /Selected 82 of 82/);
+  await click("Reconcile canonical products"); await click("Create separate canonical products for all unmapped selected rows"); await click("Review import summary");
+  const units = Array.from(document.querySelectorAll("dt")).find(node => node.textContent === "Manufactured units"); assert.equal(units.nextElementSibling.textContent, "12001");
+  await click("Back"); await click("Back"); await click("Back");
+  await selectCatalog("Column for CircZles Name", "16"); await click("Preview normalized rows");
+  assert.match(document.body.textContent, /Selected 126 of 126/);
+});

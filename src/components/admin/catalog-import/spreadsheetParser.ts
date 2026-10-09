@@ -30,7 +30,7 @@ export function detectColumns(headers: string[]): ColumnMap {
 export function missingColumns(map: ColumnMap): string[] {
   return fields.filter(f => !f.optional && map[f.key] === undefined).map(f => f.label);
 }
-function makeSheet(name: string, matrix: Cell[][]): Sheet {
+function makeSheet(name: string, matrix: Cell[][], originalRows?: number[]): Sheet {
   if (matrix.some(row => row.length > 100)) throw new Error("A worksheet may contain at most 100 columns. Remove unused columns and retry.");
   let header = matrix.findIndex(row => row.some(cell => cell.text.trim()));
   if (header < 0) return { name, headers: [], rows: [], rowNumbers: [], headerRow: 0 };
@@ -41,16 +41,15 @@ function makeSheet(name: string, matrix: Cell[][]): Sheet {
     if (current > score) { header = i; score = current; }
   }
   const rows: Cell[][] = [], rowNumbers: number[] = [];
-  for (let i = header + 1; i < matrix.length; i++) if (matrix[i].some(cell => cell.text.trim() || cell.issue)) { rows.push(matrix[i]); rowNumbers.push(i + 1); }
-  if (rows.length > MAX_ROWS) throw new Error("The worksheet exceeds 5,000 rows. Split the file explicitly; rows are never silently discarded.");
-  return { name, headers: matrix[header].map(cell => cell.text), rows, rowNumbers, headerRow: header + 1 };
+  for (let i = header + 1; i < matrix.length; i++) if (matrix[i].some(cell => cell.text.trim() || cell.issue)) { rows.push(matrix[i]); rowNumbers.push(originalRows?.[i] ?? i + 1); }
+  return { name, headers: matrix[header].map(cell => cell.text), rows, rowNumbers, headerRow: originalRows?.[header] ?? header + 1 };
 }
 // CSV is parsed as text, including quoted newlines and UTF-8; no numeric coercion.
 export function parseCsv(text: string): Sheet {
   const matrix: Cell[][] = [], row: Cell[] = [];
   let value = "", quoted = false, closed = false;
   const pushCell = () => { row.push({ text: value }); value = ""; closed = false; };
-  const pushRow = () => { pushCell(); matrix.push(row.splice(0)); if (matrix.length > MAX_ROWS + 26) throw new Error("CSV exceeds the 5,000-row limit."); };
+  const pushRow = () => { pushCell(); matrix.push(row.splice(0)); };
   text = text.replace(/^\uFEFF/, "");
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
@@ -119,12 +118,24 @@ export function openExcel(bytes: Uint8Array, xlsx: typeof import("xlsx")): Pick<
   return { sheets, defaultSheet, loadSheet: async index => {
     if (!Number.isInteger(index) || index < 0 || index >= names.length) throw new Error("Choose a valid worksheet.");
     // Retained bytes are local only; every read filters to the selected index.
-    const workbook = xlsx.read(bytes, { type: "array", sheets: [index], cellNF: true, cellText: true, cellDates: true, cellHTML: false, cellFormula: true, sheetRows: MAX_ROWS + 26 });
+    const workbook = xlsx.read(bytes, { type: "array", sheets: [index], cellNF: true, cellText: true, cellDates: true, cellHTML: false, cellFormula: true });
     const sheet = workbook.Sheets[names[index]];
     if (!sheet?.["!ref"]) return makeSheet(names[index], []);
     const range = xlsx.utils.decode_range(sheet["!fullref"] ?? sheet["!ref"]);
-    if (range.e.r > MAX_ROWS + 25 || range.e.c >= 100) throw new Error("Selected worksheet exceeds 5,000 data rows or 100 columns. Rows are never silently discarded; choose another worksheet or export a bounded sheet.");
-    return makeSheet(names[index], worksheetMatrix(sheet, xlsx, MAX_ROWS + 26, 100));
+    if (range.e.c >= 100) throw new Error("Selected worksheet exceeds 100 columns. Choose another worksheet or export a bounded sheet.");
+    // Walk populated cells only: distant notes/formatting must not allocate a
+    // dense matrix or consume the mapped catalog row budget before mapping.
+    const populated = new Map<number, Cell[]>();
+    for (const [address, cell] of Object.entries(sheet)) {
+      if (!/^[A-Z]+[1-9][0-9]*$/.test(address)) continue;
+      const position = xlsx.utils.decode_cell(address);
+      const cells = populated.get(position.r) ?? [];
+      cells[position.c] = cellValue(cell);
+      populated.set(position.r, cells);
+    }
+    const physicalRows = [...populated.keys()].sort((a, b) => a - b);
+    const matrix = physicalRows.map(row => Array.from({ length: range.e.c + 1 }, (_, col) => populated.get(row)![col] ?? { text: "" }));
+    return makeSheet(names[index], matrix, physicalRows.map(row => row + 1));
   } };
 }
 function worksheetMatrix(sheet: import("xlsx").WorkSheet | undefined, xlsx: typeof import("xlsx"), maxRows: number, maxColumns: number): Cell[][] {
@@ -134,9 +145,13 @@ function worksheetMatrix(sheet: import("xlsx").WorkSheet | undefined, xlsx: type
     const cells: Cell[] = [];
     for (let c = 0; c <= Math.min(range.e.c, maxColumns - 1); c++) {
       const cell = sheet[xlsx.utils.encode_cell({ r, c })];
-      cells.push(cell ? { text: String(cell.w ?? cell.v ?? ""), ...(cell.t === "n" ? { numeric: cell.v as number } : {}), ...(cell.f ? { issue: "Formula cell: replace with a verified static value." } : cell.t === "e" || cell.t === "d" ? { issue: "Invalid or date cell: use manufacturing text." } : {}) } : { text: "" });
+      cells.push(cellValue(cell));
     }
     matrix.push(cells);
   }
   return matrix;
+}
+
+function cellValue(cell: import("xlsx").CellObject | undefined): Cell {
+  return cell ? { text: String(cell.w ?? cell.v ?? ""), ...(cell.t === "n" ? { numeric: cell.v as number } : {}), ...(cell.f ? { issue: "Formula cell: replace with a verified static value." } : cell.t === "e" || cell.t === "d" ? { issue: "Invalid or date cell: use manufacturing text." } : {}) } : { text: "" };
 }

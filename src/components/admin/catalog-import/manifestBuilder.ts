@@ -40,7 +40,11 @@ function inspect(source: SourceRow, key: number, rowNumber: number, warnings: st
   return { key, rowNumber, source, prefix, range, warnings, errors };
 }
 export function normalizeSheet(sheet: Sheet, map: ColumnMap): PreviewRow[] {
-  return sheet.rows.map((cells, key) => {
+  const mapped = fields.flatMap(field => map[field.key] === undefined ? [] : [map[field.key]!]);
+  return sheet.rows.flatMap((cells, key) => {
+    // Unmapped notes are not catalog records. Keep any partial mapped data,
+    // including numeric zero and formula/error cells, visible for validation.
+    if (!mapped.some(index => cells[index]?.text.trim() || cells[index]?.issue || cells[index]?.numeric !== undefined)) return [];
     const values: Record<string, string> = {}, errors: string[] = [], warnings: string[] = [];
     if (map.firstFullSku !== undefined && isWebsiteSku(sheet.headers[map.firstFullSku] ?? "")) errors.push("Website SKU is commercial data; choose the manufacturing SKU column.");
     for (const field of fields) {
@@ -65,7 +69,7 @@ export function normalizeSheet(sheet: Sheet, map: ColumnMap): PreviewRow[] {
       }
     }
     const source: SourceRow = { sourceId: values.numberIdentifier + "-" + values.manufacturingCode, name: values.name, size: values.size, brand: values.brand, numberIdentifier: values.numberIdentifier, manufacturingCode: values.manufacturingCode, level: values.level, units: values.units, firstFullSku: values.firstFullSku, productType: parts[0] === "CZ" ? "ACCESSORY" : "CIRCZLES", ...(values.pieceCount ? { pieceCount: Number(values.pieceCount) } : {}) };
-    return inspect(source, key, sheet.rowNumbers[key], warnings, errors);
+    return [inspect(source, key, sheet.rowNumbers[key], warnings, errors)];
   });
 }
 export function manifestRows(manifest: Manifest): PreviewRow[] {
