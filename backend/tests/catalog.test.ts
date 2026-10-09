@@ -68,18 +68,18 @@ describe("manufactured CircZles claims", () => {
     expect((await ownership.claimByCode((await player()).id, "CC-915-R4-3.5-1")).puzzle.levelId).toBe(3.5);
   });
   it.each(["0001", "1", "1001", "10000", "9223372036854775807"])("uses unbounded presentation digits with bigint identity: %s", serial => {
-    expect(parseClaimCode("CC-72-R3-3.5-" + serial)).toMatchObject({ normalizedPrefix: "CC-72-R3-3.5", serialNumber: BigInt(serial) });
+    expect(parseClaimCode("CC-79-R3-3.5-" + serial)).toMatchObject({ normalizedPrefix: "CC-79-R3-3.5", serialNumber: BigInt(serial) });
   });
-  it.each(["CC-72-R3-3.5-0", "CC-72-R3-3.5--1", "CC-72-R3-3.5-1.5", "CC-72-R3-3.5-abc", "CC-72-R3-3.5-9223372036854775808", "CC-72-R3-3.5-", "CC--R3-1-1"])("rejects malformed or overflowing SKU %s", code => expect(() => parseClaimCode(code)).toThrow());
+  it.each(["CC-79-R3-3.5-0", "CC-79-R3-3.5--1", "CC-79-R3-3.5-1.5", "CC-79-R3-3.5-abc", "CC-79-R3-3.5-9223372036854775808", "CC-79-R3-3.5-", "CC--R3-1-1"])("rejects malformed or overflowing SKU %s", code => expect(() => parseClaimCode(code)).toThrow());
   it("maps Lion R2 and R3 to one canonical variant, preserving exact batch traceability and ownership uniqueness", async () => {
     const lion = await variant(), one = await player(), two = await player();
     const r2 = await catalog.addBatch(lion.catalogVariantId, batch({ numberIdentifier: "29", manufacturingCode: "R2", skuPrefix: "CC-29-R2-01", serialEnd: "48", unitsManufactured: "48", firstFullSku: "CC-29-R2-01-0001" }));
-    const r3 = await catalog.addBatch(lion.catalogVariantId, batch({ numberIdentifier: "58", manufacturingCode: "R3", skuPrefix: "CC-58-R3-01" }));
+    const r3 = await catalog.addBatch(lion.catalogVariantId, batch({ numberIdentifier: "61", manufacturingCode: "R3", skuPrefix: "CC-61-R3-01" }));
     expect((await ownership.claimByCode(one.id, "CC-29-R2-01-0001")).puzzle.id).toBe(lion.puzzleId);
     const before = await counts();
-    await expect(ownership.claimByCode(one.id, "CC-58-R3-01-0001")).rejects.toMatchObject({ code: "PUZZLE_ALREADY_OWNED" });
+    await expect(ownership.claimByCode(one.id, "CC-61-R3-01-0001")).rejects.toMatchObject({ code: "PUZZLE_ALREADY_OWNED" });
     expect(await counts()).toEqual(before);
-    expect((await ownership.claimByCode(two.id, "CC-58-R3-01-1")).puzzle.id).toBe(lion.puzzleId);
+    expect((await ownership.claimByCode(two.id, "CC-61-R3-01-1")).puzzle.id).toBe(lion.puzzleId);
     await expect(ownership.claimByCode(two.id, "CC-29-R2-01-1")).rejects.toMatchObject({ code: "PUZZLE_CODE_ALREADY_CLAIMED" });
     const detail = await catalog.detail(lion.catalogVariantId);
     expect(detail.batches.map(b => [b.puzzleId, b.claimedUnits, b.remainingUnits])).toEqual([[lion.puzzleId, 1n, 47n], [lion.puzzleId, 1n, 499n]]);
@@ -210,7 +210,7 @@ describe("explicit transactional catalog imports", { timeout: 20000 }, () => {
   it("validates every supplied source SKU when explicitly mapped, preserving raw source facts", async () => {
     const source = JSON.parse(await readFile(new URL("../../docs/circzles-catalog/r1-r2-r3.source.json", import.meta.url), "utf8"));
     for (const row of source.rows) source.mappings[row.sourceId] = { newVariantKey: "test-explicit-" + row.sourceId };
-    source.mappings["29-R2"] = { newVariantKey: "test-explicit-lion" }; source.mappings["58-R3"] = { newVariantKey: "test-explicit-lion" };
+    source.mappings["29-R2"] = { newVariantKey: "test-explicit-lion" }; source.mappings["61-R3"] = { newVariantKey: "test-explicit-lion" };
     // A fresh database represents a first import; other tests deliberately reserve Lion prefixes.
     const scratch = new PGlite();
     try {
@@ -260,8 +260,64 @@ describe("explicit transactional catalog imports", { timeout: 20000 }, () => {
     const source = JSON.parse(await readFile(new URL("../../docs/circzles-catalog/r1-r2-r3.source.json", import.meta.url), "utf8"));
     expect(source.rows).toHaveLength(82); expect(source.rows.reduce((n: number, r: { units: string }) => n + Number(r.units), 0)).toBe(12001);
     expect(source.rows.find((r: { sourceId: string }) => r.sourceId === "31-R2").units).toBe("03");
-    expect(source.rows.find((r: { sourceId: string }) => r.sourceId === "80-R3").firstFullSku).toBe("CC-80-R3-0.5-0001");
+    expect(source.rows.find((r: { sourceId: string }) => r.sourceId === "72-R3").firstFullSku).toBe("CC-72-R3-0.5-0001");
     const before = await counts(), report = await catalog.import(source); expect(report.errors).toHaveLength(82); expect(await counts()).toEqual(before);
+  });
+  it("preserves all 44 finalized R3 rows exactly without obsolete manufacturing aliases", async () => {
+    const source = JSON.parse(await readFile(new URL("../../docs/circzles-catalog/r1-r2-r3.source.json", import.meta.url), "utf8"));
+    const finalized = `1885	8	CircZles	39	R3	03	100	CC-39-R3-03-0001
+Colorstom	8	CircZles	40	R3	10	20	CC-40-R3-10-0001
+Red Alert	8	CircZles	41	R3	06	100	CC-41-R3-06-0001
+Cosmic walk	10	CircZles	42	R3	16	20	CC-42-R3-16-0001
+Eagle-eyed	10	CircZles	43	R3	09	100	CC-43-R3-09-0001
+Elephant	10	CircZles	44	R3	19	20	CC-44-R3-19-0001
+Hoot	10	CircZles	45	R3	05	100	CC-45-R3-05-0001
+Jade Embers	10	CircZles	46	R3	05	100	CC-46-R3-05-0001
+lucid skies	10	CircZles	47	R3	02	200	CC-47-R3-02-0001
+metamorphosis	10	CircZles	48	R3	02	300	CC-48-R3-02-0001
+Midnight Bazaar	10	CircZles	49	R3	05	100	CC-49-R3-05-0001
+Peocock	10	CircZles	50	R3	09	100	CC-50-R3-09-0001
+Spiritual Awakening	10	CircZles	51	R3	13	20	CC-51-R3-13-0001
+1995	12	CircZles	52	R3	01	100	CC-52-R3-01-0001
+Best friend	12	CircZles	53	R3	08	200	CC-53-R3-08-0001
+Bullseye	12	CircZles	54	R3	04	100	CC-54-R3-04-0001
+clockwork cogzart	12	CircZles	55	R3	04	100	CC-55-R3-04-0001
+Florescence	12	CircZles	56	R3	08	100	CC-56-R3-08-0001
+Folklore	12	CircZles	57	R3	21	20	CC-57-R3-21-0001
+Glass puppies	12	CircZles	58	R3	01	200	CC-58-R3-01-0001
+Gold Fishing	12	CircZles	59	R3	15	20	CC-59-R3-15-0001
+Lightone	12	CircZles	60	R3	23	20	CC-60-R3-23-0001
+LION	12	CircZles	61	R3	01	500	CC-61-R3-01-0001
+Lunartic	12	CircZles	62	R3	01	100	CC-62-R3-01-0001
+Mind Map	12	CircZles	63	R3	04	400	CC-63-R3-04-0001
+Octo Gone	12	CircZles	64	R3	01	100	CC-64-R3-01-0001
+Pluto	12	CircZles	65	R3	18	20	CC-65-R3-18-0001
+Primate Directive	12	CircZles	66	R3	04	100	CC-66-R3-04-0001
+Split Nature	12	CircZles	67	R3	04	100	CC-67-R3-04-0001
+StagNation	12	CircZles	68	R3	04	100	CC-68-R3-04-0001
+The OG	12	CircZles	69	R3	01	300	CC-69-R3-01-0001
+the overthinker	12	CircZles	70	R3	12	100	CC-70-R3-12-0001
+Aapdo Dham	16	CircZles	71	R3	14	20	CC-71-R3-14-0001
+All who wander	16	CircZles	72	R3	0.5	20	CC-72-R3-0.5-0001
+Birdwired	16	CircZles	73	R3	07	20	CC-73-R3-07-0001
+DNA-Coded Carbon	16	CircZles	74	R3	25	20	CC-74-R3-25-0001
+Forgotten Worlds	16	CircZles	75	R3	22	20	CC-75-R3-22-0001
+Once Upon India	16	CircZles	76	R3	20	20	CC-76-R3-20-0001
+Rickshaw	16	CircZles	77	R3	24	20	CC-77-R3-24-0001
+Serenity	16	CircZles	78	R3	17	20	CC-78-R3-17-0001
+Set in Stone	16	CircZles	79	R3	3.5	20	CC-79-R3-3.5-0001
+Still Waters	16	CircZles	80	R3	07	20	CC-80-R3-07-0001
+Swirled	16	CircZles	81	R3	11	20	CC-81-R3-11-0001
+Waiting for god	16	CircZles	82	R3	11	20	CC-82-R3-11-0001`.split("\n").map(line => line.split("\t"));
+    const rows = source.rows.filter((r: { manufacturingCode: string }) => r.manufacturingCode === "R3");
+    expect(rows).toHaveLength(44);
+    expect(rows.map((r: Record<string, string>) => [r.name, r.size, r.brand, r.numberIdentifier, r.manufacturingCode, r.level, r.units, r.firstFullSku])).toEqual(finalized);
+    expect(rows.map((r: Record<string, string>) => [r.sourceId, r.productType])).toEqual(finalized.map(r => [r[3] + "-R3", "CIRCZLES"]));
+    const prefixes = rows.map((r: { firstFullSku: string }) => r.firstFullSku.slice(0, r.firstFullSku.lastIndexOf("-")));
+    for (const obsolete of ["CC-42-R3-05", "CC-43-R3-16", "CC-44-R3-09", "CC-45-R3-19", "CC-46-R3-02", "CC-48-R3-05", "CC-52-R3-04", "CC-53-R3-04", "CC-55-R3-21", "CC-56-R3-15", "CC-57-R3-23", "CC-59-R3-04", "CC-60-R3-04", "CC-62-R3-12", "CC-63-R3-08", "CC-64-R3-18", "CC-65-R3-08", "CC-66-R3-01", "CC-67-R3-01", "CC-70-R3-01", "CC-72-R3-3.5", "CC-74-R3-11", "CC-75-R3-25", "CC-76-R3-22", "CC-77-R3-20", "CC-78-R3-24", "CC-79-R3-17", "CC-80-R3-0.5", "CC-81-R3-07"]) expect(prefixes).not.toContain(obsolete);
+    const example = JSON.parse(await readFile(new URL("../../docs/circzles-catalog/mapping.example.json", import.meta.url), "utf8"));
+    expect(example).toEqual({ "29-R2": { newVariantKey: "explicit-lion-12-level-1" }, "61-R3": { newVariantKey: "explicit-lion-12-level-1" } });
+    expect(source.mappings).toEqual({});
   });
   it("never merges names implicitly, previews without writes, imports multiple batches atomically and reruns idempotently", async () => {
     const manifest = { datasetId: "test-explicit", rows: [row("920"), row("921", { name: "LION" })], mappings: { "920": { newVariantKey: "explicit-lion" }, "921": { newVariantKey: "explicit-lion" } } };
