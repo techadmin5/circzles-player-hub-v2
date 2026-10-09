@@ -170,6 +170,54 @@
       "productType": "CIRCZLES"
     },
     {
+      "sourceId": "15-R1",
+      "name": "Puzzle Saver Board",
+      "size": "NA",
+      "brand": "Cogzart",
+      "numberIdentifier": "15",
+      "manufacturingCode": "R1",
+      "level": "NA",
+      "units": "500",
+      "firstFullSku": "CZ-15-R1-NA-0001",
+      "productType": "ACCESSORY"
+    },
+    {
+      "sourceId": "16-R2",
+      "name": "Cupcake",
+      "size": "06",
+      "brand": "CircZles",
+      "numberIdentifier": "16",
+      "manufacturingCode": "R2",
+      "level": "NA",
+      "units": "64",
+      "firstFullSku": "CC-16-R2-NA-0001",
+      "productType": "CIRCZLES"
+    },
+    {
+      "sourceId": "17-R2",
+      "name": "Introduction To Circzles",
+      "size": "06",
+      "brand": "CircZles",
+      "numberIdentifier": "17",
+      "manufacturingCode": "R2",
+      "level": "NA",
+      "units": "32",
+      "firstFullSku": "CC-17-R2-NA-0001",
+      "productType": "CIRCZLES"
+    },
+    {
+      "sourceId": "18-R2",
+      "name": "Sorcery",
+      "size": "06",
+      "brand": "CircZles",
+      "numberIdentifier": "18",
+      "manufacturingCode": "R2",
+      "level": "NA",
+      "units": "32",
+      "firstFullSku": "CC-18-R2-NA-0001",
+      "productType": "CIRCZLES"
+    },
+    {
       "sourceId": "19-R2",
       "name": "Synthesis",
       "size": "8",

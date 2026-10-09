@@ -1,6 +1,6 @@
 # Source reconciliation
 
-All 78 manufacturing rows are preserved. Each row requires an explicit canonical decision; the checked-in manifest applies nothing by default. Source names are review hints only. Piece counts are absent for every supplied row and must be confirmed before treating apparently identical gameplay configurations as the same product.
+All 82 manufacturing rows are preserved. Each row requires an explicit canonical decision; the checked-in manifest applies nothing by default. Source names are review hints only. Piece counts are absent for every supplied row and must be confirmed before treating apparently identical gameplay configurations as the same product.
 
 | Name hint | Source rows | Sizes | Levels | Decision needed |
 | --- | --- | --- | --- | --- |
@@ -31,4 +31,13 @@ Lion 29-R2 / 58-R3 is the supplied example of two batches that may share one can
 
 Metamorphosis R1 level 13 differs from R2/R3 level 02; L.S.Tree R1 level 15 differs from R2 level 08. A shared key for conflicting levels is rejected, even when names match exactly. Names differing only in case never trigger a merge.
 
-The source has no accessory or Level NA rows; do not invent them in the production fixture. Separate synthetic tests cover those paths.
+The complete source totals **82 rows and 12,001 units**: R1 has 15 rows / 7,125 units; R2 has 23 rows / 676 units; R3 has 44 rows / 4,200 units.
+
+| Source record | Size | Brand | Number / Run | Level | Units | Exact source SKU | Import behavior |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Puzzle Saver Board | NA | Cogzart | 15 / R1 | NA | 500 | `CZ-15-R1-NA-0001` | ACCESSORY; catalog/manufacturing only |
+| Cupcake | 06 | CircZles | 16 / R2 | NA | 64 | `CC-16-R2-NA-0001` | CIRCZLES; incomplete DRAFT |
+| Introduction To Circzles | 06 | CircZles | 17 / R2 | NA | 32 | `CC-17-R2-NA-0001` | CIRCZLES; incomplete DRAFT |
+| Sorcery | 06 | CircZles | 18 / R2 | NA | 32 | `CC-18-R2-NA-0001` | CIRCZLES; incomplete DRAFT |
+
+All four retain the original source values and require explicit mappings. None creates a playable puzzle, claim prefix, ownership, submission, leaderboard or reward path. The three CircZles remain DRAFT until their gameplay configuration is explicitly completed and activated; the positive playable level rule remains unchanged. Puzzle Saver Board cannot be claimed through Add CircZles. No missing level is inferred from the name or SKU.

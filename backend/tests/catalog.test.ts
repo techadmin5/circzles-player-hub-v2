@@ -216,11 +216,12 @@ describe("explicit transactional catalog imports", { timeout: 20000 }, () => {
     try {
       for (const file of (await readdir(new URL("../drizzle/", import.meta.url))).filter(file => file.endsWith(".sql")).sort()) await scratch.exec((await readFile(new URL("../drizzle/" + file, import.meta.url), "utf8")).replace("CREATE EXTENSION IF NOT EXISTS pgcrypto;", ""));
       const isolated = new CatalogService(drizzle(scratch, { schema: s }) as unknown as Database);
-      expect(await isolated.import(source)).toMatchObject({ ready: true, planned: 78 });
+      expect(await isolated.import(source)).toMatchObject({ ready: true, planned: 82 });
       expect((await scratch.query("SELECT count(*)::int AS count FROM manufacturing_batches")).rows).toEqual([{ count: 0 }]);
       await isolated.import(source, true);
-      expect((await scratch.query("SELECT count(*)::int AS count, sum(units_manufactured)::text AS units FROM manufacturing_batches")).rows).toEqual([{ count: 78, units: "11373" }]);
-      expect((await scratch.query("SELECT count(*)::int AS count FROM catalog_variants")).rows).toEqual([{ count: 77 }]);
+      expect((await scratch.query("SELECT count(*)::int AS count, sum(units_manufactured)::text AS units FROM manufacturing_batches")).rows).toEqual([{ count: 82, units: "12001" }]);
+      expect((await scratch.query("SELECT count(*)::int AS count FROM catalog_variants")).rows).toEqual([{ count: 81 }]);
+      expect((await scratch.query("SELECT count(*)::int AS count FROM puzzles")).rows).toEqual([{ count: 77 }]);
       expect((await scratch.query("SELECT count(*)::int AS count FROM puzzle_claims")).rows).toEqual([{ count: 0 }]);
       const [raw] = (await scratch.query<{ source_data: Record<string, string>; brand: string }>("SELECT source_data, brand FROM manufacturing_batches WHERE sku_prefix = 'CC-31-R2-14'")).rows;
       expect(raw.brand).toBe("CircZles ");
@@ -255,12 +256,12 @@ describe("explicit transactional catalog imports", { timeout: 20000 }, () => {
     await expect(catalog.import(manifest, true)).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
     expect(await counts()).toEqual(before);
   });
-  it("preserves all 78 source rows, exact decimal SKUs, leading zero units and unresolved mappings", async () => {
+  it("preserves all 82 source rows, exact decimal SKUs, leading zero units and unresolved mappings", async () => {
     const source = JSON.parse(await readFile(new URL("../../docs/circzles-catalog/r1-r2-r3.source.json", import.meta.url), "utf8"));
-    expect(source.rows).toHaveLength(78); expect(source.rows.reduce((n: number, r: { units: string }) => n + Number(r.units), 0)).toBe(11373);
+    expect(source.rows).toHaveLength(82); expect(source.rows.reduce((n: number, r: { units: string }) => n + Number(r.units), 0)).toBe(12001);
     expect(source.rows.find((r: { sourceId: string }) => r.sourceId === "31-R2").units).toBe("03");
     expect(source.rows.find((r: { sourceId: string }) => r.sourceId === "80-R3").firstFullSku).toBe("CC-80-R3-0.5-0001");
-    const before = await counts(), report = await catalog.import(source); expect(report.errors).toHaveLength(78); expect(await counts()).toEqual(before);
+    const before = await counts(), report = await catalog.import(source); expect(report.errors).toHaveLength(82); expect(await counts()).toEqual(before);
   });
   it("never merges names implicitly, previews without writes, imports multiple batches atomically and reruns idempotently", async () => {
     const manifest = { datasetId: "test-explicit", rows: [row("920"), row("921", { name: "LION" })], mappings: { "920": { newVariantKey: "explicit-lion" }, "921": { newVariantKey: "explicit-lion" } } };
@@ -286,6 +287,59 @@ describe("explicit transactional catalog imports", { timeout: 20000 }, () => {
     finally { await pg.exec("DROP TRIGGER reject_second_batch ON manufacturing_batches; DROP FUNCTION reject_second_batch();"); }
   });
   it("serializes bigint counts as decimal strings", () => expect(catalogJson({ remaining: 9223372036854775807n })).toEqual({ remaining: "9223372036854775807" }));
+});
+
+describe("complete source accessory and incomplete CircZles", () => {
+  async function manifest() {
+    const source = JSON.parse(await readFile(new URL("../../docs/circzles-catalog/r1-r2-r3.source.json", import.meta.url), "utf8"));
+    source.rows = source.rows.filter((r: { level: string }) => r.level === "NA");
+    for (const r of source.rows) source.mappings[r.sourceId] = { newVariantKey: "source-na-" + r.sourceId };
+    return source;
+  }
+  beforeAll(async () => { await catalog.import(await manifest(), true); });
+  it("keeps both complete source representations identical at 82 rows and 12001 units", async () => {
+    const source = JSON.parse(await readFile(new URL("../../docs/circzles-catalog/r1-r2-r3.source.json", import.meta.url), "utf8"));
+    const lines = (await readFile(new URL("../../docs/circzles-catalog/source.tsv", import.meta.url), "utf8")).trimEnd().split(/\r?\n/).slice(1);
+    expect(lines).toHaveLength(82);
+    expect(lines.map(line => line.split("\t"))).toEqual(source.rows.map((r: Record<string, string>) => [r.name, r.size, r.brand, r.numberIdentifier, r.manufacturingCode, r.level, r.units, r.firstFullSku]));
+    expect(source.rows.reduce((sum: number, r: { units: string }) => sum + Number(r.units), 0)).toBe(12001);
+  });
+  it.each([
+    ["Puzzle Saver Board", "CZ-15-R1-NA-0001", "ACCESSORY", "NA", "Cogzart", 500n, "PUZZLE_CODE_ACCESSORY"],
+    ["Cupcake", "CC-16-R2-NA-0001", "CIRCZLES", "06", "CircZles", 64n, "PUZZLE_BATCH_INACTIVE"],
+    ["Introduction To Circzles", "CC-17-R2-NA-0001", "CIRCZLES", "06", "CircZles", 32n, "PUZZLE_BATCH_INACTIVE"],
+    ["Sorcery", "CC-18-R2-NA-0001", "CIRCZLES", "06", "CircZles", 32n, "PUZZLE_BATCH_INACTIVE"],
+  ] as const)("imports %s without a playable or claimable ownership path", async (name, sku, productType, size, brand, units, code) => {
+    const [b] = await db.select().from(s.manufacturingBatches).where(eq(s.manufacturingBatches.skuPrefix, sku.slice(0, sku.lastIndexOf("-"))));
+    const detail = await catalog.detail(b.catalogVariantId);
+    expect(detail).toMatchObject({ displayName: name, productType, sizeLabel: size, brand, levelId: null, status: "DRAFT", puzzleId: null });
+    expect(b).toMatchObject({ firstFullSku: sku, status: "DRAFT", puzzleId: null, puzzleClaimPrefixId: null, unitsManufactured: units, sourceData: { level: "NA", firstFullSku: sku } });
+    const actor = await player(), before = await counts();
+    await expect(ownership.claimByCode(actor.id, sku)).rejects.toMatchObject({ code });
+    expect(await counts()).toEqual(before);
+    if (productType === "CIRCZLES") {
+      await expect(catalog.update(b.catalogVariantId, { status: "ACTIVE" })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+      await expect(catalog.editBatch(b.manufacturingBatchId, { status: "ACTIVE" })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    }
+    expect(await counts()).toEqual(before);
+  });
+  it("reruns the restored source rows idempotently without player or gameplay writes", async () => {
+    const before = await counts();
+    expect(await catalog.import(await manifest(), true)).toMatchObject({ planned: 0, applied: true, skipped: ["15-R1", "16-R2", "17-R2", "18-R2"] });
+    expect(await counts()).toEqual(before);
+  });
+  it("rolls back the complete source import when its final row fails", async () => {
+    const scratch = new PGlite();
+    try {
+      for (const file of (await readdir(new URL("../drizzle/", import.meta.url))).filter(file => file.endsWith(".sql")).sort()) await scratch.exec((await readFile(new URL("../drizzle/" + file, import.meta.url), "utf8")).replace("CREATE EXTENSION IF NOT EXISTS pgcrypto;", ""));
+      const source = JSON.parse(await readFile(new URL("../../docs/circzles-catalog/r1-r2-r3.source.json", import.meta.url), "utf8"));
+      for (const r of source.rows) source.mappings[r.sourceId] = { newVariantKey: "rollback-" + r.sourceId };
+      await scratch.exec("CREATE FUNCTION reject_final_source() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.number_identifier = '82' THEN RAISE EXCEPTION 'test source failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_final_source BEFORE INSERT ON manufacturing_batches FOR EACH ROW EXECUTE FUNCTION reject_final_source();");
+      const isolated = new CatalogService(drizzle(scratch, { schema: s }) as unknown as Database);
+      await expect(isolated.import(source, true)).rejects.toThrow();
+      for (const table of ["catalog_variants", "puzzle_designs", "puzzles", "puzzle_claim_prefixes", "manufacturing_batches", "manufacturing_batch_ranges", "puzzle_claims", "player_puzzles", "game_events"]) expect((await scratch.query("SELECT count(*)::int AS count FROM " + table)).rows).toEqual([{ count: 0 }]);
+    } finally { await scratch.close(); }
+  }, 20000);
 });
 
 describe("server-authorized catalog APIs", { timeout: 20000 }, () => {

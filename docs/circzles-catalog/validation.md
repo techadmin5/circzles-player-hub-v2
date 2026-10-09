@@ -5,7 +5,7 @@ Base: `fe62dcf790cc0fef99f70259c52a29c6febb67af` (current main when the branch w
 
 | Check | Result |
 | --- | --- |
-| Backend `npm test -- --maxWorkers=2` | 852 passed, 44 files; no failures or skips |
+| Backend `npm test -- --maxWorkers=2` | 859 passed, 44 files; no failures or skips |
 | Backend `npm run lint` | Passed, zero warnings/errors |
 | Backend `npm run typecheck` | Passed |
 | Backend `npm run build` | Passed |
@@ -16,11 +16,11 @@ Base: `fe62dcf790cc0fef99f70259c52a29c6febb67af` (current main when the branch w
 | Drizzle generation consistency | No additional schema changes after the 0023 snapshot |
 | `git diff --check` | Passed |
 
-One intermediate backend run hit a timeout in the unchanged native-auth setup hook during a prolonged environment delay; the final regression run was executed on its own. Existing native-auth test timeouts and assertions were not changed.
+The final backend regression run passed all 859 tests across 44 files. The source correction adds seven cases for TSV/JSON parity, the four real accessory/NA records and their claim guards, idempotent reruns, and full-source rollback on an injected final-row failure. Existing native-auth test timeouts and assertions were not changed.
 
-Frontend build output was isolated at `.next/catalog-validation-20261009` using a process-only Next config override. Next-generated TypeScript config/declarations were restored byte-for-byte; the repository configuration and production environment were not changed. The first sandbox build could not fetch the existing Google Fonts; the network-enabled retry passed with the existing fonts unchanged.
+Frontend build output was isolated at `.next/catalog-source-validation-20261009` using a process-only Next config override. Next-generated TypeScript config/declarations were restored byte-for-byte; the repository configuration and production environment were not changed. The build used network access for the existing Google Fonts, with the fonts unchanged.
 
-51 new backend cases cover real persistent manufacturing/range enforcement, claims, concurrent physical/canonical ownership attempts, claim-event rollback, populated legacy migration preservation, safe metadata edits, source preview/apply/reruns/rollback, archived legacy-prefix reconciliation, accessories/drafts and server authorization. The complete source is applied only in a fresh isolated test database: 78 batches, 11,373 units, no unit rows/claims, and 77 variants under the test's explicitly chosen shared Lion key. This is test mapping, not an approved production mapping.
+58 new backend cases cover real persistent manufacturing/range enforcement, claims, concurrent physical/canonical ownership attempts, claim-event rollback, populated legacy migration preservation, safe metadata edits, source preview/apply/reruns/rollback, archived legacy-prefix reconciliation, accessories/drafts and server authorization. The complete source is applied only in a fresh isolated test database: 82 batches, 12,001 units, no unit rows/claims, 81 catalog variants and 77 playable variants under the test's explicitly chosen shared Lion key. This is test mapping, not an approved production mapping.
 
 15 new frontend cases exercise server-denied access, session-generation reauthorization, catalog creation/batch attachment, protected claimed identity, claim errors, immediate owned collection/canonical stats, stale-read protection after failed hydration, preview-before-apply and metadata invalidation without stat changes. Existing 801 backend and 104 frontend tests remain included.
 
@@ -37,7 +37,18 @@ The implementation, security model, source reconciliation, backward compatibilit
 7. Yes: an ACTIVE verified batch on an ACTIVE valid CircZles is immediately claimable, subject to physical/ownership rules.
 8. Yes: authorized admins can add future R4/R5 batches and disjoint ranges without a code deployment.
 
-## Exact changed files
+## Source correction files
+
+This follow-up restores the four omitted records and 628 units. The complete fixture has **82 rows / 12,001 units**. The original 78 records and all mappings are unchanged. The positive playable level rule and runtime implementation are unchanged. The actual accessory/NA rows remain DRAFT without playable or claim-prefix IDs; claims and incomplete CircZles activation are rejected without gameplay writes.
+
+- `backend/tests/catalog.test.ts`
+- `docs/circzles-catalog/README.md`
+- `docs/circzles-catalog/r1-r2-r3.source.json`
+- `docs/circzles-catalog/reconciliation.md`
+- `docs/circzles-catalog/source.tsv`
+- `docs/circzles-catalog/validation.md`
+
+## Exact branch changed files
 
 53 files, relative to the repository root:
 
