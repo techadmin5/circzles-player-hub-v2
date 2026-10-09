@@ -14,7 +14,7 @@ export function InstantTabs({ tabs }: { tabs: string[] }) {
 }
 
 const playerNav = [
-  ["/hub", Home, "Home"], ["/puzzles", Puzzle, "Puzzles"], ["/leaderboard", Medal, "Leaderboard"], ["/missions", Swords, "Missions"], ["/rewards", ShoppingBag, "Rewards"],
+  ["/hub", Home, "Home"], ["/puzzles", Puzzle, "CircZles"], ["/leaderboard", Medal, "Leaderboard"], ["/missions", Swords, "Missions"], ["/rewards", ShoppingBag, "Rewards"],
   ["/inventory", ScrollText, "Inventory"], ["/activity", Bell, "Activity"], ["/friends", Users, "Friends"], ["/notifications", Bell, "Notifications"], ["/profile", User, "Profile"],
 ] as const;
 
@@ -31,9 +31,9 @@ export function PlayerNav({ mobile = false }: { mobile?: boolean }) {
 
 export function AddPuzzleForm() {
   const [message, setMessage] = useState("");
-  return <form className="game-card flex flex-col gap-3 p-4 sm:flex-row" onSubmit={async (e) => { e.preventDefault(); const form = new FormData(e.currentTarget); const result = await puzzleService.claimByCode(String(form.get("code") ?? "")); setMessage(result.success ? `Added ${result.puzzle.name}` : "Enter a valid CircZles code."); }}>
-    <input aria-label="CircZles code" name="code" placeholder="CC-11-18-R1-001" className="min-h-11 flex-1 rounded-md border border-white/15 bg-black/25 px-3" />
-    <button className="btn btn-primary">Add Puzzle</button>
+  return <form className="game-card flex flex-col gap-3 p-4 sm:flex-row" onSubmit={async (e) => { e.preventDefault(); const form = new FormData(e.currentTarget); const result = await puzzleService.claimByCode(String(form.get("code") ?? "")); setMessage(result.success ? `Added ${result.puzzle.name}` : "Enter a valid CircZles SKU."); }}>
+    <input aria-label="CircZles SKU" name="code" placeholder="CC-29-R2-01-0001" className="min-h-11 flex-1 rounded-md border border-white/15 bg-black/25 px-3" />
+    <button className="btn btn-primary">Add CircZles</button>
     {message && <p className="text-sm text-[var(--cyan)]">{message}</p>}
   </form>;
 }
@@ -62,7 +62,7 @@ export function RewardWheel() {
 }
 
 export function SubmissionStepper() {
-  const steps = ["Select puzzle", "Enter time", "Choose video", "Upload mock", "Review", "Submit"];
+  const steps = ["Select CircZles", "Enter time", "Choose video", "Upload mock", "Review", "Submit"];
   const [step, setStep] = useState(0);
   return <div className="game-card p-5"><div className="grid gap-2 md:grid-cols-6">{steps.map((s, i)=><button key={s} onClick={()=>setStep(i)} className={`rounded-md border px-3 py-3 text-sm font-semibold ${i === step ? "border-cyan-300 bg-cyan-300/15" : "border-white/10 bg-white/5"}`}>{s}</button>)}</div><div className="mt-5 rounded-md border border-white/10 bg-black/20 p-5"><h2 className="font-display text-3xl font-bold">{steps[step]}</h2><p className="mt-2 text-[var(--text-secondary)]">Mock submission state updates immediately; upload progress is isolated to this flow and not used for navigation.</p><button className="btn btn-primary mt-4" onClick={()=>setStep(Math.min(step+1, steps.length-1))}>Continue</button></div></div>;
 }

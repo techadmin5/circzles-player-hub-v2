@@ -21,7 +21,7 @@ export class ApiClientError extends Error {
 // Leave five seconds of headroom below the proxy's 50-second request deadline.
 export const AUTH_REQUEST_TIMEOUT_MS = 45_000;
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (apiBaseUrl === undefined) throw new ApiClientError("API_BASE_URL_MISSING", "NEXT_PUBLIC_API_BASE_URL is not configured.", 500);
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...init,

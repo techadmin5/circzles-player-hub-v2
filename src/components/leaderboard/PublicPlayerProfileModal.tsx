@@ -129,7 +129,7 @@ function ProfileContent({ profile }: { profile: PublicPlayerProfile }) {
           <p className="mt-2 truncate font-semibold">{profile.progressionRank}</p>
         </div>
         <div className="cz-raised min-w-0 p-3">
-          <p className="flex items-center gap-1.5 text-[0.65rem] uppercase tracking-wide text-[var(--cz-text-tertiary)]"><Puzzle size={13} /> Approved puzzles</p>
+          <p className="flex items-center gap-1.5 text-[0.65rem] uppercase tracking-wide text-[var(--cz-text-tertiary)]"><Puzzle size={13} /> Approved CircZles</p>
           <p className="cz-num mt-2 text-xl font-bold text-[var(--cz-gold)]">{profile.approvedPuzzlesSolved}</p>
         </div>
       </div>

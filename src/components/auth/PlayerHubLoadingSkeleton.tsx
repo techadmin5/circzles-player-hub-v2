@@ -10,7 +10,7 @@ export const SESSION_LOADING_TIPS = [
   "Practice your solve before recording the final submission.",
   "Keep your submission file under 100 MB.",
   "Record your attempt in one continuous video without cuts.",
-  "Make sure the puzzle and your hands stay clearly visible.",
+  "Make sure the CircZles and your hands stay clearly visible.",
   "Start the timer before opening or solving your CircZles challenge.",
   "A clean camera angle makes verification faster.",
   "CircZles combines physical solving with competitive digital progression.",

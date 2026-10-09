@@ -1,3 +1,4 @@
+import { CatalogService } from "./domain/catalog.js";
 import { PlayerStateEvents } from "./domain/playerStateEvents.js";
 import { PlayerStateListener } from "./db/playerStateListener.js";
 import { loadEnv } from "./config/env.js";
@@ -91,6 +92,7 @@ const couponRedemptionWebhooks = new ProviderCouponRedemptionWebhookHandler(
 );
 const playerStateEvents = new PlayerStateEvents();
 const app = buildApp({
+  catalog: new CatalogService(db),
   playerStateEvents,
   env,
   identity,

@@ -13,5 +13,5 @@ export function SubmissionListClient({ initial }: { initial: Submission[] }) {
   const [error, setError] = useState("");
   useEffect(() => { if (dataMode === "api") submissionService.getSubmissions().then(setItems).catch(() => setError("Submissions could not be loaded.")); }, []);
   if (error) return <p role="alert" className="cz-surface p-4 text-sm text-[var(--cz-danger)]">{error}</p>;
-  return items.length ? <div className="grid gap-3 md:grid-cols-2">{items.map((item) => <SubmissionCard key={item.id} submission={item} />)}</div> : <EmptyState icon={<Camera size={22} />} title="No submissions yet" body="Solve a puzzle and submit your attempt to start climbing the leaderboards." action={<Link href="/submissions/new" className="cz-btn cz-btn-primary">Submit Attempt</Link>} />;
+  return items.length ? <div className="grid gap-3 md:grid-cols-2">{items.map((item) => <SubmissionCard key={item.id} submission={item} />)}</div> : <EmptyState icon={<Camera size={22} />} title="No submissions yet" body="Solve a CircZles and submit your attempt to start climbing the leaderboards." action={<Link href="/submissions/new" className="cz-btn cz-btn-primary">Submit Attempt</Link>} />;
 }

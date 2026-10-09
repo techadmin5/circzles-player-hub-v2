@@ -1,6 +1,9 @@
 import { bigint, boolean, check, index, integer, jsonb, numeric, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
+export const catalogStatus = pgEnum("catalog_status", ["DRAFT", "ACTIVE", "ARCHIVED"]);
+export const catalogProductType = pgEnum("catalog_product_type", ["CIRCZLES", "ACCESSORY"]);
+
 export const userStatus = pgEnum("user_status", ["ACTIVE", "SUSPENDED", "DELETED"]);
 export const sessionStatus = pgEnum("session_status", ["ACTIVE", "REVOKED", "EXPIRED"]);
 export const pointTransactionDirection = pgEnum("point_transaction_direction", ["CREDIT", "DEBIT", "CORRECTION"]);
@@ -857,3 +860,48 @@ export const authRateLimits = pgTable("auth_rate_limits", {
   attempts: integer("attempts").notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
 });
+
+// Catalog drafts are deliberately separate from the positive-level playable registry.
+export const catalogVariants = pgTable("catalog_variants", {
+  catalogVariantId: uuid("catalog_variant_id").primaryKey().defaultRandom(),
+  puzzleDesignId: uuid("puzzle_design_id").notNull().references(() => puzzleDesigns.puzzleDesignId, { onDelete: "restrict" }),
+  puzzleId: uuid("puzzle_id").unique().references(() => puzzles.puzzleId, { onDelete: "restrict" }),
+  displayName: text("display_name").notNull(), brand: text("brand").notNull(),
+  productType: catalogProductType("product_type").notNull(),
+  sizeLabel: text("size_label"), pieceCount: integer("piece_count"), levelId: numeric("level_id", { precision: 4, scale: 1 }),
+  image: text("image"), description: text("description"), marketingMetadata: jsonb("marketing_metadata").$type<Record<string, string>>().notNull().default({}),
+  status: catalogStatus("status").notNull().default("DRAFT"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [check("catalog_variant_level_positive", sql`${t.levelId} IS NULL OR ${t.levelId} > 0`),
+  check("catalog_variant_piece_positive", sql`${t.pieceCount} IS NULL OR ${t.pieceCount} > 0`),
+  check("catalog_variant_playable_active", sql`${t.status} <> 'ACTIVE' OR ${t.productType} <> 'CIRCZLES' OR (${t.puzzleId} IS NOT NULL AND ${t.levelId} IS NOT NULL AND ${t.levelId} > 0)`),
+  check("catalog_variant_accessory_not_playable", sql`${t.productType} <> 'ACCESSORY' OR ${t.puzzleId} IS NULL`)]);
+
+export const manufacturingBatches = pgTable("manufacturing_batches", {
+  manufacturingBatchId: uuid("manufacturing_batch_id").primaryKey().defaultRandom(),
+  catalogVariantId: uuid("catalog_variant_id").notNull().references(() => catalogVariants.catalogVariantId, { onDelete: "restrict" }),
+  puzzleId: uuid("puzzle_id").references(() => puzzles.puzzleId, { onDelete: "restrict" }),
+  puzzleClaimPrefixId: uuid("puzzle_claim_prefix_id").unique().references(() => puzzleClaimPrefixes.puzzleClaimPrefixId, { onDelete: "restrict" }),
+  brand: text("brand").notNull(), productType: catalogProductType("product_type").notNull(),
+  numberIdentifier: text("number_identifier").notNull(), manufacturingCode: text("manufacturing_code").notNull(),
+  skuPrefix: text("sku_prefix").notNull().unique(), firstFullSku: text("first_full_sku"),
+  serialStart: bigint("serial_start", { mode: "bigint" }).notNull(), serialEnd: bigint("serial_end", { mode: "bigint" }).notNull(),
+  unitsManufactured: bigint("units_manufactured", { mode: "bigint" }).notNull(),
+  status: catalogStatus("status").notNull().default("DRAFT"),
+  importKey: text("import_key").unique(), sourceFingerprint: text("source_fingerprint"),
+  sourceData: jsonb("source_data").$type<Record<string, string>>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [check("manufacturing_batch_bounds", sql`${t.serialStart} > 0 AND ${t.serialEnd} >= ${t.serialStart} AND ${t.unitsManufactured} > 0`),
+  check("manufacturing_batch_playable_active", sql`${t.status} <> 'ACTIVE' OR ${t.productType} <> 'CIRCZLES' OR (${t.puzzleId} IS NOT NULL AND ${t.puzzleClaimPrefixId} IS NOT NULL)`),
+  check("manufacturing_batch_accessory_not_playable", sql`${t.productType} <> 'ACCESSORY' OR (${t.puzzleId} IS NULL AND ${t.puzzleClaimPrefixId} IS NULL)`),
+  index("manufacturing_batch_variant_idx").on(t.catalogVariantId)]);
+
+export const manufacturingBatchRanges = pgTable("manufacturing_batch_ranges", {
+  manufacturingBatchRangeId: uuid("manufacturing_batch_range_id").primaryKey().defaultRandom(),
+  manufacturingBatchId: uuid("manufacturing_batch_id").notNull().references(() => manufacturingBatches.manufacturingBatchId, { onDelete: "restrict" }),
+  serialStart: bigint("serial_start", { mode: "bigint" }).notNull(), serialEnd: bigint("serial_end", { mode: "bigint" }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [check("manufacturing_range_bounds", sql`${t.serialStart} > 0 AND ${t.serialEnd} >= ${t.serialStart}`),
+  uniqueIndex("manufacturing_range_unique").on(t.manufacturingBatchId, t.serialStart, t.serialEnd)]);

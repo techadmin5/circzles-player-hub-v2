@@ -20,10 +20,10 @@ export function PuzzleDetailExplorer({ id, initialPuzzle, initialSubmissions = [
     Promise.all([puzzleService.getPuzzle(id), submissionService.getSubmissions()]).then(([nextPuzzle, nextSubmissions]) => {
       setPuzzle(nextPuzzle);
       setSubmissions(nextSubmissions);
-    }).catch(() => setError("Puzzle details could not be loaded.")).finally(() => setLoading(false));
+    }).catch(() => setError("CircZles details could not be loaded.")).finally(() => setLoading(false));
   }, [id]);
   if (loading) return <LoadingState rows={5} />;
-  if (error || !puzzle) return <EmptyState title="Puzzle unavailable" body={error || "This puzzle could not be found."} />;
+  if (error || !puzzle) return <EmptyState title="CircZles unavailable" body={error || "This CircZles could not be found."} />;
   const related = submissions.filter((submission) => submission.puzzleId === puzzle.id).slice(0, 3);
   return <>
     <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1fr)]">
@@ -35,6 +35,6 @@ export function PuzzleDetailExplorer({ id, initialPuzzle, initialSubmissions = [
         <div className="mt-auto flex flex-wrap gap-2"><Link href="/submissions/new" className="cz-btn cz-btn-primary"><Camera size={16} />Submit Attempt</Link><Link href="/leaderboard" className="cz-btn cz-btn-ghost"><Trophy size={16} />Leaderboard</Link><Link href="/puzzles" className="cz-btn cz-btn-ghost"><RotateCcw size={16} />Back</Link></div>
       </div>
     </div>
-    <div className="mt-8"><SectionHeader title="Submission History" />{related.length ? <div className="grid gap-3">{related.map((submission) => <SubmissionCard key={submission.id} submission={submission} />)}</div> : <p className="cz-surface p-6 text-center text-sm text-[var(--cz-text-tertiary)]">No submissions yet for this puzzle.</p>}</div>
+    <div className="mt-8"><SectionHeader title="Submission History" />{related.length ? <div className="grid gap-3">{related.map((submission) => <SubmissionCard key={submission.id} submission={submission} />)}</div> : <p className="cz-surface p-6 text-center text-sm text-[var(--cz-text-tertiary)]">No submissions yet for this CircZles.</p>}</div>
   </>;
 }

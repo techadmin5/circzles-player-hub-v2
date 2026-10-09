@@ -10,7 +10,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   const puzzle = dataMode === "mock" ? await puzzleService.getPuzzle(id) : undefined;
   const submissions = dataMode === "mock" ? await submissionService.getSubmissions() : [];
   return <GameShell player={player}>
-    <PageHeader kicker={puzzle?.sku ? `SKU ${puzzle.sku}` : "Puzzle detail"} title={puzzle?.name ?? "Puzzle"} subtitle={puzzle ? `puzzleId ${puzzle.id}` : "Authenticated puzzle details"} />
+    <PageHeader kicker={puzzle?.sku ? `SKU ${puzzle.sku}` : "CircZles detail"} title={puzzle?.name ?? "CircZles"} subtitle={puzzle ? `puzzleId ${puzzle.id}` : "Authenticated CircZles details"} />
     <PuzzleDetailExplorer id={id} initialPuzzle={puzzle} initialSubmissions={submissions} />
   </GameShell>;
 }

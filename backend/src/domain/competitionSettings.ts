@@ -100,7 +100,7 @@ export class DrizzleCompetitionSettingsRepository implements CompetitionSettings
   async upsert(input: Required<CompetitionSettingInput>) {
     return this.db.transaction(async (tx) => {
       const [puzzle] = await tx.select().from(puzzles).where(eq(puzzles.puzzleId, input.puzzleId)).limit(1).for("key share");
-      if (!puzzle) throw new AppError("PUZZLE_NOT_FOUND", "Puzzle was not found.", 404);
+      if (!puzzle) throw new AppError("PUZZLE_NOT_FOUND", "CircZles was not found.", 404);
 
       const [setting] = await tx.insert(puzzleCompetitionSettings).values(input).onConflictDoUpdate({
         target: puzzleCompetitionSettings.puzzleId,

@@ -9,7 +9,7 @@ export interface NavItem {
 
 export const PRIMARY_NAV: NavItem[] = [
   { href: "/hub", label: "Player Hub", icon: Home },
-  { href: "/puzzles", label: "My Puzzles", icon: Puzzle },
+  { href: "/puzzles", label: "My CircZles", icon: Puzzle },
   { href: "/submissions", label: "Submissions", icon: ScrollText },
   { href: "/leaderboard", label: "Leaderboard", icon: Trophy },
   { href: "/missions", label: "Missions", icon: Swords },

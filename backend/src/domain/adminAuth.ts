@@ -5,10 +5,10 @@ import { forbidden, unauthorized } from "./errors.js";
 import { hashSessionToken } from "./sessions.js";
 
 export type AdminRole = "SUPER_ADMIN" | "REVIEWER";
-export type AdminPermission = "SUBMISSIONS_REVIEW" | "COMPETITION_CONFIG";
+export type AdminPermission = "SUBMISSIONS_REVIEW" | "COMPETITION_CONFIG" | "CATALOG_MANAGE";
 
 const ROLE_PERMISSIONS: Readonly<Record<AdminRole, ReadonlySet<AdminPermission>>> = {
-  SUPER_ADMIN: new Set(["SUBMISSIONS_REVIEW", "COMPETITION_CONFIG"]),
+  SUPER_ADMIN: new Set(["SUBMISSIONS_REVIEW", "COMPETITION_CONFIG", "CATALOG_MANAGE"]),
   REVIEWER: new Set(["SUBMISSIONS_REVIEW"]),
 };
 

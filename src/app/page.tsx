@@ -3,7 +3,7 @@ import { ArrowRight, Award, Gem, Puzzle, ScanLine, Trophy, Upload } from "lucide
 import { PublicShell } from "@/components/public/PublicShell";
 
 const FLOW = [
-  { icon: <Puzzle size={16} />, label: "Own a physical CircZles puzzle" },
+  { icon: <Puzzle size={16} />, label: "Own a physical CircZles" },
   { icon: <ScanLine size={16} />, label: "Add it with its physical code" },
   { icon: <Upload size={16} />, label: "Solve, record & submit your attempt" },
   { icon: <Award size={16} />, label: "Get verified · earn XP & Synapse Points" },
@@ -21,7 +21,7 @@ export default function Home() {
     <PublicShell>
       <section className="mx-auto grid max-w-6xl content-center gap-10 px-4 py-16 md:grid-cols-[1.15fr_0.85fr] md:py-24">
         <div>
-          <span className="cz-chip">Phygital puzzle ecosystem</span>
+          <span className="cz-chip">Phygital CircZles ecosystem</span>
           <h1 className="cz-display mt-4 text-4xl font-bold leading-[1.05] sm:text-5xl md:text-6xl">Turn every CircZles into a competitive challenge.</h1>
           <p className="mt-5 max-w-xl text-base text-[var(--cz-text-secondary)]">A premium hub for verified solves, RPG progression, Synapse Points, missions, seasons and community rivalries — the gamification layer of CircZles.</p>
           <div className="mt-7 flex flex-wrap gap-3">

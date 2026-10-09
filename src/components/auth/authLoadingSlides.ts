@@ -13,7 +13,7 @@ export const AUTH_LOADING_ROTATION_MS = 4_000;
 export const loginLoadingSlides: readonly AuthLoadingSlide[] = [
   { id: "session", title: "Logging you in", description: "Setting up your secure Player Hub session." },
   { id: "dashboard", title: "Building your dashboard", description: "Loading your profile, progress, and rewards." },
-  { id: "puzzles", title: "Loading your puzzles", description: "Fetching your puzzles, submissions, and activity." },
+  { id: "puzzles", title: "Loading your CircZles", description: "Fetching your CircZles, submissions, and activity." },
   { id: "experience", title: "Preparing your experience", description: "Bringing your Player Hub features together." },
   { id: "ready", title: "Almost there", description: "Your CircZles Player Hub is getting ready." },
 ];

@@ -38,7 +38,6 @@ export function ProductionHub({ fallbackPlayer, mode }: { fallbackPlayer?: Playe
       });
     }
 
-    load(puzzleService.getOwnedPuzzles(), setPuzzles);
     load(missionService.getMissions(controller.signal), setMissions);
     load(rewardService.getWheelStatus(controller.signal), setWheel);
     load((async () => {
@@ -53,6 +52,12 @@ export function ProductionHub({ fallbackPlayer, mode }: { fallbackPlayer?: Playe
     };
   }, [mode]);
 
+  useEffect(() => {
+    let cancelled = false;
+    puzzleService.getOwnedPuzzles().then(data => { if (!cancelled) setPuzzles({ status: "success", data }); }).catch(() => { if (!cancelled) setPuzzles({ status: "error" }); });
+    return () => { cancelled = true; };
+  }, [mode, player]);
+
   const activeMission = missions.status === "success" ? missions.data.find((mission) => mission.status === "ACTIVE") ?? missions.data[0] : undefined;
   const pendingPuzzle = puzzles.status === "success" ? puzzles.data.find((puzzle) => puzzle.status === "SUBMISSION_PENDING") : undefined;
   const currentPlacement = leaderboard.status === "success" ? leaderboard.data?.currentPlayerEntry : undefined;
@@ -64,12 +69,12 @@ export function ProductionHub({ fallbackPlayer, mode }: { fallbackPlayer?: Playe
 
     <section className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
       <div className="cz-surface grid min-w-0 gap-5 p-4 sm:p-5">
-        <div className="grid min-w-0 gap-2 sm:grid-cols-2"><ActionTile href="/puzzles" icon={<Plus size={17} />} label="Add Puzzle" /><ActionTile href="/submissions/new" icon={<Camera size={17} />} label="Submit Attempt" /><ActionTile href="/leaderboard" icon={<Trophy size={17} />} label="Leaderboard" /><ActionTile href="/missions" icon={<Gift size={17} />} label="Claim Missions" /></div>
+        <div className="grid min-w-0 gap-2 sm:grid-cols-2"><ActionTile href="/puzzles" icon={<Plus size={17} />} label="Add CircZles" /><ActionTile href="/submissions/new" icon={<Camera size={17} />} label="Submit Attempt" /><ActionTile href="/leaderboard" icon={<Trophy size={17} />} label="Leaderboard" /><ActionTile href="/missions" icon={<Gift size={17} />} label="Claim Missions" /></div>
         {missions.status === "loading" ? <LoadingState rows={1} /> : missions.status === "error" ? <ErrorState message="Missions could not be loaded." /> : activeMission ? <div className="cz-inset grid min-w-0 gap-4 p-4 md:grid-cols-[minmax(0,1fr)_200px]"><div className="min-w-0"><p className="flex items-center gap-1.5 text-[0.62rem] font-semibold uppercase tracking-[0.16em] text-[var(--cz-aqua)]"><Sparkles size={12} />Active Challenge</p><h2 className="cz-display mt-1 break-words text-xl font-bold">{activeMission.title}</h2><p className="mt-1 text-sm text-[var(--cz-text-secondary)]">{activeMission.description}</p><div className="cz-track mt-3"><div className="cz-track-fill" style={{ width: `${progress}%` }} /></div></div><div className="grid place-items-center gap-1 rounded-xl border border-[rgba(232,180,80,0.28)] bg-[var(--cz-gold-dim)] p-4 text-center"><Gift className="h-7 w-7 text-[var(--cz-gold)]" /><p className="cz-display text-lg font-bold text-[var(--cz-gold)]">{activeMission.rewards.map((reward) => reward.label).join(" + ")}</p><p className="text-[0.62rem] text-[var(--cz-text-tertiary)]">On verified completion</p></div></div> : <EmptyState icon={<Target size={22} />} title="No active missions" body="New verified missions will appear here when available." />}
       </div>
 
       <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-1">
-        {puzzles.status === "loading" ? <StatusPanelLoading /> : <StatusPanel icon={<Target size={13} />} label="Submission Status" title={puzzles.status === "error" ? "Unavailable" : pendingPuzzle?.name ?? "No pending solves"} body={puzzles.status === "error" ? "Puzzle status could not be loaded." : pendingPuzzle ? "Pending review" : "Submit an attempt to see review status."} href="/submissions" />}
+        {puzzles.status === "loading" ? <StatusPanelLoading /> : <StatusPanel icon={<Target size={13} />} label="Submission Status" title={puzzles.status === "error" ? "Unavailable" : pendingPuzzle?.name ?? "No pending solves"} body={puzzles.status === "error" ? "CircZles status could not be loaded." : pendingPuzzle ? "Pending review" : "Submit an attempt to see review status."} href="/submissions" />}
         {leaderboard.status === "loading" ? <StatusPanelLoading /> : <StatusPanel icon={<Trophy size={13} />} label="Competitive Result" tone="gold" title={leaderboard.status === "error" ? "Unavailable" : currentPlacement ? `Rank #${currentPlacement.rank}` : "No ranked time yet"} body={leaderboard.status === "error" ? "Leaderboard status could not be loaded." : currentPlacement ? `${currentPlacement.bestTime} on ${leaderboard.status === "success" ? leaderboard.data?.puzzle.puzzleName : ""}` : "Your verified leaderboard placement will appear here."} href="/leaderboard" />}
         {wheel.status === "loading" ? <StatusPanelLoading /> : <StatusPanel icon={<TicketCheck size={13} />} label="Reward Wheel" tone="violet" title={wheel.status === "error" ? "Unavailable" : wheelData?.canSpin ? (wheelData.nextSpinIsFree ? "Free spin available" : "Spin available") : "No spin available"} body={wheel.status === "error" ? "Reward Wheel status could not be loaded." : wheelData ? `${wheelData.spinsRemaining} of ${wheelData.maxSpinsPerCycle} spins remaining.` : "No Reward Wheel is currently active."} href="/rewards" />}
       </div>
@@ -77,7 +82,7 @@ export function ProductionHub({ fallbackPlayer, mode }: { fallbackPlayer?: Playe
 
     <section className="min-w-0"><SectionHeader title="Leaderboard Snapshot" icon={<Trophy size={16} />} action={<Link href="/leaderboard" className="text-xs text-[var(--cz-aqua)]">Full board</Link>} />{leaderboard.status === "loading" ? <LoadingState rows={3} /> : leaderboard.status === "error" ? <ErrorState message="Leaderboard could not be loaded." /> : leaderboard.data?.entries.length ? <div className="cz-surface min-w-0 divide-y divide-[var(--cz-hairline)] p-2">{leaderboard.data.entries.slice(0, 5).map((entry) => <Link href={`/profile/${entry.publicPlayerId}`} key={entry.publicPlayerId} className="grid min-w-0 grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-2 rounded-lg px-2 py-3 hover:bg-white/[0.03]"><span className="cz-num text-sm font-bold text-[var(--cz-gold)]">#{entry.rank}</span><span className="min-w-0"><span className="block truncate text-sm font-semibold">{entry.publicPlayerId === player?.publicPlayerId ? player.displayName : entry.displayName}</span><span className="block truncate text-[0.68rem] text-[var(--cz-text-tertiary)]">{entry.publicPlayerId}</span></span><span className="cz-num whitespace-nowrap text-xs text-[var(--cz-text-secondary)]">{entry.bestTime}</span></Link>)}</div> : <EmptyState icon={<Trophy size={22} />} title="No leaderboard entries" body="Verified solve times will appear here." />}</section>
 
-    <section className="min-w-0"><SectionHeader title="Puzzle Journey" icon={<Sparkles size={16} />} action={<Link href="/puzzles" className="text-xs text-[var(--cz-aqua)]">Manage</Link>} />{puzzles.status === "loading" ? <LoadingState rows={3} /> : puzzles.status === "error" ? <ErrorState message="Puzzle journey could not be loaded." /> : puzzles.data.length ? <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">{puzzles.data.slice(0, 3).map((puzzle) => <PuzzleCard key={puzzle.id} puzzle={puzzle} />)}</div> : <EmptyState icon={<Plus size={22} />} title="No puzzles added" body="Add a CircZles puzzle to begin your solving journey." />}</section>
+    <section className="min-w-0"><SectionHeader title="CircZles Journey" icon={<Sparkles size={16} />} action={<Link href="/puzzles" className="text-xs text-[var(--cz-aqua)]">Manage</Link>} />{puzzles.status === "loading" ? <LoadingState rows={3} /> : puzzles.status === "error" ? <ErrorState message="CircZles journey could not be loaded." /> : puzzles.data.length ? <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">{puzzles.data.slice(0, 3).map((puzzle) => <PuzzleCard key={puzzle.id} puzzle={puzzle} />)}</div> : <EmptyState icon={<Plus size={22} />} title="No CircZles added" body="Add a CircZles to begin your solving journey." />}</section>
   </div>;
 }
 

@@ -9,7 +9,7 @@ export default async function Page() {
   const puzzles = dataMode === "mock" ? await puzzleService.getOwnedPuzzles() : [];
   return (
     <GameShell player={player}>
-      <PageHeader kicker="Collection" title="My Puzzles" subtitle={dataMode === "mock" ? `${puzzles.length} puzzles in your Player Hub` : "Your authenticated CircZles puzzle collection"} />
+      <PageHeader kicker="Collection" title="My CircZles" subtitle={dataMode === "mock" ? `${puzzles.length} CircZles in your Player Hub` : "Your authenticated CircZles collection"} />
       <PuzzleCollectionExplorer initial={puzzles} />
     </GameShell>
   );

@@ -106,7 +106,7 @@ function HubPreview({ player, puzzles, onOpenProgression, onEditAvatar }: { play
     <section className="grid gap-4 lg:grid-cols-[1.1fr_.9fr]">
       <div className={cn(styles.surface, styles.grain, "grid gap-5 p-5")}>
         <div className="flex flex-wrap gap-3">
-          <ActionButton icon={<Puzzle size={17} />} label="Add Puzzle" />
+          <ActionButton icon={<Puzzle size={17} />} label="Add CircZles" />
           <ActionButton icon={<Camera size={17} />} label="Submit Attempt" />
           <ActionButton icon={<Trophy size={17} />} label="View Leaderboard" />
         </div>
@@ -131,7 +131,7 @@ function HubPreview({ player, puzzles, onOpenProgression, onEditAvatar }: { play
       </div>
     </section>
     <section>
-      <SectionTitle title="Puzzle Journey" />
+      <SectionTitle title="CircZles Journey" />
       <div className="mt-3 grid gap-3 md:grid-cols-3">{puzzles.slice(0, 3).map((puzzle) => <PuzzleJourneyCard key={puzzle.id} puzzle={puzzle} />)}</div>
     </section>
   </div>;
@@ -149,7 +149,7 @@ function ProfilePreview({ player, puzzles, onOpenProgression, onEditAvatar }: { 
     </div>
     <SectionTitle title="Achievements" />
     <BadgeShowcase />
-    <SectionTitle title="Puzzle History" />
+    <SectionTitle title="CircZles History" />
     <ul className={cn(styles.surface, "divide-y divide-[var(--cz-hairline)]")}>
       {puzzles.slice(0, 6).map((puzzle) => <li key={puzzle.id} className="flex items-center justify-between gap-4 px-5 py-3">
         <div>

@@ -43,7 +43,7 @@ const puzzleNames = ["Lion", "Metamorphosis", "Synthesis", "Mind Map", "Midnight
 export const puzzles: Puzzle[] = puzzleNames.map((name, index) => ({
   id: `puzzle-${index + 1}`,
   name,
-  sku: `CZ-${name.replaceAll(" ", "").slice(0, 5).toUpperCase()}-${100 + index}`,
+  sku: `CC-${1000 + index}-R1-${String((index % 25) + 1).padStart(2, "0")}-0001`,
   levelId: (index % 25) + 1,
   image: "/puzzles/placeholder.svg",
   description: `${name} is a CircZles challenge tuned for pattern recognition, patience, and competitive speed solving.`,
@@ -83,7 +83,7 @@ export const leaderboard: LeaderboardEntry[] = leaderboardPlayers.map((player, i
 export const missions: Mission[] = [
   { missionId: "m1", title: "Daily login streak", description: "Check in to keep your streak alive.", category: "DAILY", status: "CLAIMABLE", progress: { current: 1, target: 1 }, rewards: [{ type: "XP", label: "120 XP", value: 120 }, { type: "Synapse Points", label: "250 SP", value: 250 }], startAt: "2026-09-01T00:00:00+05:30", endAt: "2026-09-01T23:59:59+05:30", timeRemaining: "11h 20m", claimable: true },
   { missionId: "m2", title: "Verified speed solve", description: "Submit one approved attempt.", category: "DAILY", status: "ACTIVE", progress: { current: 0, target: 1 }, rewards: [{ type: "Synapse Points", label: "700 SP", value: 700 }], startAt: "2026-09-01T00:00:00+05:30", endAt: "2026-09-01T23:59:59+05:30", timeRemaining: "11h 20m", claimable: false },
-  { missionId: "m3", title: "Level 10 hunter", description: "Complete any puzzle with levelId 10.", category: "WEEKLY", status: "ACTIVE", progress: { current: 1, target: 3 }, rewards: [{ type: "Badge", label: "Level Hunter" }], startAt: "2026-08-31T00:00:00+05:30", endAt: "2026-09-06T23:59:59+05:30", timeRemaining: "4d", claimable: false },
+  { missionId: "m3", title: "Level 10 hunter", description: "Complete any CircZles with levelId 10.", category: "WEEKLY", status: "ACTIVE", progress: { current: 1, target: 3 }, rewards: [{ type: "Badge", label: "Level Hunter" }], startAt: "2026-08-31T00:00:00+05:30", endAt: "2026-09-06T23:59:59+05:30", timeRemaining: "4d", claimable: false },
   { missionId: "m4", title: "Weekend sprint", description: "Improve two personal bests before Monday.", category: "SPRINT", status: "LOCKED", progress: { current: 0, target: 2 }, rewards: [{ type: "Frame", label: "Sprint Frame" }], startAt: "2026-09-05T00:00:00+05:30", endAt: "2026-09-07T00:00:00+05:30", timeRemaining: "Starts Sat", claimable: false },
 ];
 

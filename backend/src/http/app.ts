@@ -1,3 +1,5 @@
+import { registerCatalogRoutes } from "./catalogRoutes.js";
+import type { CatalogService } from "../domain/catalog.js";
 import { registerPlayerStateEventRoutes } from "./playerStateEventRoutes.js";
 import type { PlayerStateEvents } from "../domain/playerStateEvents.js";
 import { registerNativeAuthRoutes } from "./nativeAuthRoutes.js";
@@ -37,6 +39,7 @@ import { AuthHandoffVerifier } from "../domain/authHandoff.js";
 import { UnconfiguredDirectAuthProvider, type DirectAuthorizationCallback, type DirectAuthProvider } from "../domain/directAuth.js";
 
 export interface AppDeps {
+  catalog?: CatalogService;
   env: Env;
   identity: IdentityService;
   gameState: GameStateService;
@@ -132,7 +135,7 @@ const equipmentParamsSchema = z.object({ slot: z.enum(equipmentSlots) }).strict(
 const equipBodySchema = z.object({ slot: z.enum(equipmentSlots) }).strict();
 const renameDisplayNameBodySchema = z.object({ inventoryItemId: z.string().uuid(), displayName: z.string() }).strict();
 
-export function buildApp({ env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, coupons, playerIdentityActions, rewardWheel, couponRedemptionWebhooks, authHandoff, directAuth, nativeAuth, googleAuth, playerProfile, playerStateEvents, checkDb }: AppDeps) {
+export function buildApp({ catalog, env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, coupons, playerIdentityActions, rewardWheel, couponRedemptionWebhooks, authHandoff, directAuth, nativeAuth, googleAuth, playerProfile, playerStateEvents, checkDb }: AppDeps) {
   const handoffVerifier = authHandoff ?? new AuthHandoffVerifier({ circzlesCom: env.AUTH_HANDOFF_CIRCZLES_COM_SECRET, circzlesIn: env.AUTH_HANDOFF_CIRCZLES_IN_SECRET });
   const directAuthProvider = directAuth ?? new UnconfiguredDirectAuthProvider();
   const app = Fastify({
@@ -150,6 +153,7 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
     methods: ["GET", "HEAD", "POST", "PATCH", "DELETE", "OPTIONS"],
   });
   app.register(cookie, { secret: env.SESSION_SECRET });
+  if (catalog) registerCatalogRoutes(app, { env, adminAuth, catalog });
   app.register(couponWebhookRoutes, { handler: couponRedemptionWebhooks });
 
   app.setErrorHandler((error, request, reply) => {
@@ -284,7 +288,7 @@ export function buildApp({ env, identity, gameState, puzzles, submissions: submi
 
   app.get("/api/puzzles/:puzzleId", async (request, reply) => {
     const params = z.object({ puzzleId: z.string().uuid() }).safeParse(request.params);
-    if (!params.success) throw validationFailed("Invalid puzzle id.", params.error.flatten());
+    if (!params.success) throw validationFailed("Invalid CircZles id.", params.error.flatten());
     return reply.send(await puzzles.getPuzzle(params.data.puzzleId));
   });
 
@@ -633,7 +637,7 @@ function parseDevGrantBody(body: unknown) {
 
 function parseClaimPuzzleBody(body: unknown) {
   const parsed = claimPuzzleBodySchema.safeParse(body);
-  if (!parsed.success) throw validationFailed("Invalid puzzle claim body.", parsed.error.flatten());
+  if (!parsed.success) throw validationFailed("Invalid CircZles claim body.", parsed.error.flatten());
   return parsed.data;
 }
 

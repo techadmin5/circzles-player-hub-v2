@@ -130,7 +130,7 @@ export class DrizzleSubmissionRepository implements SubmissionRepository {
           }
         }
         const [owned] = await tx.select({ playerPuzzle: playerPuzzles, puzzle: puzzles }).from(playerPuzzles).innerJoin(puzzles, eq(playerPuzzles.puzzleId, puzzles.puzzleId)).where(and(eq(playerPuzzles.playerPuzzleId, input.playerPuzzleId), eq(playerPuzzles.playerId, input.playerId), isNull(playerPuzzles.deletedAt), eq(puzzles.status, "ACTIVE"), isNull(puzzles.deletedAt))).limit(1);
-        if (!owned) throw new AppError("PLAYER_PUZZLE_NOT_FOUND", "Owned puzzle was not found.", 404);
+        if (!owned) throw new AppError("PLAYER_PUZZLE_NOT_FOUND", "Owned CircZles was not found.", 404);
         const [upload] = await tx.select().from(videoUploads).where(and(eq(videoUploads.videoUploadId, input.videoUploadId), eq(videoUploads.playerId, input.playerId))).limit(1);
         if (!upload) throw new AppError("VIDEO_UPLOAD_NOT_FOUND", "Video upload was not found.", 404);
         if (upload.status !== "COMPLETE") throw new AppError("VIDEO_UPLOAD_NOT_COMPLETE", "Video upload has not been verified.", 409);

@@ -32,7 +32,7 @@ export function PuzzleArt({ src, className }: { src: string; className?: string 
       </div>
     );
   }
-  return <div className={cn("relative overflow-hidden", className)}><Image src={src} alt="" fill sizes="(min-width:768px) 33vw, 100vw" className="object-cover" /></div>;
+  return <div className={cn("relative overflow-hidden", className)}><Image src={src} unoptimized={src.startsWith("https://")} alt="" fill sizes="(min-width:768px) 33vw, 100vw" className="object-cover" /></div>;
 }
 
 export function PuzzleCard({ puzzle }: { puzzle: PlayerPuzzle }) {
