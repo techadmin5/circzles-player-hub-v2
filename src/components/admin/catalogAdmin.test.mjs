@@ -115,7 +115,7 @@ test("catalog authorization is rechecked after a session generation changes", as
   await act(async () => usePlayerUiState.getState().clear());
   assert.doesNotMatch(document.body.textContent, /Authorized content/); assert.match(document.body.textContent, /Admin access unavailable/);
 });
-test("catalog import requires a successful preview before apply and clears approval when the manifest changes", async t => {
+test("catalog import requires preview and explicit confirmation, invalidated by source changes", async t => {
   const root = await setup(t), calls = [];
   t.mock.method(globalThis, "fetch", async (url, init = {}) => {
     if (!init.method) return Response.json([]);
@@ -123,16 +123,24 @@ test("catalog import requires a successful preview before apply and clears appro
   });
   await act(async () => root.render(createElement(CatalogAdmin)));
   const fileInput = document.querySelector('input[type="file"]');
-  async function edit(value) {
-    await act(async () => { Object.defineProperty(fileInput, "files", { configurable: true, value: [{ text: async () => value }] }); fileInput.dispatchEvent(new window.Event("change", { bubbles: true })); await new Promise(setImmediate); });
+  const source = { sourceId: "29-R2", name: "Lion", size: "12", brand: "CircZles", numberIdentifier: "29", manufacturingCode: "R2", level: "01", units: "48", firstFullSku: "CC-29-R2-01-0001", productType: "CIRCZLES" };
+  async function edit(datasetId) {
+    const value = JSON.stringify({ datasetId, rows: [source], mappings: { "29-R2": { newVariantKey: "lion" } } });
+    await act(async () => { Object.defineProperty(fileInput, "files", { configurable: true, value: [{ name: "catalog.json", size: value.length, text: async () => value }] }); fileInput.dispatchEvent(new window.Event("change", { bubbles: true })); await new Promise(setImmediate); });
+    await click("Reconcile canonical products"); await click("Review import summary");
   }
-  await edit('{"datasetId":"test","rows":[],"mappings":{}}');
-  const apply = Array.from(document.querySelectorAll("button")).find(b => b.textContent === "Apply validated import"); assert.equal(apply.disabled, true);
-  await click("Dry-run validation"); assert.equal(apply.disabled, false);
-  await edit('{"datasetId":"changed","rows":[],"mappings":{}}'); assert.equal(apply.disabled, true);
-  await click("Dry-run validation"); await click("Apply validated import"); assert.equal(apply.disabled, true);
+  const applyButton = () => Array.from(document.querySelectorAll("button")).find(b => b.textContent === "Apply validated import");
+  await edit("test"); assert.equal(applyButton().disabled, true);
+  await click("Dry-run validation"); assert.equal(applyButton().disabled, false);
+  await edit("changed"); assert.equal(applyButton().disabled, true);
+  await click("Dry-run validation"); await click("Apply validated import");
+  assert.equal(calls.length, 2); assert.ok(document.querySelector('[role="dialog"]'));
+  await click("Cancel"); assert.equal(calls.length, 2);
+  await click("Apply validated import"); await click("Apply Import"); assert.equal(applyButton().disabled, true);
+  assert.match(document.body.textContent, /Import completed successfully/);
   assert.deepEqual(calls, ["/api/admin/catalog/import/preview", "/api/admin/catalog/import/preview", "/api/admin/catalog/import/apply"]);
 });
+
 test("canonical state invalidation refreshes renamed CircZles without changing owned stats", async t => {
   const root = await setup(t); let name = "Lion";
   t.mock.method(globalThis, "fetch", async () => Response.json([{ ...owned, name }]));
@@ -140,4 +148,81 @@ test("canonical state invalidation refreshes renamed CircZles without changing o
   assert.equal(document.querySelector("h3").textContent, "Lion"); name = "Final Lion";
   await act(async () => usePlayerUiState.getState().hydrate(profile));
   assert.equal(document.querySelector("h3").textContent, "Final Lion"); assert.equal(usePlayerUiState.getState().player.stats.ownedPuzzles, 1);
+});
+
+async function uploadCatalog(name, text) {
+  const control = document.querySelector('input[type="file"]');
+  await act(async () => { Object.defineProperty(control, "files", { configurable: true, value: [{ name, size: Buffer.byteLength(text), text: async () => text }] }); control.dispatchEvent(new window.Event("change", { bubbles: true })); await new Promise(setImmediate); });
+}
+async function selectCatalog(label, value) {
+  const select = Array.from(document.querySelectorAll("select")).find(node => node.getAttribute("aria-label") === label); assert.ok(select, label);
+  await act(async () => { select.value = value; select.dispatchEvent(new window.Event("change", { bubbles: true })); });
+}
+const importCsv = 'Puzzle Name,Size,Brand Name,Number Identifier,Manufacturing Code,Levels,Units,Sku Number,Website SKU,Notes\nLion,12,CircZles,29,R2,01,48,CC-29-R2-01-0001,WEB-29,Unrelated\nLION,12,CircZles,61,R3,01,500,CC-61-R3-01-0001,WEB-61,Unrelated';
+test("CSV wizard ignores commercial columns and explicitly shares Lion groups before server preview", async t => {
+  const root = await setup(t), manifests = [];
+  t.mock.method(globalThis, "fetch", async (_url, init = {}) => {
+    if (!init.method) return Response.json([v]);
+    manifests.push(JSON.parse(init.body)); return Response.json({ ready: false, applied: false, errors: [{ sourceId: "61-R3", message: "Review this source" }], rows: 2, planned: 2, skipped: [] });
+  });
+  await act(async () => root.render(createElement(CatalogAdmin)));
+  await uploadCatalog("catalog.csv", importCsv); assert.match(document.body.textContent, /Website SKU.*Ignored/); assert.equal(manifests.length, 0);
+  await click("Preview normalized rows"); assert.match(document.body.textContent, /Selected 2 of 2/);
+  await click("Reconcile canonical products"); assert.match(document.body.textContent, /Unresolved/);
+  await click("Create new canonical product"); await click("Resolve row 3");
+  await selectCatalog("Reuse new canonical group", "import-group-0001"); await click("Review import summary");
+  await click("Dry-run validation");
+  assert.deepEqual(manifests[0].mappings["29-R2"], manifests[0].mappings["61-R3"]);
+  assert.equal(manifests[0].rows[0].firstFullSku, "CC-29-R2-01-0001"); assert.equal("Website SKU" in manifests[0].rows[0], false);
+  assert.match(document.body.textContent, /Review this source/);
+  assert.equal(Array.from(document.querySelectorAll("button")).find(b => b.textContent === "Apply validated import").disabled, true);
+});
+test("wizard selection controls exclude rows; unresolved mappings block dry-run", async t => {
+  const root = await setup(t), manifests = [];
+  t.mock.method(globalThis, "fetch", async (_url, init = {}) => { if (!init.method) return Response.json([]); manifests.push(JSON.parse(init.body)); return Response.json({ ready: true, applied: false, errors: [], rows: 1, planned: 1, skipped: [] }); });
+  await act(async () => root.render(createElement(CatalogAdmin))); await uploadCatalog("catalog.csv", importCsv); await click("Preview normalized rows");
+  await click("Deselect All"); assert.match(document.body.textContent, /Selected 0 of 2/);
+  await click("Select All"); assert.match(document.body.textContent, /Selected 2 of 2/);
+  const checkbox = document.querySelector('[aria-label="Import row 3"]'); await act(async () => checkbox.click());
+  await click("Reconcile canonical products"); await click("Review import summary");
+  assert.equal(Array.from(document.querySelectorAll("button")).find(b => b.textContent === "Dry-run validation").disabled, true);
+  await click("Back"); await click("Create separate canonical products for all unmapped selected rows"); await click("Review import summary"); await click("Dry-run validation");
+  assert.deepEqual(manifests[0].rows.map(r => r.sourceId), ["29-R2"]); assert.deepEqual(Object.keys(manifests[0].mappings), ["29-R2"]);
+});
+test("wizard existing catalog selection sends catalogVariantId without creating an implicit group", async t => {
+  const root = await setup(t), manifests = [];
+  t.mock.method(globalThis, "fetch", async (_url, init = {}) => { if (!init.method) return Response.json([v]); manifests.push(JSON.parse(init.body)); return Response.json({ ready: true, applied: false, errors: [], rows: 2, planned: 2, skipped: [] }); });
+  await act(async () => root.render(createElement(CatalogAdmin))); await uploadCatalog("catalog.csv", importCsv); await click("Preview normalized rows"); await click("Reconcile canonical products");
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 250)); });
+  await selectCatalog("Existing canonical product", v.catalogVariantId);
+  await click("Resolve row 3"); await click("Create new canonical product"); await click("Review import summary"); await click("Dry-run validation");
+  assert.deepEqual(manifests[0].mappings["29-R2"], { catalogVariantId: v.catalogVariantId });
+});
+test("5000-row wizard renders bounded pages and never auto-applies on file selection", async t => {
+  const root = await setup(t); let posts = 0;
+  t.mock.method(globalThis, "fetch", async (_url, init = {}) => { if (init.method) posts++; return Response.json([]); });
+  await act(async () => root.render(createElement(CatalogAdmin)));
+  const header = importCsv.split("\n")[0]; const rows = Array.from({ length: 5000 }, (_, i) => `Puzzle,12,CircZles,${i + 100},R4,01,1,CC-${i + 100}-R4-01-0001,WEB,Notes`);
+  await uploadCatalog("large.csv", [header, ...rows].join("\n")); await click("Preview normalized rows");
+  assert.equal(document.querySelectorAll('input[type="checkbox"]').length, 50); assert.match(document.body.textContent, /Selected 5000 of 5000/); assert.equal(posts, 0);
+  await click("Next rows"); assert.match(document.body.textContent, /Page 2/); assert.equal(document.querySelectorAll('input[type="checkbox"]').length, 50);
+});
+
+test("Excel worksheet selection and manual column override update normalized preview explicitly", async t => {
+  const XLSX = await import("xlsx"), root = await setup(t);
+  t.mock.method(globalThis, "fetch", async () => Response.json([]));
+  await act(async () => root.render(createElement(CatalogAdmin)));
+  const book = XLSX.utils.book_new(); const [header, one, two] = importCsv.split("\n").map(line => line.split(","));
+  XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([["Notes"], ["Ignore"]]), "Notes");
+  XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([header, one]), "R2");
+  XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([header, two]), "R3");
+  const bytes = XLSX.write(book, { bookType: "xlsx", type: "buffer" });
+  const control = document.querySelector('input[type="file"]');
+  await act(async () => { Object.defineProperty(control, "files", { configurable: true, value: [{ name: "catalog.xlsx", size: bytes.length, arrayBuffer: async () => bytes }] }); control.dispatchEvent(new window.Event("change", { bubbles: true })); await new Promise(setImmediate); });
+  assert.match(document.body.textContent, /Worksheet: R2/);
+  await selectCatalog("Select worksheet", "2"); assert.match(document.body.textContent, /Worksheet: R3/);
+  await selectCatalog("Column for CircZles Name", "9"); await click("Preview normalized rows");
+  const table = Array.from(document.querySelectorAll("table")).find(node => node.querySelector("caption"));
+  assert.match(table.textContent, /Unrelated/); assert.match(table.textContent, /CC-61-R3-01-0001/); assert.doesNotMatch(table.textContent, /CC-29-R2/);
+  await selectCatalog("Product type for row 2", "ACCESSORY"); assert.match(table.textContent, /SKU family/);
 });

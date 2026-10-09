@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
-import { catalogAdmin, type CatalogDetail, type CatalogVariant, type ManufacturingBatch, type ImportReport } from "@/lib/catalogAdmin";
+import { CatalogImportWizard } from "./catalog-import/CatalogImportWizard";
+import { catalogAdmin, type CatalogDetail, type CatalogVariant, type ManufacturingBatch } from "@/lib/catalogAdmin";
 
 const inputClass = "mt-1 min-h-11 w-full rounded-lg border border-[var(--cz-hairline-strong)] bg-[var(--cz-inset)] p-2";
 function Field({ label, name, value, type = "text", required = false, disabled = false }: { label: string; name: string; value?: string | number | null; type?: string; required?: boolean; disabled?: boolean }) {
@@ -14,7 +15,6 @@ export function CatalogAdmin() {
   const [rows, setRows] = useState<CatalogVariant[]>([]), [detail, setDetail] = useState<CatalogDetail | null>(null);
   const [creating, setCreating] = useState(false), [search, setSearch] = useState(""), [status, setStatus] = useState(""), [productType, setType] = useState("");
   const [page, setPage] = useState(0), [busy, setBusy] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState("");
-  const [manifest, setManifest] = useState(""), [report, setReport] = useState<ImportReport | null>(null);
   const [revision, setRevision] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
@@ -66,12 +66,7 @@ export function CatalogAdmin() {
           {batch.status !== "ARCHIVED" && <form className="grid gap-3 sm:grid-cols-3" onSubmit={event => { event.preventDefault(); const fields = formData(event.currentTarget); void run(async () => { await catalogAdmin.range(batch.manufacturingBatchId, fields); setDetail(await catalogAdmin.detail(detail.catalogVariantId)); setNotice("Verified production range added."); }); }}><Field label="Additional Serial Start" name="serialStart" required /><Field label="Additional Serial End" name="serialEnd" required /><button className="cz-btn self-end" disabled={busy}>Add verified range</button></form>}
         </article>)}</>}
     </section>}
-    <section className="cz-surface space-y-3 p-5"><h2 className="cz-display text-xl">Catalog Import & Reconciliation</h2><p className="text-sm">Load a source manifest, then explicitly map every row to an existing canonical variant ID or a new variant key. Shared keys are your explicit choice to share one variant. Preview performs no writes.</p>
-      <label>Source manifest file<input type="file" accept="application/json,.json" className={inputClass} onChange={event => { const file = event.target.files?.[0]; if (file) void file.text().then(text => { setManifest(text); setReport(null); }).catch(e => setError(message(e))); }} /></label>
-      <label className="block">Manifest and explicit mappings<textarea aria-label="Catalog import manifest" className={inputClass + " min-h-48 font-mono text-xs"} value={manifest} onChange={event => { setManifest(event.target.value); setReport(null); }} /></label>
-      <div className="flex gap-3"><button className="cz-btn" disabled={busy || !manifest} onClick={() => void run(async () => setReport(await catalogAdmin.import(JSON.parse(manifest))))}>Dry-run validation</button><button className="cz-btn cz-btn-primary" disabled={busy || !report?.ready || report.applied} onClick={() => void run(async () => { setReport(await catalogAdmin.import(JSON.parse(manifest), true)); setNotice("Catalog import applied atomically."); })}>Apply validated import</button></div>
-      {report && <div role="status"><p>{report.applied ? "Applied" : "Preview"}: {report.rows} rows · {report.planned} planned · {report.skipped.length} already imported</p>{report.reconciliationCandidates?.map(candidate => <p className="mt-2" key={candidate.name}>{candidate.name}: {candidate.sourceIds.join(", ")} ? Explicit canonical mapping required.</p>)}{report.errors.map((e, i) => <p className="mt-2 text-[var(--cz-danger)]" key={i}>{e.sourceId}: {e.message}</p>)}</div>}
-    </section>
+    <CatalogImportWizard onApplied={() => setRevision(v => v + 1)} />
   </main>;
 }
 function BatchForm({ batch, variantId, busy, onSubmit }: { batch?: ManufacturingBatch; variantId?: string; busy: boolean; onSubmit: (event: React.FormEvent<HTMLFormElement>, batch?: ManufacturingBatch) => Promise<void> }) {

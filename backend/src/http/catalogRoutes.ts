@@ -32,7 +32,10 @@ export function registerCatalogRoutes(app: FastifyInstance, deps: { env: Env; ad
     scope.post("/api/admin/catalog/:variantId/batches", async (request, reply) => reply.code(201).send(catalogJson(await deps.catalog.addBatch(id(request.params, "variantId"), request.body as Parameters<CatalogService["addBatch"]>[1]))));
     scope.patch("/api/admin/catalog/batches/:batchId", async request => catalogJson(await deps.catalog.editBatch(id(request.params, "batchId"), request.body)));
     scope.post("/api/admin/catalog/batches/:batchId/ranges", async request => catalogJson(await deps.catalog.addRange(id(request.params, "batchId"), request.body)));
-    scope.post("/api/admin/catalog/import/preview", async request => deps.catalog.import(request.body));
-    scope.post("/api/admin/catalog/import/apply", async request => deps.catalog.import(request.body, true));
+    // 5,000-row manifests exceed Fastify's default 1 MiB transport limit.
+    // The existing strict row/count validators and authorization still apply.
+    const importOptions = { bodyLimit: 16 * 1024 * 1024 };
+    scope.post("/api/admin/catalog/import/preview", importOptions, async request => deps.catalog.import(request.body));
+    scope.post("/api/admin/catalog/import/apply", importOptions, async request => deps.catalog.import(request.body, true));
   });
 }
