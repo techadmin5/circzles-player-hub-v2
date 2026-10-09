@@ -9,7 +9,7 @@ export type Field = Exclude<keyof SourceRow, "sourceId" | "productType">;
 export type ColumnMap = Partial<Record<Field, number>>;
 export interface Cell { text: string; numeric?: number; issue?: string }
 export interface Sheet { name: string; headers: string[]; rows: Cell[][]; rowNumbers: number[]; headerRow: number }
-export interface ParsedFile { name: string; size: number; format: string; sheets: Sheet[]; defaultSheet: number; manifest?: Manifest }
+export interface ParsedFile { name: string; size: number; format: string; sheets: Sheet[]; defaultSheet: number; manifest?: Manifest; loadSheet?: (index: number) => Promise<Sheet> }
 export interface PreviewRow { key: number; rowNumber: number; source: SourceRow; warnings: string[]; errors: string[]; prefix: string; range: string }
 export interface RowChoice { selected: boolean; productType?: SourceRow["productType"]; decision?: Decision }
 export type Choices = Record<number, RowChoice>;

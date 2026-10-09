@@ -8,7 +8,7 @@ The Catalog admin now accepts a normal spreadsheet and guides the operator throu
 
 1. Sign in with the existing provisioned SUPER_ADMIN account and open `/admin/puzzles`. The existing boundary and every authenticated backend endpoint still enforce CATALOG_MANAGE, session, production proxy and mutation-origin checks.
 2. Upload `.xlsx`, `.xls`, `.csv` or an existing `.json` manifest. The browser parses the file; the raw business workbook is not sent to a new endpoint. Upload alone never previews or applies an import.
-3. For Excel, inspect the named worksheet selector. The default is the non-empty sheet with the strongest recognized headers. Other sheets are never merged. Inspect detected headers (first 25 worksheet rows) and override column choices as necessary. Required fields must be mapped. Unused commercial columns are explicitly listed as ignored. Website SKU cannot be used as the manufacturing SKU column.
+3. For Excel, inspect the named worksheet selector. All worksheet names are read from metadata first. Up to eight worksheets are sampled at 25 rows each, prioritizing names containing catalog/manufacturing/SKU/final-run; the strongest recognized headers in this bounded sample determine the default. Only the selected sheet is then fully parsed. Other sheets are never merged. Inspect detected headers (first 25 worksheet rows) and override column choices as necessary. Required fields must be mapped. Unused commercial columns are explicitly listed as ignored. Website SKU cannot be used as the manufacturing SKU column.
 4. Review normalized rows, exact full SKUs, derived prefixes, product types, ranges, errors and warnings. Select All, Deselect All or individual checkboxes control the manifest. Review pages contain at most 50 rows. Excluded rows and their mappings are absent from the manifest.
 5. Choose a canonical decision for each selected row. Create a separate new catalog product, search/select an existing product, or explicitly reuse another selected row's new group. The bulk action explicitly creates separate identities for every unmapped selected row; it never merges names. Keys are stable for the same row layout, unique even against loaded JSON keys, and preserved by manifest download. Existing selections show display names, size, level and status with the UUID as secondary detail.
 6. Review counts and use a stable dataset ID. The default is the file stem plus worksheet name; operators can override it. Keep this ID, source rows and mapping keys unchanged when rerunning. Download the prepared JSON manifest to retain the exact reviewed decisions. Changing the worksheet or column mapping deliberately clears row selections and decisions.
@@ -49,9 +49,9 @@ The finalized fixture is unchanged: 82 source rows / 12,001 units, including 44 
 
 The only new dependency is **SheetJS CE `xlsx` 0.20.3**, Apache-2.0, pinned to its official tarball with lockfile SHA-512 integrity. This release supports XLSX and binary Excel 97–2003 XLS; the old npm registry release is not used. [Official installation instructions](https://docs.sheetjs.com/docs/getting-started/installation/nodejs/) and [parse options](https://docs.sheetjs.com/docs/api/parse-options/) explain release sourcing and formatted-text behavior. The library is dynamically imported only for Excel upload; CSV and JSON do not load it. It is bundled locally, not fetched from a runtime CDN.
 
-The final production build places the Excel library in a separate 502,948-byte JavaScript chunk (166,171 bytes with gzip). It is loaded when an administrator uploads Excel, rather than on ordinary Player Hub routes or CSV/JSON parsing.
+The final production build places the Excel library in a separate separate JavaScript chunk. It is loaded when an administrator uploads Excel, rather than on ordinary Player Hub routes or CSV/JSON parsing.
 
-Limits are explicit: 10 MB file size, 5,000 non-empty data rows, 100 worksheet columns and 50 worksheets. Oversized input is rejected, not truncated. Each sheet's row bounds are inspected before normalization. Preview/mapping tables show 50 rows per page; searches and reusable-group choices show at most 50 results. Client tests exercise a 5,000-row upload and page navigation.
+Limits are explicit: 10 MB file size, 5,000 non-empty data rows, 100 worksheet columns and no fixed worksheet-count cap (51- and 201-sheet XLSX/XLS workbooks are covered by regressions). Oversized input is rejected, not truncated. Only the selected sheet's full row/column bounds are inspected before normalization. Oversized unselected sheets do not prevent workbook opening. Original bytes remain in browser memory for on-demand worksheet switching; switching resets row choices, canonical decisions and preview approval. Empty sheets remain selectable and display "No usable rows found". Preview/mapping tables show 50 rows per page; searches and reusable-group choices show at most 50 results. Client tests exercise a 5,000-row upload and page navigation.
 
 The only backend change raises the existing preview/apply route body limit from Fastify's default 1 MiB to 16 MiB so ordinary 5,000-row manifests reach the existing validator. All other route limits remain unchanged. Schema validation still caps 5,000 rows and bounded source fields. Transport tests verify both endpoints, permission invocation, no-store and oversized-body rejection. This is transport configuration, not a second import engine.
 
@@ -63,14 +63,13 @@ The only backend change raises the existing preview/apply route body limit from 
 | Backend `npm run lint` | Passed |
 | Backend `npm run typecheck` | Passed |
 | Backend `npm run build` | Passed |
-| Frontend `npm test` | 166 passed; zero failures/skips |
+| Frontend `npm test` | 173 passed; zero failures/skips |
 | Frontend `npx tsc --noEmit` (local `tsc.cmd`) | Passed |
-| Frontend `npm run lint` | Found two pre-existing errors in unrelated untracked `backend/find-hazel-user.cjs`; preserved untouched |
-| Frontend `npm run lint -- --ignore-pattern backend/find-hazel-user.cjs` | Passed; no project warnings/errors |
+| Frontend `npm run lint` | Passed (multi-worksheet correction regression run) |
 | Frontend `npm run build` | Passed in API production mode; 45 static pages, two workers |
 | `git diff --check` | Passed |
 
-The frontend build uses process-only `.next/spreadsheet-import-validation-20261009` output and the existing Google Fonts. Next-generated configuration/declarations are restored byte-for-byte. No production environment setting is changed. The suites add 47 frontend cases (parser/normalization/manifests plus guided UI) and three backend transport cases; existing transactional/idempotency, authorization, physical claims and player-state cases remain included.
+The frontend build uses process-only `.next/multisheet-import-validation-20261009` output and the existing Google Fonts. Next-generated configuration/declarations are restored byte-for-byte. No production environment setting is changed. The suites add 54 frontend cases (parser/normalization/manifests plus guided UI) and three backend transport cases; existing transactional/idempotency, authorization, physical claims and player-state cases remain included.
 
 ## Changed files
 
@@ -96,3 +95,12 @@ Before release, review a representative business workbook in staging and prepare
 Hosting/proxy request limits and execution timeouts still apply even when the backend body limit is larger; unusually wide manifests may need explicit smaller imports. Nothing silently splits a transaction. Excel parsing is client-side and synchronous after the lazy library load, with bounded input and paginated output; complex workbooks near the limit should be assessed on the administrator's browser.
 
 Dependency audit reports nine existing advisories (eight high, one critical) in unchanged Next/tooling dependencies, and none for the added xlsx release. No existing locked dependency version was changed. Dependency upgrades are a separate production review; this change does not run an automatic audit fix.
+
+## Multi-worksheet production smoke-test correction
+
+The previous 50-worksheet rejection is removed. Regression workbooks with 51 and 201 sheets pass for both XLSX and XLS. Instrumented reads verify metadata-only discovery, bounded header sampling and full reads filtered to the requested worksheet. A synthetic 51-sheet workbook named/shaped like the reported business workbook preserves the exact 82-row / 12,001-unit authoritative catalog. UI coverage proves one file read, all 51 names available, worksheet switching, stale selection/mapping/preview invalidation and empty-sheet recovery. Selected-sheet overflow tests still reject 5,001 rows and 101 columns without silently truncating; valid sheets in the same workbook remain usable.
+
+The original production workbook bytes were not provided in this task, so verification uses synthetic workbooks and the unchanged authoritative fixtures. No workbook was sent to a backend endpoint during these checks.
+
+
+This follow-up changes six files: `spreadsheetParser.ts`, `types.ts`, `CatalogImportWizard.tsx` and `catalogImport.test.mjs` under `src/components/admin/catalog-import/`, `src/components/admin/catalogAdmin.test.mjs`, and this guide. The pre-existing `next-env.d.ts` edit remains outside the commit. No backend implementation or dependency is changed by this correction.

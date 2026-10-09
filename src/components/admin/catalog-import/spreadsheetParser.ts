@@ -92,26 +92,51 @@ export async function parseFile(file: Pick<File, "name" | "size" | "text" | "arr
   const xlsx = await import("xlsx");
   const bytes = new Uint8Array(await file.arrayBuffer());
   if (!(format === "xlsx" ? bytes[0] === 0x50 && bytes[1] === 0x4b : bytes[0] === 0xd0 && bytes[1] === 0xcf)) throw new Error("File content does not match its Excel extension. Export a valid XLSX or Excel 97–2003 XLS workbook.");
-  const workbook = xlsx.read(bytes, { type: "array", cellNF: true, cellText: true, cellDates: true, cellHTML: false, cellFormula: true, sheetRows: MAX_ROWS + 26 });
-  if (workbook.SheetNames.length > 50) throw new Error("Workbook exceeds 50 worksheets. Export the relevant sheets separately.");
-  const sheets = workbook.SheetNames.map(name => {
-    const sheet = workbook.Sheets[name];
-    if (!sheet["!ref"]) return makeSheet(name, []);
-    const range = xlsx.utils.decode_range(sheet["!fullref"] ?? sheet["!ref"]);
-    if (range.e.r - range.s.r > MAX_ROWS + 25 || range.e.c >= 100) throw new Error("Worksheet exceeds 5,000 data rows or 100 columns. Export a bounded sheet; rows are never silently discarded.");
-    const matrix: Cell[][] = [];
-    for (let r = 0; r <= range.e.r; r++) {
-      const cells: Cell[] = [];
-      for (let c = 0; c <= range.e.c; c++) {
-        const cell = sheet[xlsx.utils.encode_cell({ r, c })];
-        cells.push(cell ? { text: String(cell.w ?? cell.v ?? ""), ...(cell.t === "n" ? { numeric: cell.v as number } : {}), ...(cell.f ? { issue: "Formula cell: replace with a verified static value." } : cell.t === "e" || cell.t === "d" ? { issue: "Invalid or date cell: use manufacturing text." } : {}) } : { text: "" });
-      }
-      matrix.push(cells);
-    }
-    return makeSheet(name, matrix);
-  });
-  if (!sheets.length) throw new Error("Workbook contains no worksheets.");
+  return { name: file.name, size: file.size, format, ...openExcel(bytes, xlsx) };
+}
+
+// Metadata and bounded header samples never materialize all worksheet data.
+export function openExcel(bytes: Uint8Array, xlsx: typeof import("xlsx")): Pick<ParsedFile, "sheets" | "defaultSheet" | "loadSheet"> {
+  const metadata = xlsx.read(bytes, { type: "array", bookSheets: true, bookProps: true });
+  const names = metadata.SheetNames;
+  if (!names.length) throw new Error("Workbook contains no worksheets.");
+  const sheets = names.map(name => makeSheet(name, []));
+  const preferred = names.flatMap((name, i) => /catalog|manufactur|sku|final.*run/i.test(name) ? [i] : []);
+  const candidates = [...new Set([...preferred, ...names.map((_, i) => i)])].slice(0, 8);
   let defaultSheet = 0, best = -1;
-  sheets.forEach((sheet, i) => { const score = sheet.rows.length ? Object.keys(detectColumns(sheet.headers)).length : -1; if (score > best) { best = score; defaultSheet = i; } });
-  return { name: file.name, size: file.size, format, sheets, defaultSheet };
+  for (const index of candidates) {
+    try {
+      const sample = xlsx.read(bytes, { type: "array", sheets: [index], sheetRows: 25, cellText: true, cellHTML: false });
+      const sheet = sample.Sheets[names[index]];
+      const matrix = worksheetMatrix(sheet, xlsx, 25, 100);
+      if (!matrix.some(row => row.some(cell => cell.text.trim()))) continue;
+      const headers = makeSheet(names[index], matrix).headers;
+      const score = Object.keys(detectColumns(headers)).length;
+      if (score > best) { best = score; defaultSheet = index; }
+      if (score >= 8) break;
+    } catch { /* An unusable sample must not prevent selecting other worksheets. */ }
+  }
+  return { sheets, defaultSheet, loadSheet: async index => {
+    if (!Number.isInteger(index) || index < 0 || index >= names.length) throw new Error("Choose a valid worksheet.");
+    // Retained bytes are local only; every read filters to the selected index.
+    const workbook = xlsx.read(bytes, { type: "array", sheets: [index], cellNF: true, cellText: true, cellDates: true, cellHTML: false, cellFormula: true, sheetRows: MAX_ROWS + 26 });
+    const sheet = workbook.Sheets[names[index]];
+    if (!sheet?.["!ref"]) return makeSheet(names[index], []);
+    const range = xlsx.utils.decode_range(sheet["!fullref"] ?? sheet["!ref"]);
+    if (range.e.r > MAX_ROWS + 25 || range.e.c >= 100) throw new Error("Selected worksheet exceeds 5,000 data rows or 100 columns. Rows are never silently discarded; choose another worksheet or export a bounded sheet.");
+    return makeSheet(names[index], worksheetMatrix(sheet, xlsx, MAX_ROWS + 26, 100));
+  } };
+}
+function worksheetMatrix(sheet: import("xlsx").WorkSheet | undefined, xlsx: typeof import("xlsx"), maxRows: number, maxColumns: number): Cell[][] {
+  if (!sheet?.["!ref"]) return [];
+  const range = xlsx.utils.decode_range(sheet["!ref"]), matrix: Cell[][] = [];
+  for (let r = 0; r <= Math.min(range.e.r, maxRows - 1); r++) {
+    const cells: Cell[] = [];
+    for (let c = 0; c <= Math.min(range.e.c, maxColumns - 1); c++) {
+      const cell = sheet[xlsx.utils.encode_cell({ r, c })];
+      cells.push(cell ? { text: String(cell.w ?? cell.v ?? ""), ...(cell.t === "n" ? { numeric: cell.v as number } : {}), ...(cell.f ? { issue: "Formula cell: replace with a verified static value." } : cell.t === "e" || cell.t === "d" ? { issue: "Invalid or date cell: use manufacturing text." } : {}) } : { text: "" });
+    }
+    matrix.push(cells);
+  }
+  return matrix;
 }

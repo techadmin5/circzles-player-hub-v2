@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
 import * as XLSX from "xlsx";
-import { detectColumns, fields, missingColumns, parseCsv, parseFile, readManifest } from "./spreadsheetParser.ts";
+import { detectColumns, fields, missingColumns, parseCsv, parseFile, readManifest, openExcel } from "./spreadsheetParser.ts";
 import { buildManifest, canApply, initialChoices, manifestRows, normalizeSheet, separateGroupKey, createSeparateDecisions } from "./manifestBuilder.ts";
 
 const headers = ["Puzzle Name", "Size", "Brand Name", "Number Identifier", "Manufacturing Code", "Levels", "Units", "Sku Number", "Website SKU", "Notes"];
@@ -19,6 +19,11 @@ function excelFile(format, sheets) {
   const bytes = XLSX.write(book, { type: "buffer", bookType: format === "xls" ? "biff8" : "xlsx" });
   return { name: "catalog." + format, size: bytes.length, arrayBuffer: async () => bytes };
 }
+async function loadedFile(file) {
+  const parsed = await parseFile(file);
+  parsed.sheets[parsed.defaultSheet] = await parsed.loadSheet(parsed.defaultSheet);
+  return parsed;
+}
 test("JSON manifest file retains exact rows, dataset and explicit decisions", async () => {
   const parsed = await parseFile(textFile("catalog.json", JSON.stringify(manifest)));
   assert.deepEqual(parsed.manifest, manifest);
@@ -27,23 +32,23 @@ test("JSON manifest file retains exact rows, dataset and explicit decisions", as
 for (const format of ["xlsx", "xls"]) test(format + " binary parsing preserves formatted cells and selects strongest worksheet", async () => {
   const data = XLSX.utils.aoa_to_sheet([headers, ["Abyss", "8", "CircZles", 1, "R1", 6, 500, "CC-01-R1-06-0001", "WEB", "note"]]);
   data.D2.z = "00"; data.F2.z = "00";
-  const parsed = await parseFile(excelFile(format, [["Empty", XLSX.utils.aoa_to_sheet([])], ["Notes", XLSX.utils.aoa_to_sheet([["note"], ["none"]])], ["Manufacturing", data]]));
+  const parsed = await loadedFile(excelFile(format, [["Empty", XLSX.utils.aoa_to_sheet([])], ["Notes", XLSX.utils.aoa_to_sheet([["note"], ["none"]])], ["Manufacturing", data]]));
   assert.deepEqual(parsed.sheets.map(s => s.name), ["Empty", "Notes", "Manufacturing"]); assert.equal(parsed.defaultSheet, 2);
   const sheet = parsed.sheets[2], rows = normalizeSheet(sheet, detectColumns(sheet.headers));
   assert.equal(rows[0].source.numberIdentifier, "01"); assert.equal(rows[0].source.level, "06"); assert.equal(rows[0].range, "1–500");
   assert.equal(rows[0].errors.length, 0);
   // Explicit sheet selection does not merge content from the other sheets.
-  assert.equal(parsed.sheets[1].rows.length, 1); assert.equal(rows.length, 1);
+  assert.equal((await parsed.loadSheet(1)).rows.length, 1); assert.equal(rows.length, 1);
 });
 test("unformatted Excel numeric identity is recovered only from agreeing exact SKU segments", async () => {
   const data = XLSX.utils.aoa_to_sheet([headers, ["Abyss", 8, "CircZles", 1, "R1", 6, 500, "CC-01-R1-06-0001"]]);
-  const parsed = await parseFile(excelFile("xlsx", [["Data", data]]));
+  const parsed = await loadedFile(excelFile("xlsx", [["Data", data]]));
   const rows = normalizeSheet(parsed.sheets[0], detectColumns(parsed.sheets[0].headers));
   assert.equal(rows[0].source.sourceId, "01-R1"); assert.equal(rows[0].source.level, "06"); assert.equal(rows[0].warnings.length, 2);
 });
 test("Excel numeric identity disagreements are errors, never guessed", async () => {
   const data = XLSX.utils.aoa_to_sheet([headers, ["Abyss", 8, "CircZles", 2, "R1", 7, 500, "CC-01-R1-06-0001"]]);
-  const parsed = await parseFile(excelFile("xlsx", [["Data", data]]));
+  const parsed = await loadedFile(excelFile("xlsx", [["Data", data]]));
   assert.match(normalizeSheet(parsed.sheets[0], detectColumns(parsed.sheets[0].headers))[0].errors.join(" "), /does not exactly match/);
 });
 test("UTF-8 CSV preserves quoted commas, quotes, newlines, zero strings and ignores extras", async () => {
@@ -131,9 +136,9 @@ test("supports 5000 rows with bounded parse and no truncation", () => {
 });
 test("mapped formula cells are blocked while formulas in irrelevant columns are ignored", async () => {
   const data = XLSX.utils.aoa_to_sheet([headers, values]); data.I2.f = '"WEB"';
-  let parsed = await parseFile(excelFile("xlsx", [["Data", data]]));
+  let parsed = await loadedFile(excelFile("xlsx", [["Data", data]]));
   assert.equal(normalizeSheet(parsed.sheets[0], detectColumns(parsed.sheets[0].headers))[0].errors.length, 0);
-  data.G2.f = "24*2"; parsed = await parseFile(excelFile("xlsx", [["Data", data]]));
+  data.G2.f = "24*2"; parsed = await loadedFile(excelFile("xlsx", [["Data", data]]));
   assert.match(normalizeSheet(parsed.sheets[0], detectColumns(parsed.sheets[0].headers))[0].errors.join(" "), /Formula cell/);
 });
 test("invalid format, oversize, binary mismatch, malformed CSV and unsupported JSON fail clearly", async () => {
@@ -153,12 +158,12 @@ test("new canonical groups cannot collide with loaded JSON keys", () => {
 });
 test("unsafe Excel integer identity is blocked even when rounded numbers compare equally", async () => {
   const data = XLSX.utils.aoa_to_sheet([headers, ["Puzzle", "12", "CircZles", 1000000000000000000, "R4", 1, 500, "CC-1000000000000000001-R4-01-0001"]]);
-  const parsed = await parseFile(excelFile("xlsx", [["Data", data]]));
+  const parsed = await loadedFile(excelFile("xlsx", [["Data", data]]));
   assert.match(normalizeSheet(parsed.sheets[0], detectColumns(parsed.sheets[0].headers))[0].errors.join(" "), /unsafe Excel numeric/);
 });
 test("Excel digit formatting preserves leading zero units instead of changing import fingerprints", async () => {
   const data = XLSX.utils.aoa_to_sheet([headers, ["Lion", "12", "CircZles", "29", "R2", "01", 3, "CC-29-R2-01-0001"]]); data.G2.z = "00";
-  const parsed = await parseFile(excelFile("xlsx", [["Data", data]]));
+  const parsed = await loadedFile(excelFile("xlsx", [["Data", data]]));
   assert.equal(normalizeSheet(parsed.sheets[0], detectColumns(parsed.sheets[0].headers))[0].source.units, "03");
 });
 
@@ -168,6 +173,44 @@ test("Website SKU cannot be manually substituted for manufacturing identity", ()
 });
 test("Excel date-formatted manufacturing cells require verified static text", async () => {
   const data = XLSX.utils.aoa_to_sheet([headers, values]); data.D2 = { t: "n", v: 29, z: "m/d/yy" };
-  const parsed = await parseFile(excelFile("xlsx", [["Data", data]]));
+  const parsed = await loadedFile(excelFile("xlsx", [["Data", data]]));
   assert.match(normalizeSheet(parsed.sheets[0], detectColumns(parsed.sheets[0].headers))[0].errors.join(" "), /date cell/);
+});
+
+for (const format of ["xlsx", "xls"]) for (const count of [51, 201]) test(`metadata-first ${format} opening supports ${count} sheets with on-demand rows`, async () => {
+  const sheets = Array.from({ length: count }, (_, i) => ["Archive " + i, XLSX.utils.aoa_to_sheet([["Notes"], ["Archive"]])]);
+  sheets[count - 1] = ["Final Run SKU", XLSX.utils.aoa_to_sheet([headers, values])];
+  const file = excelFile(format, sheets), calls = [];
+  const opened = openExcel(new Uint8Array(await file.arrayBuffer()), { ...XLSX, read: (bytes, options) => { calls.push(options); return XLSX.read(bytes, options); } });
+  assert.equal(opened.sheets.length, count); assert.equal(opened.sheets.at(-1).name, "Final Run SKU");
+  assert.equal(opened.defaultSheet, count - 1); assert.ok(opened.sheets.every(s => s.rows.length === 0));
+  assert.equal(calls[0].bookSheets, true); assert.equal(calls[0].bookProps, true);
+  assert.ok(calls.slice(1).every(call => call.sheetRows === 25 && call.sheets.length === 1));
+  assert.ok(calls.length <= 9);
+  const selected = await opened.loadSheet(count - 1);
+  assert.equal(selected.rows.length, 1); assert.equal(calls.at(-1).sheetRows, 5026); assert.deepEqual(calls.at(-1).sheets, [count - 1]);
+  assert.equal(selected.rows[0][7].text, "CC-29-R2-01-0001");
+  const empty = await opened.loadSheet(0); assert.equal(empty.name, "Archive 0"); assert.equal(empty.rows.length, 1);
+});
+test("oversized unselected sheets do not block opening and selected row/column limits still apply", async () => {
+  const large = XLSX.utils.aoa_to_sheet([headers, ...Array.from({ length: 5001 }, () => values)]);
+  const wide = XLSX.utils.aoa_to_sheet([Array.from({ length: 101 }, (_, i) => "Column " + i), Array(101).fill("value")]);
+  const opened = await parseFile(excelFile("xlsx", [["Final Run SKU", XLSX.utils.aoa_to_sheet([headers, values])], ["Oversized rows", large], ["Oversized columns", wide], ["Empty", XLSX.utils.aoa_to_sheet([])]]));
+  assert.equal(opened.sheets.length, 4);
+  assert.equal((await opened.loadSheet(0)).rows.length, 1);
+  await assert.rejects(opened.loadSheet(1), /5,000/);
+  await assert.rejects(opened.loadSheet(2), /100 columns/);
+  assert.equal((await opened.loadSheet(3)).rows.length, 0);
+  assert.equal((await opened.loadSheet(0)).rows.length, 1);
+});
+test("51-sheet real-catalog-shaped workbook preserves the final 82 rows and 12001 units", async () => {
+  const fixture = readManifest(await readFile(new URL("../../../../docs/circzles-catalog/r1-r2-r3.source.json", import.meta.url), "utf8"));
+  const catalogRows = fixture.rows.map(r => [r.name, r.size, r.brand, r.numberIdentifier, r.manufacturingCode, r.level, r.units, r.firstFullSku]);
+  const sheets = Array.from({ length: 50 }, (_, i) => ["Reference " + i, XLSX.utils.aoa_to_sheet([["Notes"], ["Not catalog data"]])]);
+  sheets.push(["Final Run SKU", XLSX.utils.aoa_to_sheet([headers.slice(0, 8), ...catalogRows])]);
+  const opened = await parseFile(excelFile("xlsx", sheets));
+  const selected = await opened.loadSheet(opened.defaultSheet), rows = normalizeSheet(selected, detectColumns(selected.headers));
+  const choices = createSeparateDecisions(rows, initialChoices(rows)), result = buildManifest("real-shaped", rows, choices);
+  assert.equal(result.issues.length, 0); assert.equal(result.summary.found, 82); assert.equal(result.summary.totalUnits, "12001");
+  assert.deepEqual(result.manifest.rows, fixture.rows);
 });

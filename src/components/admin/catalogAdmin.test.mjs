@@ -226,3 +226,30 @@ test("Excel worksheet selection and manual column override update normalized pre
   assert.match(table.textContent, /Unrelated/); assert.match(table.textContent, /CC-61-R3-01-0001/); assert.doesNotMatch(table.textContent, /CC-29-R2/);
   await selectCatalog("Product type for row 2", "ACCESSORY"); assert.match(table.textContent, /SKU family/);
 });
+
+test("51-sheet wizard switches on demand and clears selection, mapping and dry-run approval", async t => {
+  const XLSX = await import("xlsx"), root = await setup(t), calls = []; let fileReads = 0;
+  t.mock.method(globalThis, "fetch", async (_url, init = {}) => { if (!init.method) return Response.json([]); calls.push(JSON.parse(init.body)); return Response.json({ ready: true, applied: false, rows: 1, planned: 1, skipped: [], errors: [] }); });
+  await act(async () => root.render(createElement(CatalogAdmin)));
+  const book = XLSX.utils.book_new(), [header, r2, r3] = importCsv.split("\n").map(line => line.split(","));
+  XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([]), "Empty");
+  for (let i = 1; i < 49; i++) XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([["Notes"], ["Unrelated"]]), "Reference " + i);
+  XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([header, r2]), "Final Run SKU R2");
+  XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([header, r3]), "Final Run SKU R3");
+  const bytes = XLSX.write(book, { bookType: "xlsx", type: "buffer" });
+  const control = document.querySelector('input[type="file"]');
+  await act(async () => { Object.defineProperty(control, "files", { configurable: true, value: [{ name: "_Circzles Cogzart Final Run SKU Oct-25.xlsx", size: bytes.length, arrayBuffer: async () => { fileReads++; return bytes; } }] }); control.dispatchEvent(new window.Event("change", { bubbles: true })); await new Promise(setImmediate); });
+  const picker = document.querySelector('[aria-label="Select worksheet"]'); assert.equal(picker.options.length, 51);
+  assert.equal(picker.value, "49");
+  await click("Preview normalized rows"); await click("Deselect All"); await click("Select All"); await click("Reconcile canonical products"); await click("Create new canonical product"); await click("Review import summary"); await click("Dry-run validation");
+  assert.equal(Array.from(document.querySelectorAll("button")).find(b => b.textContent === "Apply validated import").disabled, false);
+  await selectCatalog("Select worksheet", "50");
+  assert.equal(document.querySelector('[role="dialog"]'), null); assert.doesNotMatch(document.body.textContent, /Preview only/);
+  await click("Preview normalized rows"); assert.match(document.body.textContent, /Selected 1 of 1/);
+  await click("Reconcile canonical products"); assert.match(document.body.textContent, /Unresolved/); await click("Review import summary");
+  assert.equal(Array.from(document.querySelectorAll("button")).find(b => b.textContent === "Apply validated import").disabled, true);
+  assert.equal(Array.from(document.querySelectorAll("button")).find(b => b.textContent === "Dry-run validation").disabled, true);
+  await selectCatalog("Select worksheet", "0"); assert.match(document.body.textContent, /No usable rows found/);
+  await selectCatalog("Select worksheet", "49"); await click("Preview normalized rows");
+  assert.equal(document.querySelectorAll('input[type="checkbox"]').length, 1); assert.equal(fileReads, 1); assert.equal(calls.length, 1);
+});

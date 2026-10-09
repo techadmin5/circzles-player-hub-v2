@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { catalogAdmin, type CatalogVariant, type ImportReport } from "@/lib/catalogAdmin";
 import { buildManifest, canApply, initialChoices, manifestRows, normalizeSheet, separateGroupKey, createSeparateDecisions } from "./manifestBuilder";
 import { detectColumns, fields, missingColumns, parseFile, readManifest, isWebsiteSku } from "./spreadsheetParser";
-import type { Choices, ColumnMap, ParsedFile, PreviewRow, RowChoice } from "./types";
+import type { Choices, ColumnMap, ParsedFile, PreviewRow, RowChoice, Sheet } from "./types";
 
 const input = "mt-1 min-h-11 w-full rounded-lg border border-[var(--cz-hairline-strong)] bg-[var(--cz-inset)] p-2";
 const steps = ["Upload", "Worksheet & columns", "Select rows", "Canonical mapping", "Summary", "Validation"];
@@ -12,6 +12,7 @@ const pageSize = 50;
 
 export function CatalogImportWizard({ onApplied }: { onApplied: () => void }) {
   const [file, setFile] = useState<ParsedFile | null>(null), [sheetIndex, setSheetIndex] = useState(0), [columns, setColumns] = useState<ColumnMap>({});
+  const [loadedSheet, setLoadedSheet] = useState<Sheet | null>(null);
   const [choices, setChoices] = useState<Choices>({}), [dataset, setDataset] = useState(""), [step, setStep] = useState(0), [page, setPage] = useState(0);
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState("");
   const [report, setReport] = useState<ImportReport | null>(null), [snapshot, setSnapshot] = useState(""), [confirm, setConfirm] = useState(false);
@@ -19,7 +20,7 @@ export function CatalogImportWizard({ onApplied }: { onApplied: () => void }) {
   const [reuseSearch, setReuseSearch] = useState(""), [advanced, setAdvanced] = useState<string | null>(null);
   const epoch = useRef(0), alive = useRef(true), pending = useRef(false);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
-  const sheet = file?.sheets[sheetIndex];
+  const sheet = loadedSheet;
   const rows: PreviewRow[] = useMemo(() => file?.manifest ? manifestRows(file.manifest) : sheet ? normalizeSheet(sheet, columns) : [], [file, sheet, columns]);
   const built = useMemo(() => buildManifest(dataset, rows, choices), [dataset, rows, choices]);
   const visible = (step === 3 ? built.selected : rows).slice(page * pageSize, (page + 1) * pageSize);
@@ -41,7 +42,7 @@ export function CatalogImportWizard({ onApplied }: { onApplied: () => void }) {
   function invalidate() { epoch.current++; setReport(null); setSnapshot(""); setConfirm(false); setNotice(""); setError(""); }
   function choose(key: number, change: Partial<RowChoice>) { invalidate(); setChoices(current => ({ ...current, [key]: { ...current[key], ...change } })); }
   function install(parsed: ParsedFile) {
-    invalidate(); setFile(parsed); setSheetIndex(parsed.defaultSheet); setPage(0); setFocusKey(null); setQuery("");
+    invalidate(); setFile(parsed); setLoadedSheet(parsed.manifest ? null : parsed.sheets[parsed.defaultSheet]); setSheetIndex(parsed.defaultSheet); setPage(0); setFocusKey(null); setQuery("");
     const map = parsed.manifest ? {} : detectColumns(parsed.sheets[parsed.defaultSheet]?.headers ?? []);
     setColumns(map);
     const normalized = parsed.manifest ? manifestRows(parsed.manifest) : normalizeSheet(parsed.sheets[parsed.defaultSheet], map);
@@ -51,17 +52,34 @@ export function CatalogImportWizard({ onApplied }: { onApplied: () => void }) {
   }
   async function upload(selected: File) {
     if (pending.current) return;
-    invalidate(); setFile(null); setChoices({}); setStep(0); pending.current = true; setBusy(true);
+    invalidate(); setFile(null); setLoadedSheet(null); setChoices({}); setStep(0); pending.current = true; setBusy(true);
     const version = epoch.current;
-    try { const parsed = await parseFile(selected); if (alive.current && version === epoch.current) install(parsed); }
+    try {
+      const parsed = await parseFile(selected);
+      if (alive.current && version === epoch.current) {
+        install(parsed);
+        if (parsed.loadSheet) {
+          const loadingVersion = epoch.current;
+          try { const selectedSheet = await parsed.loadSheet(parsed.defaultSheet); if (alive.current && loadingVersion === epoch.current) acceptSheet(selectedSheet); }
+          catch (e) { if (alive.current && loadingVersion === epoch.current) { setLoadedSheet(null); setError(errorText(e)); } }
+        }
+      }
+    }
     catch (e) { if (alive.current && version === epoch.current) setError(errorText(e)); }
     finally { pending.current = false; if (alive.current) setBusy(false); }
   }
-  function changeSheet(index: number) {
-    if (!file) return;
-    invalidate(); setSheetIndex(index); const map = detectColumns(file.sheets[index].headers); setColumns(map);
-    setChoices(initialChoices(normalizeSheet(file.sheets[index], map))); setPage(0); setFocusKey(null);
+  function acceptSheet(selected: Sheet) {
+    setLoadedSheet(selected); const map = detectColumns(selected.headers); setColumns(map);
+    setChoices(initialChoices(normalizeSheet(selected, map)));
+  }
+  async function changeSheet(index: number) {
+    if (!file || pending.current) return;
+    invalidate(); setSheetIndex(index); setLoadedSheet(null); setColumns({}); setChoices({}); setAdvanced(null); setStep(1); setPage(0); setFocusKey(null); setQuery("");
     setDataset((file.name.replace(/\.[^.]+$/, "") + "-" + file.sheets[index].name).slice(0, 200));
+    pending.current = true; setBusy(true); const version = epoch.current;
+    try { const selected = file.loadSheet ? await file.loadSheet(index) : file.sheets[index]; if (alive.current && version === epoch.current) acceptSheet(selected); }
+    catch (e) { if (alive.current && version === epoch.current) setError(errorText(e)); }
+    finally { pending.current = false; if (alive.current) setBusy(false); }
   }
   function mapColumn(key: keyof ColumnMap, value: string) {
     invalidate(); const map = { ...columns }; if (value === "") delete map[key]; else map[key] = Number(value);
@@ -99,10 +117,12 @@ export function CatalogImportWizard({ onApplied }: { onApplied: () => void }) {
       <label className="block">Upload file (.xlsx, .xls, .csv, .json; up to 10 MB)<input aria-label="Catalog source file" type="file" accept=".xlsx,.xls,.csv,.json" className={input} onChange={event => { const selected = event.target.files?.[0]; event.target.value = ""; if (selected) void upload(selected); }} /></label>
       {busy && <p role="status">{file ? "Processing catalog request…" : "Reading file…"}</p>}
       {file && <>
-        <p className="text-sm">File: {file.name} · {file.format.toUpperCase()} · {file.size.toLocaleString()} bytes{file.sheets.length > 0 && ` · ${file.sheets.length} worksheet(s)`} · Worksheet: {sheet?.name ?? "JSON manifest"}</p>
+        <p className="text-sm">File: {file.name} · {file.format.toUpperCase()} · {file.size.toLocaleString()} bytes{file.sheets.length > 0 && ` · ${file.sheets.length} worksheet(s)`} · Worksheet: {file.manifest ? "JSON manifest" : file.sheets[sheetIndex]?.name}</p>
         <label className="block">Dataset ID<input aria-label="Import dataset ID" className={input} value={dataset} onChange={e => { invalidate(); setDataset(e.target.value); }} maxLength={200} /><span className="text-sm">Keep this ID and all source/mapping values unchanged on reruns. Download the prepared manifest to preserve decisions. A different dataset ID does not permit reusing reserved prefixes.</span></label>
+        {file.loadSheet && <label className="block">Select worksheet<select aria-label="Select worksheet" className={input} value={sheetIndex} onChange={e => void changeSheet(Number(e.target.value))}>{file.sheets.map((s, i) => <option key={s.name} value={i}>{s.name}</option>)}</select></label>}
+        {!file.manifest && !busy && (!sheet || !rows.length) && <p role="status">{error ? "This worksheet could not be loaded. Choose another worksheet." : "No usable rows found. Choose another worksheet or upload a sheet with catalog data."}</p>}
         {step === 1 && sheet && <>
-          {file.format !== "csv" && <label className="block">Select worksheet<select aria-label="Select worksheet" className={input} value={sheetIndex} onChange={e => changeSheet(Number(e.target.value))}>{file.sheets.map((s, i) => <option key={s.name} value={i}>{s.name} ({s.rows.length} rows)</option>)}</select></label>}
+
           <p className="text-sm">Headers detected at worksheet row {sheet.headerRow}. Only this worksheet is used. Changing worksheet or columns clears row choices and canonical decisions.</p>
           <div className="grid gap-3 sm:grid-cols-3">{fields.map(field => <label key={field.key}>{field.label}{field.optional ? " (optional)" : " *"}<select aria-label={"Column for " + field.label} className={input} value={columns[field.key] ?? ""} onChange={e => mapColumn(field.key, e.target.value)}><option value="">{field.optional ? "Ignore / blank" : "Choose source column"}</option>{sheet.headers.map((header, i) => <option key={i} value={i} disabled={field.key === "firstFullSku" && isWebsiteSku(header)}>{i + 1}. {header || "Unnamed"}</option>)}</select></label>)}</div>
           <p className="text-sm">Ignored columns: {sheet.headers.flatMap((header, i) => mappedColumns.has(i) ? [] : [(header || "Column " + (i + 1)) + " → Ignored"]).join("; ") || "None"}</p>
