@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, isNotNull, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type * as schema from "../db/schema.js";
 import { puzzleCompetitionSettings, puzzles } from "../db/schema.js";
@@ -79,7 +79,7 @@ export class DrizzleCompetitionSettingsRepository implements CompetitionSettings
   constructor(private db: Db) {}
 
   async getByPuzzleId(puzzleId: string) {
-    const [row] = await selectSettings(this.db).where(eq(puzzleCompetitionSettings.puzzleId, puzzleId)).limit(1);
+    const [row] = await selectSettings(this.db).where(and(eq(puzzleCompetitionSettings.puzzleId, puzzleId), isNotNull(puzzleCompetitionSettings.category))).limit(1);
     return row ? toDto(row) : null;
   }
 
@@ -129,9 +129,9 @@ function toDto(row: { setting: typeof puzzleCompetitionSettings.$inferSelect; pu
     puzzleId: row.setting.puzzleId,
     puzzleName: row.puzzle.name,
     levelId: Number(row.puzzle.levelId),
-    category: row.setting.category,
+    category: row.setting.category!,
     leaderboardEnabled: row.setting.leaderboardEnabled,
-    displayOrder: row.setting.displayOrder,
+    displayOrder: row.setting.displayOrder!,
     rewardEnabled: row.setting.rewardEnabled,
     synapseReward: row.setting.synapseReward,
     xpReward: row.setting.xpReward,

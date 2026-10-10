@@ -1,0 +1,5 @@
+ALTER TABLE "puzzle_competition_settings" ALTER COLUMN "category" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "puzzle_competition_settings" ALTER COLUMN "display_order" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "puzzle_competition_settings" ADD COLUMN "max_leaderboard_time_ms" integer;--> statement-breakpoint
+ALTER TABLE "puzzle_competition_settings" ADD CONSTRAINT "puzzle_competition_settings_max_time_check" CHECK ("puzzle_competition_settings"."max_leaderboard_time_ms" IS NULL OR "puzzle_competition_settings"."max_leaderboard_time_ms" > 0);--> statement-breakpoint
+ALTER TABLE "puzzle_competition_settings" ADD CONSTRAINT "puzzle_competition_settings_configuration_check" CHECK (("puzzle_competition_settings"."category" IS NOT NULL AND "puzzle_competition_settings"."display_order" IS NOT NULL) OR ("puzzle_competition_settings"."category" IS NULL AND "puzzle_competition_settings"."display_order" IS NULL AND NOT "puzzle_competition_settings"."leaderboard_enabled" AND NOT "puzzle_competition_settings"."reward_enabled" AND "puzzle_competition_settings"."synapse_reward" = 0 AND "puzzle_competition_settings"."xp_reward" = 0));

@@ -33,7 +33,8 @@ beforeAll(async () => {
   const playerId = ids[0], userId = users[0].userId;
   const [design] = await fixture.insert(s.puzzleDesigns).values({ name: "Preserved design" }).returning();
   const [puzzle] = await fixture.insert(s.puzzles).values({ puzzleDesignId: design.puzzleDesignId, name: "Preserved puzzle", levelId: 1 }).returning();
-  await fixture.insert(s.puzzleCompetitionSettings).values({ puzzleId: puzzle.puzzleId, category: "MAIN_LEVEL", displayOrder: 0 });
+  // Deliberately pre-0025 fixture: use the historical column set.
+  await pg.query("INSERT INTO puzzle_competition_settings(puzzle_id,category,display_order) VALUES($1,'MAIN_LEVEL',0)", [puzzle.puzzleId]);
   const [prefix] = await fixture.insert(s.puzzleClaimPrefixes).values({ puzzleId: puzzle.puzzleId, prefix: "TEST", normalizedPrefix: "TEST" }).returning();
   const [claim] = await fixture.insert(s.puzzleClaims).values({ puzzleClaimPrefixId: prefix.puzzleClaimPrefixId, puzzleId: puzzle.puzzleId, playerId, serialNumber: 1n, normalizedCode: "TEST1" }).returning();
   const [owned] = await fixture.insert(s.playerPuzzles).values({ playerId, puzzleId: puzzle.puzzleId, puzzleClaimId: claim.puzzleClaimId }).returning();

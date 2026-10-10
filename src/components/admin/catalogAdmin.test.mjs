@@ -310,3 +310,40 @@ test("manual duplicate redirects to existing CircZles manufacturing form instead
   assert.ok(Array.from(document.querySelectorAll("form")).some(f => f.elements.namedItem("skuPrefix")));
   assert.equal(Array.from(document.querySelectorAll("button")).some(b => b.textContent === "Create New CircZles"), false);
 });
+
+
+const { parseCatalogTime, formatCatalogTime } = await import("../../lib/catalogTiming.ts");
+test("catalog time converts whole minutes/seconds exactly and rejects invalid configuration", () => {
+  for (const [m, s, ms] of [["5", "0", 300000], ["2", "30", 150000], ["0", "45", 45000]]) assert.equal(parseCatalogTime(m, s), ms);
+  assert.equal(parseCatalogTime("", ""), null);
+  for (const [m, s] of [["0", "0"], ["-1", "0"], ["1", "60"], ["1.5", "0"], ["1", "0.5"], ["abc", "0"], ["", "30"], ["999999", "0"]]) assert.throws(() => parseCatalogTime(m, s));
+  assert.equal(formatCatalogTime(300000), "05:00"); assert.equal(formatCatalogTime(150000), "02:30"); assert.equal(formatCatalogTime(null), "Not set");
+});
+test("catalog defaults ACTIVE, permits all status filters, and Edit opens the existing time editor with save/clear/reload", async t => {
+  const root = await setup(t), urls = [], patches = []; let time = null;
+  t.mock.method(globalThis, "fetch", async (url, init = {}) => {
+    const path = new URL(url).pathname;
+    if (path.endsWith("/designs")) return Response.json({ designs: [] });
+    urls.push(new URL(url));
+    if (init.method === "PATCH") { const body = JSON.parse(init.body); patches.push(body); time = body.maxLeaderboardTimeMs; return Response.json({ ...v, maxLeaderboardTimeMs: time }); }
+    return Response.json(path.endsWith(v.catalogVariantId) ? { ...v, maxLeaderboardTimeMs: time, batches: [b] } : [{ ...v, maxLeaderboardTimeMs: time }]);
+  });
+  await act(async () => root.render(createElement(CatalogAdmin)));
+  assert.equal(urls[0].searchParams.get("status"), "ACTIVE"); assert.match(document.body.textContent, /Max Leaderboard Time/); assert.match(document.body.textContent, /Not set/);
+  const filter = Array.from(document.querySelectorAll("select")).find(node => node.parentElement.textContent.startsWith("Status"));
+  for (const status of ["", "DRAFT", "ARCHIVED", "ACTIVE"]) { await act(async () => { filter.value = status; filter.dispatchEvent(new window.Event("change", { bubbles: true })); }); assert.equal(urls.at(-1).searchParams.get("status"), status || null); }
+  await click("Edit"); assert.match(document.body.textContent, /CircZles Details/);
+  await submit(document.querySelector("form"), { timeMinutes: "5", timeSeconds: "0" });
+  assert.equal(patches.at(-1).maxLeaderboardTimeMs, 300000); assert.match(document.body.textContent, /CircZles updated successfully/); assert.match(document.body.textContent, /05:00/);
+  await click("Lion"); assert.equal(document.querySelector('[name="timeMinutes"]').value, "5");
+  await submit(document.querySelector("form"), { timeMinutes: "2", timeSeconds: "30" }); assert.equal(patches.at(-1).maxLeaderboardTimeMs, 150000);
+  await submit(document.querySelector("form"), { timeMinutes: "0", timeSeconds: "60" }); assert.match(document.querySelector('[role="alert"]').textContent, /Seconds/); assert.equal(patches.length, 2);
+  await click("Clear / Not configured"); await submit(document.querySelector("form"), {}); assert.equal(patches.at(-1).maxLeaderboardTimeMs, null);
+  await click("Edit"); assert.equal(document.querySelector('[name="timeMinutes"]').value, ""); assert.match(document.body.textContent, /Not set/);
+});
+for (const productType of ["ACCESSORY", "CIRCZLES"]) test("non-playable " + productType + " has no editable timing", async t => {
+  const root = await setup(t); const row = { ...v, productType, puzzleId: null, levelId: null, status: "DRAFT" };
+  t.mock.method(globalThis, "fetch", async url => Response.json(new URL(url).pathname.endsWith(v.catalogVariantId) ? { ...row, batches: [] } : [row]));
+  await act(async () => root.render(createElement(CatalogAdmin))); await click("Edit");
+  assert.equal(document.querySelector('[name="timeMinutes"]'), null); assert.match(document.body.textContent, /Leaderboard timing becomes available when this is a playable CircZles/);
+});

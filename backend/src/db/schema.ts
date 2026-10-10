@@ -412,9 +412,11 @@ export const leaderboardEntries = pgTable("leaderboard_entries", {
 export const puzzleCompetitionSettings = pgTable("puzzle_competition_settings", {
   puzzleCompetitionSettingId: uuid("puzzle_competition_setting_id").primaryKey().defaultRandom(),
   puzzleId: uuid("puzzle_id").notNull().references(() => puzzles.puzzleId, { onDelete: "cascade" }),
-  category: puzzleCompetitionCategory("category").notNull(),
+  // Null category/order represents timing only, not competition configuration.
+  maxLeaderboardTimeMs: integer("max_leaderboard_time_ms"),
+  category: puzzleCompetitionCategory("category"),
   leaderboardEnabled: boolean("leaderboard_enabled").notNull().default(false),
-  displayOrder: integer("display_order").notNull(),
+  displayOrder: integer("display_order"),
   rewardEnabled: boolean("reward_enabled").notNull().default(false),
   synapseReward: integer("synapse_reward").notNull().default(0),
   xpReward: integer("xp_reward").notNull().default(0),
@@ -424,6 +426,8 @@ export const puzzleCompetitionSettings = pgTable("puzzle_competition_settings", 
 }, (table) => ({
   puzzleIdUnique: uniqueIndex("puzzle_competition_settings_puzzle_id_unique").on(table.puzzleId),
   navigationIndex: index("puzzle_competition_settings_navigation_idx").on(table.active, table.leaderboardEnabled, table.category, table.displayOrder),
+  maxTimeCheck: check("puzzle_competition_settings_max_time_check", sql`${table.maxLeaderboardTimeMs} IS NULL OR ${table.maxLeaderboardTimeMs} > 0`),
+  configurationCheck: check("puzzle_competition_settings_configuration_check", sql`(${table.category} IS NOT NULL AND ${table.displayOrder} IS NOT NULL) OR (${table.category} IS NULL AND ${table.displayOrder} IS NULL AND NOT ${table.leaderboardEnabled} AND NOT ${table.rewardEnabled} AND ${table.synapseReward} = 0 AND ${table.xpReward} = 0)`),
   displayOrderCheck: check("puzzle_competition_settings_display_order_check", sql`${table.displayOrder} >= 0`),
   synapseRewardCheck: check("puzzle_competition_settings_synapse_reward_check", sql`${table.synapseReward} >= 0`),
   xpRewardCheck: check("puzzle_competition_settings_xp_reward_check", sql`${table.xpReward} >= 0`),

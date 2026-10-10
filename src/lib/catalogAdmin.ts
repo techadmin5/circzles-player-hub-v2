@@ -4,6 +4,7 @@ export interface CatalogVariant {
   catalogVariantId: string; puzzleDesignId: string; puzzleId: string | null; displayName: string; brand: string;
   productType: "CIRCZLES" | "ACCESSORY"; sizeLabel: string | null; pieceCount: number | null; levelId: string | null;
   image: string | null; description: string | null; marketingMetadata: Record<string, string>; status: CatalogStatus;
+  maxLeaderboardTimeMs: number | null;
   existingCanonical?: boolean;
 }
 export interface ManufacturingBatch {

@@ -54,7 +54,7 @@ export class DrizzleLeaderboardRepository implements LeaderboardRepository {
       asc(puzzleCompetitionSettings.displayOrder),
       asc(puzzles.puzzleId),
     );
-    const items = rows.map((row) => ({ ...puzzleDto(row), displayOrder: row.setting.displayOrder }));
+    const items = rows.map((row) => ({ ...puzzleDto(row), displayOrder: row.setting.displayOrder! }));
     return {
       mainLevels: items.filter((item) => item.category === "MAIN_LEVEL"),
       sideQuests: items.filter((item) => item.category === "SIDE_QUEST"),
@@ -139,7 +139,7 @@ function leaderboardEntryQuery(db: Pick<Database, "select">) {
 }
 
 function puzzleDto(row: { setting: typeof puzzleCompetitionSettings.$inferSelect; puzzle: typeof puzzles.$inferSelect }): LeaderboardPuzzleDto {
-  return { puzzleId: row.puzzle.puzzleId, puzzleName: row.puzzle.name, runCode: row.puzzle.runCode ?? undefined, levelId: Number(row.puzzle.levelId), category: row.setting.category };
+  return { puzzleId: row.puzzle.puzzleId, puzzleName: row.puzzle.name, runCode: row.puzzle.runCode ?? undefined, levelId: Number(row.puzzle.levelId), category: row.setting.category! };
 }
 
 function leaderboardRow(row: { entry: typeof leaderboardEntries.$inferSelect; player: typeof players.$inferSelect }, rank: number, currentPlayerId: string): LeaderboardRowDto {

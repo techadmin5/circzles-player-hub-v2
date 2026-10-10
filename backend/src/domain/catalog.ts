@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import { and, eq, ne, lt, gt, lte, gte, isNull, sql } from "drizzle-orm";
+import { getTableColumns, and, eq, ne, lt, gt, lte, gte, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Database } from "../db/client.js";
-import { catalogVariants as variants, manufacturingBatches as batches, manufacturingBatchRanges as ranges, puzzles, puzzleDesigns, puzzleDesignAliases, puzzleClaimPrefixes, puzzleClaims, playerPuzzles } from "../db/schema.js";
+import { catalogVariants as variants, manufacturingBatches as batches, manufacturingBatchRanges as ranges, puzzles, puzzleDesigns, puzzleDesignAliases, puzzleClaimPrefixes, puzzleClaims, playerPuzzles, puzzleCompetitionSettings as competition } from "../db/schema.js";
 import { gameplaySignature, normalizeDesign, normalizeSize, proposeIdentities, type IdentityContext } from "./catalogIdentity.js";
 import { AppError, validationFailed } from "./errors.js";
 import { parseClaimCode } from "./puzzles.js";
@@ -25,7 +25,7 @@ export const variantInput = z.object({
   levelId: level.nullable().optional(), image: image.optional(), description: z.string().max(10000).optional(),
   marketingMetadata: z.record(z.string().max(100), z.string().max(2000)).optional(), status: status.default("DRAFT"),
 }).strict();
-export const variantPatch = variantInput.omit({ puzzleDesignId: true, productType: true, status: true }).partial().extend({ status: status.optional() }).strict();
+export const variantPatch = variantInput.omit({ puzzleDesignId: true, productType: true, status: true }).partial().extend({ status: status.optional(), maxLeaderboardTimeMs: z.number().int().positive().max(2147483647).nullable().optional() }).strict();
 export const batchInput = z.object({
   numberIdentifier: z.string().regex(/^[0-9]{1,20}$/), manufacturingCode: z.string().regex(/^R[1-9][0-9]{0,8}$/),
   skuPrefix: short, firstFullSku: short.optional(), serialStart: serial, serialEnd: serial, unitsManufactured: serial,
@@ -179,7 +179,7 @@ export class CatalogService {
       const term = "%" + query.search.replace(/[%_\\]/g, "\\$&") + "%";
       conditions.push(sql`(${variants.displayName} ILIKE ${term} OR EXISTS (SELECT 1 FROM manufacturing_batches b WHERE b.catalog_variant_id = ${variants.catalogVariantId} AND b.sku_prefix ILIKE ${term}))`);
     }
-    return this.db.select().from(variants).where(and(...conditions)).orderBy(variants.displayName, variants.catalogVariantId).limit(query.limit ?? 100).offset(query.offset ?? 0);
+    return this.db.select({ ...getTableColumns(variants), maxLeaderboardTimeMs: competition.maxLeaderboardTimeMs }).from(variants).leftJoin(competition, eq(variants.puzzleId, competition.puzzleId)).where(and(...conditions)).orderBy(variants.displayName, variants.catalogVariantId).limit(query.limit ?? 100).offset(query.offset ?? 0);
   }
   async detail(id: string) {
     const variant = await getVariant(this.db, id), rows = await this.db.select().from(batches).where(eq(batches.catalogVariantId, id)).orderBy(batches.createdAt);
@@ -187,15 +187,26 @@ export class CatalogService {
       const claimed = await claimCount(this.db, batch.puzzleClaimPrefixId);
       return { ...batch, claimedUnits: claimed, remainingUnits: batch.unitsManufactured - claimed, ranges: await this.db.select().from(ranges).where(eq(ranges.manufacturingBatchId, batch.manufacturingBatchId)) };
     }));
-    return { ...variant, batches: manufacturing };
+    return { ...variant, maxLeaderboardTimeMs: await this.timing(this.db, variant.puzzleId), batches: manufacturing };
+  }
+  private async timing(db: Pick<Database, "select">, puzzleId: string | null) {
+    if (!puzzleId) return null;
+    const [setting] = await db.select({ time: competition.maxLeaderboardTimeMs }).from(competition).where(eq(competition.puzzleId, puzzleId));
+    return setting?.time ?? null;
   }
   create(input: VariantInput) { return this.db.transaction(async tx => { await managementLock(tx); return createVariant(tx, input); }); }
   addBatch(id: string, input: BatchInput) { return this.db.transaction(async tx => { await managementLock(tx); return createBatch(tx, id, input); }); }
   update(id: string, input: unknown) {
-    const patch = read(variantPatch, input);
+    const { maxLeaderboardTimeMs, ...patch } = read(variantPatch, input);
     return this.db.transaction(async tx => {
       await managementLock(tx);
       const current = await getVariant(tx, id);
+      if (maxLeaderboardTimeMs !== undefined) {
+        if (current.productType !== "CIRCZLES" || !current.puzzleId) throw validationFailed("Leaderboard timing becomes available when this is a playable CircZles.");
+        // Timing-only rows carry no category/order; existing competition behavior is untouched.
+        await tx.insert(competition).values({ puzzleId: current.puzzleId, maxLeaderboardTimeMs }).onConflictDoUpdate({ target: competition.puzzleId, set: { maxLeaderboardTimeMs } });
+        if (!Object.keys(patch).length) return { ...current, maxLeaderboardTimeMs };
+      }
       const children = await tx.select().from(batches).where(eq(batches.catalogVariantId, id)).orderBy(batches.manufacturingBatchId).for("update");
       const next = { ...current, ...patch, levelId: patch.levelId === undefined ? current.levelId : patch.levelId === null ? null : String(patch.levelId) };
       if (next.status !== "ARCHIVED" && await completeDuplicate(tx, current.puzzleDesignId, next, id)) throw conflict("This playable CircZles already exists. Add a Manufacturing Batch instead.");
@@ -213,7 +224,7 @@ export class CatalogService {
         }
       } else if (puzzleId) throw conflict("A playable level cannot be removed. Archive this variant instead.");
       if (patch.designName) await tx.update(puzzleDesigns).set({ name: patch.designName, updatedAt: new Date() }).where(eq(puzzleDesigns.puzzleDesignId, current.puzzleDesignId));
-      if (next.status !== "ACTIVE") await tx.update(batches).set({ status: next.status, updatedAt: new Date() }).where(eq(batches.catalogVariantId, id));
+      if (next.status !== "ACTIVE" && next.status !== current.status) await tx.update(batches).set({ status: next.status, updatedAt: new Date() }).where(eq(batches.catalogVariantId, id));
       for (const child of children) {
         if (puzzleId && !child.puzzleId) {
           const prefixId = await bindPrefix(tx, { ...next, puzzleId }, child.skuPrefix);
@@ -227,7 +238,7 @@ export class CatalogService {
         const owners = await tx.select({ id: playerPuzzles.playerId }).from(playerPuzzles).where(and(eq(playerPuzzles.puzzleId, puzzleId), isNull(playerPuzzles.deletedAt)));
         for (const owner of owners) await tx.execute(sql`SELECT pg_notify(${PLAYER_STATE_CHANNEL}, ${owner.id})`);
       }
-      return updated;
+      return { ...updated, maxLeaderboardTimeMs: await this.timing(tx, puzzleId) };
     });
   }
   editBatch(id: string, input: unknown) {

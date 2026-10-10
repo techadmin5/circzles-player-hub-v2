@@ -50,6 +50,7 @@ beforeAll(async () => {
   const preserved = (await pg.query("SELECT player_id,user_id,player_number,public_player_id,display_name,created_at,updated_at FROM players")).rows;
   await pg.exec(await readFile(new URL("../drizzle/0022_player_profile_avatar.sql", import.meta.url), "utf8"));
   expect((await pg.query("SELECT player_id,user_id,player_number,public_player_id,display_name,created_at,updated_at FROM players")).rows).toEqual(preserved);
+  await pg.exec(await readFile(new URL("../drizzle/0025_catalog_max_leaderboard_time.sql", import.meta.url), "utf8"));
   db = fixture as unknown as Database;
   await new DrizzleGameStateRepository(db).seedProgressionLevels([
     { progressionLevel: 1, rankName: "Peasant", xpRequired: 0, rewards: [] },
