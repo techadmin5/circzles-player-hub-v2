@@ -50,9 +50,9 @@ test("authorized catalog detail renders batch ranges and statistics while protec
 });
 test("admin can create a canonical CircZles then attach an exact manufacturing batch without client identity fields", async t => {
   const root = await setup(t), calls = []; let batches = [];
-  t.mock.method(globalThis, "fetch", async (url, init = {}) => {
+  t.mock.method(globalThis, "fetch", async (url, init = {}) => { if (new URL(url).pathname.endsWith("/propose")) return Response.json({ proposals: [] });
     const path = new URL(url).pathname;
-    if (init.method) { calls.push({ path, body: JSON.parse(init.body) }); if (path.endsWith("/batches")) { batches = [b]; return Response.json(b); } return Response.json(v); }
+    if (init.method && !new URL(url).pathname.endsWith("/propose")) { calls.push({ path, body: JSON.parse(init.body) }); if (path.endsWith("/batches")) { batches = [b]; return Response.json(b); } return Response.json(v); }
     return Response.json(path.endsWith(v.catalogVariantId) ? { ...v, batches } : []);
   });
   await act(async () => root.render(createElement(CatalogAdmin))); await click("+ Add CircZles");
@@ -73,7 +73,7 @@ test("server mutation rejection displays an error and never fabricates a success
 });
 test("successful physical claim immediately updates the collection and canonical owned statistic without refresh", async t => {
   const root = await setup(t), calls = []; let claimed = false;
-  t.mock.method(globalThis, "fetch", async (url, init = {}) => {
+  t.mock.method(globalThis, "fetch", async (url, init = {}) => { if (new URL(url).pathname.endsWith("/propose")) return Response.json({ proposals: [] });
     const path = new URL(url).pathname; calls.push({ path, body: init.body });
     if (path === "/api/puzzles/claim") { claimed = true; return Response.json({ success: true, puzzle: owned }); }
     if (path === "/api/me") return Response.json(profile);
@@ -117,7 +117,7 @@ test("catalog authorization is rechecked after a session generation changes", as
 });
 test("catalog import requires preview and explicit confirmation, invalidated by source changes", async t => {
   const root = await setup(t), calls = [];
-  t.mock.method(globalThis, "fetch", async (url, init = {}) => {
+  t.mock.method(globalThis, "fetch", async (url, init = {}) => { if (new URL(url).pathname.endsWith("/propose")) return Response.json({ proposals: [] });
     if (!init.method) return Response.json([]);
     const path = new URL(url).pathname; calls.push(path); return Response.json({ applied: path.endsWith("apply"), rows: 1, planned: 1, skipped: [], ready: true, errors: [] });
   });
@@ -161,15 +161,15 @@ async function selectCatalog(label, value) {
 const importCsv = 'Puzzle Name,Size,Brand Name,Number Identifier,Manufacturing Code,Levels,Units,Sku Number,Website SKU,Notes\nLion,12,CircZles,29,R2,01,48,CC-29-R2-01-0001,WEB-29,Unrelated\nLION,12,CircZles,61,R3,01,500,CC-61-R3-01-0001,WEB-61,Unrelated';
 test("CSV wizard ignores commercial columns and explicitly shares Lion groups before server preview", async t => {
   const root = await setup(t), manifests = [];
-  t.mock.method(globalThis, "fetch", async (_url, init = {}) => {
+  t.mock.method(globalThis, "fetch", async (_url, init = {}) => { if (new URL(_url).pathname.endsWith("/propose")) return Response.json({ proposals: [] });
     if (!init.method) return Response.json([v]);
     manifests.push(JSON.parse(init.body)); return Response.json({ ready: false, applied: false, errors: [{ sourceId: "61-R3", message: "Review this source" }], rows: 2, planned: 2, skipped: [] });
   });
   await act(async () => root.render(createElement(CatalogAdmin)));
   await uploadCatalog("catalog.csv", importCsv); assert.match(document.body.textContent, /Website SKU.*Ignored/); assert.equal(manifests.length, 0);
   await click("Preview normalized rows"); assert.match(document.body.textContent, /Selected 2 of 2/);
-  await click("Reconcile canonical products"); assert.match(document.body.textContent, /Unresolved/);
-  await click("Create new canonical product"); await click("Resolve row 3");
+  await click("Reconcile canonical products"); assert.match(document.body.textContent, /Needs review/);
+  await click("New playable CircZles"); await click("Resolve row 3");
   await selectCatalog("Reuse new canonical group", "import-group-0001"); await click("Review import summary");
   await click("Dry-run validation");
   assert.deepEqual(manifests[0].mappings["29-R2"], manifests[0].mappings["61-R3"]);
@@ -179,28 +179,28 @@ test("CSV wizard ignores commercial columns and explicitly shares Lion groups be
 });
 test("wizard selection controls exclude rows; unresolved mappings block dry-run", async t => {
   const root = await setup(t), manifests = [];
-  t.mock.method(globalThis, "fetch", async (_url, init = {}) => { if (!init.method) return Response.json([]); manifests.push(JSON.parse(init.body)); return Response.json({ ready: true, applied: false, errors: [], rows: 1, planned: 1, skipped: [] }); });
+  t.mock.method(globalThis, "fetch", async (_url, init = {}) => { if (new URL(_url).pathname.endsWith("/propose")) return Response.json({ proposals: [] }); if (!init.method) return Response.json([]); manifests.push(JSON.parse(init.body)); return Response.json({ ready: true, applied: false, errors: [], rows: 1, planned: 1, skipped: [] }); });
   await act(async () => root.render(createElement(CatalogAdmin))); await uploadCatalog("catalog.csv", importCsv); await click("Preview normalized rows");
   await click("Deselect All"); assert.match(document.body.textContent, /Selected 0 of 2/);
   await click("Select All"); assert.match(document.body.textContent, /Selected 2 of 2/);
   const checkbox = document.querySelector('[aria-label="Import row 3"]'); await act(async () => checkbox.click());
   await click("Reconcile canonical products"); await click("Review import summary");
   assert.equal(Array.from(document.querySelectorAll("button")).find(b => b.textContent === "Dry-run validation").disabled, true);
-  await click("Back"); await click("Create separate canonical products for all unmapped selected rows"); await click("Review import summary"); await click("Dry-run validation");
+  await click("Back"); await click("Confirm new product identities for unresolved rows"); await click("Review import summary"); await click("Dry-run validation");
   assert.deepEqual(manifests[0].rows.map(r => r.sourceId), ["29-R2"]); assert.deepEqual(Object.keys(manifests[0].mappings), ["29-R2"]);
 });
 test("wizard existing catalog selection sends catalogVariantId without creating an implicit group", async t => {
   const root = await setup(t), manifests = [];
-  t.mock.method(globalThis, "fetch", async (_url, init = {}) => { if (!init.method) return Response.json([v]); manifests.push(JSON.parse(init.body)); return Response.json({ ready: true, applied: false, errors: [], rows: 2, planned: 2, skipped: [] }); });
+  t.mock.method(globalThis, "fetch", async (_url, init = {}) => { if (new URL(_url).pathname.endsWith("/propose")) return Response.json({ proposals: [] }); if (!init.method) return Response.json([v]); manifests.push(JSON.parse(init.body)); return Response.json({ ready: true, applied: false, errors: [], rows: 2, planned: 2, skipped: [] }); });
   await act(async () => root.render(createElement(CatalogAdmin))); await uploadCatalog("catalog.csv", importCsv); await click("Preview normalized rows"); await click("Reconcile canonical products");
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 250)); });
   await selectCatalog("Existing canonical product", v.catalogVariantId);
-  await click("Resolve row 3"); await click("Create new canonical product"); await click("Review import summary"); await click("Dry-run validation");
+  await click("Resolve row 3"); await click("New playable CircZles"); await click("Review import summary"); await click("Dry-run validation");
   assert.deepEqual(manifests[0].mappings["29-R2"], { catalogVariantId: v.catalogVariantId });
 });
 test("5000-row wizard renders bounded pages and never auto-applies on file selection", async t => {
   const root = await setup(t); let posts = 0;
-  t.mock.method(globalThis, "fetch", async (_url, init = {}) => { if (init.method) posts++; return Response.json([]); });
+  t.mock.method(globalThis, "fetch", async (_url, init = {}) => { if (new URL(_url).pathname.endsWith("/propose")) return Response.json({ proposals: [] }); if (init.method) posts++; return Response.json([]); });
   await act(async () => root.render(createElement(CatalogAdmin)));
   const header = importCsv.split("\n")[0]; const rows = Array.from({ length: 5000 }, (_, i) => `Puzzle,12,CircZles,${i + 100},R4,01,1,CC-${i + 100}-R4-01-0001,WEB,Notes`);
   await uploadCatalog("large.csv", [header, ...rows].join("\n")); await click("Preview normalized rows");
@@ -229,7 +229,7 @@ test("Excel worksheet selection and manual column override update normalized pre
 
 test("51-sheet wizard switches on demand and clears selection, mapping and dry-run approval", async t => {
   const XLSX = await import("xlsx"), root = await setup(t), calls = []; let fileReads = 0;
-  t.mock.method(globalThis, "fetch", async (_url, init = {}) => { if (!init.method) return Response.json([]); calls.push(JSON.parse(init.body)); return Response.json({ ready: true, applied: false, rows: 1, planned: 1, skipped: [], errors: [] }); });
+  t.mock.method(globalThis, "fetch", async (_url, init = {}) => { if (new URL(_url).pathname.endsWith("/propose")) return Response.json({ proposals: [] }); if (!init.method) return Response.json([]); calls.push(JSON.parse(init.body)); return Response.json({ ready: true, applied: false, rows: 1, planned: 1, skipped: [], errors: [] }); });
   await act(async () => root.render(createElement(CatalogAdmin)));
   const book = XLSX.utils.book_new(), [header, r2, r3] = importCsv.split("\n").map(line => line.split(","));
   XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([]), "Empty");
@@ -241,12 +241,12 @@ test("51-sheet wizard switches on demand and clears selection, mapping and dry-r
   await act(async () => { Object.defineProperty(control, "files", { configurable: true, value: [{ name: "_Circzles Cogzart Final Run SKU Oct-25.xlsx", size: bytes.length, arrayBuffer: async () => { fileReads++; return bytes; } }] }); control.dispatchEvent(new window.Event("change", { bubbles: true })); await new Promise(setImmediate); });
   const picker = document.querySelector('[aria-label="Select worksheet"]'); assert.equal(picker.options.length, 51);
   assert.equal(picker.value, "49");
-  await click("Preview normalized rows"); await click("Deselect All"); await click("Select All"); await click("Reconcile canonical products"); await click("Create new canonical product"); await click("Review import summary"); await click("Dry-run validation");
+  await click("Preview normalized rows"); await click("Deselect All"); await click("Select All"); await click("Reconcile canonical products"); await click("New playable CircZles"); await click("Review import summary"); await click("Dry-run validation");
   assert.equal(Array.from(document.querySelectorAll("button")).find(b => b.textContent === "Apply validated import").disabled, false);
   await selectCatalog("Select worksheet", "50");
   assert.equal(document.querySelector('[role="dialog"]'), null); assert.doesNotMatch(document.body.textContent, /Preview only/);
   await click("Preview normalized rows"); assert.match(document.body.textContent, /Selected 1 of 1/);
-  await click("Reconcile canonical products"); assert.match(document.body.textContent, /Unresolved/); await click("Review import summary");
+  await click("Reconcile canonical products"); assert.match(document.body.textContent, /Needs review/); await click("Review import summary");
   assert.equal(Array.from(document.querySelectorAll("button")).find(b => b.textContent === "Apply validated import").disabled, true);
   assert.equal(Array.from(document.querySelectorAll("button")).find(b => b.textContent === "Dry-run validation").disabled, true);
   await selectCatalog("Select worksheet", "0"); assert.match(document.body.textContent, /No usable rows found/);
@@ -268,9 +268,45 @@ test("real worksheet preview excludes ignored column-17 notes and remapping reco
   const control = document.querySelector('input[type="file"]');
   await act(async () => { Object.defineProperty(control, "files", { configurable: true, value: [{ name: "_Circzles Cogzart Final Run SKU Oct-25.xlsx", size: bytes.length, arrayBuffer: async () => bytes }] }); control.dispatchEvent(new window.Event("change", { bubbles: true })); await new Promise(setImmediate); });
   await click("Preview normalized rows"); assert.match(document.body.textContent, /Selected 82 of 82/);
-  await click("Reconcile canonical products"); await click("Create separate canonical products for all unmapped selected rows"); await click("Review import summary");
+  await click("Reconcile canonical products"); await click("Confirm new product identities for unresolved rows"); await click("Review import summary");
   const units = Array.from(document.querySelectorAll("dt")).find(node => node.textContent === "Manufactured units"); assert.equal(units.nextElementSibling.textContent, "12001");
   await click("Back"); await click("Back"); await click("Back");
   await selectCatalog("Column for CircZles Name", "16"); await click("Preview normalized rows");
   assert.match(document.body.textContent, /Selected 126 of 126/);
+});
+
+test("verified signatures automatically group manufacturing runs and missing pieces require explicit review", async t => {
+  const { proposeIdentities } = await import("../../../backend/src/domain/catalogIdentity.ts");
+  const root = await setup(t), previews = [];
+  t.mock.method(globalThis, "fetch", async (url, init = {}) => {
+    const path = new URL(url).pathname;
+    if (path.endsWith("/propose")) return Response.json({ proposals: proposeIdentities(JSON.parse(init.body).rows, { aliases: [], designs: [], variants: [] }) });
+    if (path.endsWith("/preview")) { previews.push(JSON.parse(init.body)); return Response.json({ ready: true, applied: false, rows: 2, planned: 2, errors: [], skipped: [] }); }
+    return Response.json([]);
+  });
+  await act(async () => root.render(createElement(CatalogAdmin)));
+  const csv = "Puzzle Name,Size,Brand,Number Identifier,Manufacturing Run,Level,Units,First Full SKU,No. of Pieces\nLion,12,CircZles,29,R2,01,48,CC-29-R2-01-0001,37\nLION,12,CircZles,61,R3,01,500,CC-61-R3-01-0001,37";
+  const upload = async text => { const control = document.querySelector('input[type="file"]'); await act(async () => { Object.defineProperty(control, "files", { configurable: true, value: [{ name: "verified.csv", size: text.length, text: async () => text }] }); control.dispatchEvent(new window.Event("change", { bubbles: true })); await new Promise(setImmediate); }); };
+  await upload(csv); await click("Preview normalized rows"); assert.match(document.body.textContent, /Automatically grouped/);
+  await click("Reconcile canonical products"); await click("Review import summary"); await click("Dry-run validation");
+  assert.equal(previews.length, 1); assert.equal(previews[0].mappings["29-R2"].newVariantKey, previews[0].mappings["61-R3"].newVariantKey);
+  await upload(csv.replace(/,37$/, ",")); await click("Preview normalized rows"); assert.match(document.body.textContent, /NEEDS-REVIEW/);
+  await click("Reconcile canonical products"); await click("Review import summary");
+  assert.equal(Array.from(document.querySelectorAll("button")).find(b => b.textContent === "Dry-run validation").disabled, true);
+  assert.equal(Array.from(document.querySelectorAll("button")).find(b => b.textContent === "Apply validated import").disabled, true);
+});
+
+test("manual duplicate redirects to existing CircZles manufacturing form instead of creating another playable identity", async t => {
+  const root = await setup(t); let creates = 0;
+  t.mock.method(globalThis, "fetch", async (url, init = {}) => {
+    const path = new URL(url).pathname;
+    if (path.endsWith("/designs")) return Response.json({ designs: [{ puzzleDesignId: v.puzzleDesignId, name: "Lion" }], aliases: [], variants: [v] });
+    if (init.method === "POST") { creates++; return Response.json({ ...v, existingCanonical: true }); }
+    return Response.json(path.endsWith(v.catalogVariantId) ? { ...v, batches: [] } : [v]);
+  });
+  await act(async () => root.render(createElement(CatalogAdmin))); await click("+ Add CircZles");
+  await submit(document.querySelector("form"), { displayName: "Lion", brand: "CircZles", puzzleDesignId: v.puzzleDesignId, sizeLabel: "12", levelId: "1", pieceCount: "37", status: "ACTIVE" });
+  assert.equal(creates, 1); assert.match(document.body.textContent, /This playable CircZles already exists. Add a Manufacturing Batch instead./);
+  assert.ok(Array.from(document.querySelectorAll("form")).some(f => f.elements.namedItem("skuPrefix")));
+  assert.equal(Array.from(document.querySelectorAll("button")).some(b => b.textContent === "Create New CircZles"), false);
 });

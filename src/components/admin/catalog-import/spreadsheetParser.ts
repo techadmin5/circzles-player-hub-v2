@@ -11,7 +11,8 @@ export const fields: { key: Field; label: string; aliases: string[]; optional?: 
   { key: "level", label: "Level", aliases: ["Level", "Levels"] },
   { key: "units", label: "Units Manufactured", aliases: ["Units", "Quantity", "Manufactured Units", "Units Manufactured"] },
   { key: "firstFullSku", label: "First Full SKU", aliases: ["SKU Number", "SKU", "First Full SKU", "Final SKU", "Manufacturing SKU"] },
-  { key: "pieceCount", label: "Piece Count", aliases: ["Piece Count", "Pieces"], optional: true },
+  { key: "pieceCount", label: "Piece Count", aliases: ["Piece Count", "Pieces", "No of pieces", "No. of Pieces", "Number of Pieces"], optional: true },
+  { key: "canonicalDesign", label: "Canonical Design", aliases: ["Canonical Design", "Design Family", "Design Key", "Canonical Name"], optional: true },
 ];
 const headerKey = (value: string) => value.replace(/^\uFEFF/, "").trim().toLowerCase().replace(/[ _-]+/g, " ");
 export const isWebsiteSku = (value: string) => headerKey(value).replaceAll(" ", "") === "websitesku";
@@ -75,7 +76,7 @@ export function readManifest(text: string): Manifest {
   if (!value.rows.length || value.rows.length > MAX_ROWS) throw new Error("Choose between 1 and 5,000 rows.");
   const strings = ["sourceId", "name", "size", "brand", "numberIdentifier", "manufacturingCode", "level", "units", "firstFullSku", "productType"];
   for (const row of value.rows) {
-    if (!isObject(row) || strings.some(k => typeof row[k] !== "string") || Object.keys(row).some(k => ![...strings, "pieceCount"].includes(k)) || (row.pieceCount !== undefined && (typeof row.pieceCount !== "number" || !Number.isInteger(row.pieceCount) || row.pieceCount <= 0))) throw new Error("JSON rows must use the existing source-row contract with text identity fields and optional positive numeric pieceCount.");
+    if (!isObject(row) || strings.some(k => typeof row[k] !== "string") || Object.keys(row).some(k => ![...strings, "pieceCount", "canonicalDesign"].includes(k)) || (row.canonicalDesign !== undefined && (typeof row.canonicalDesign !== "string" || !row.canonicalDesign.trim() || row.canonicalDesign.length > 200)) || (row.pieceCount !== undefined && (typeof row.pieceCount !== "number" || !Number.isInteger(row.pieceCount) || row.pieceCount <= 0))) throw new Error("JSON rows must use the existing source-row contract with text identity fields and optional positive numeric pieceCount.");
   }
   for (const decision of Object.values(value.mappings)) {
     if (!isObject(decision) || Object.keys(decision).length !== 1 || !Object.entries(decision).every(([key, v]) => ["catalogVariantId", "newVariantKey"].includes(key) && typeof v === "string" && !!v.trim())) throw new Error("Each mapping must choose exactly one catalogVariantId or newVariantKey.");

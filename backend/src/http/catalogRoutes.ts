@@ -21,6 +21,9 @@ export function registerCatalogRoutes(app: FastifyInstance, deps: { env: Env; ad
       return value.data[key];
     }
     scope.get("/api/admin/catalog/access", async () => ({ allowed: true }));
+    scope.get("/api/admin/catalog/designs", async () => catalogJson(await deps.catalog.designs()));
+    scope.post("/api/admin/catalog/design-aliases", async request => deps.catalog.confirmAlias(request.body));
+    scope.post("/api/admin/catalog/import/propose", { bodyLimit: 16 * 1024 * 1024 }, async request => deps.catalog.propose(request.body));
     scope.get("/api/admin/catalog", async request => {
       const query = z.object({ search: z.string().max(200).optional(), status: z.enum(["DRAFT", "ACTIVE", "ARCHIVED"]).optional(), productType: z.enum(["CIRCZLES", "ACCESSORY"]).optional(), limit: z.coerce.number().int().min(1).max(100).default(100), offset: z.coerce.number().int().min(0).max(1000000).default(0) }).strict().safeParse(request.query);
       if (!query.success) throw validationFailed("Invalid catalog filters.");

@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { and, eq, ne, lt, gt, lte, gte, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Database } from "../db/client.js";
-import { catalogVariants as variants, manufacturingBatches as batches, manufacturingBatchRanges as ranges, puzzles, puzzleDesigns, puzzleClaimPrefixes, puzzleClaims, playerPuzzles } from "../db/schema.js";
+import { catalogVariants as variants, manufacturingBatches as batches, manufacturingBatchRanges as ranges, puzzles, puzzleDesigns, puzzleDesignAliases, puzzleClaimPrefixes, puzzleClaims, playerPuzzles } from "../db/schema.js";
+import { gameplaySignature, normalizeDesign, normalizeSize, proposeIdentities, type IdentityContext } from "./catalogIdentity.js";
 import { AppError, validationFailed } from "./errors.js";
 import { parseClaimCode } from "./puzzles.js";
 import { PLAYER_STATE_CHANNEL } from "./playerStateEvents.js";
@@ -57,7 +58,22 @@ export function validateBatch(input: unknown, variant: Pick<typeof variants.$inf
   return { ...value, serialStart: start, serialEnd: end, unitsManufactured: units };
 }
 export function catalogJson(value: unknown): unknown { return JSON.parse(JSON.stringify(value, (_key, item: unknown) => typeof item === "bigint" ? item.toString() : item)); }
-async function managementLock(tx: Tx) { await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('circzles.catalog.management'))`); }
+export async function managementLock(tx: Tx) { await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('circzles.catalog.management'))`); }
+export async function identityContext(tx: Tx | Database): Promise<IdentityContext> {
+  const designs = await tx.select().from(puzzleDesigns).where(isNull(puzzleDesigns.deletedAt));
+  return { aliases: (await tx.select().from(puzzleDesignAliases)).filter(a => designs.some(d => d.puzzleDesignId === a.puzzleDesignId)), designs, variants: await tx.select().from(variants) };
+}
+async function rememberAlias(tx: Tx, designId: string, alias: string) {
+  const key = normalizeDesign(alias);
+  const [existing] = await tx.select().from(puzzleDesignAliases).where(eq(puzzleDesignAliases.normalizedAlias, key));
+  if (existing && existing.puzzleDesignId !== designId) throw conflict("This alias is already confirmed for another design family.");
+  if (!existing) await tx.insert(puzzleDesignAliases).values({ normalizedAlias: key, displayAlias: alias.trim(), puzzleDesignId: designId });
+}
+async function completeDuplicate(tx: Tx, designId: string, value: { productType: string; sizeLabel?: string | null; levelId?: string | number | null; pieceCount?: number | null }, except?: string) {
+  if (value.productType !== "CIRCZLES" || !value.sizeLabel || value.levelId == null || !value.pieceCount) return undefined;
+  const rows = await tx.select().from(variants).where(and(eq(variants.puzzleDesignId, designId), ne(variants.status, "ARCHIVED")));
+  return rows.find(v => v.catalogVariantId !== except && v.productType === "CIRCZLES" && normalizeSize(v.sizeLabel ?? "") === normalizeSize(value.sizeLabel!) && Number(v.levelId) === Number(value.levelId) && v.pieceCount === value.pieceCount);
+}
 async function getVariant(tx: Tx | Database, id: string) {
   const [row] = await tx.select().from(variants).where(eq(variants.catalogVariantId, id));
   if (!row) throw missing();
@@ -99,9 +115,22 @@ async function createVariant(tx: Tx, input: VariantInput) {
     const [design] = await tx.select().from(puzzleDesigns).where(and(eq(puzzleDesigns.puzzleDesignId, designId), isNull(puzzleDesigns.deletedAt)));
     if (!design) throw missing();
   } else {
-    const [design] = await tx.insert(puzzleDesigns).values({ name: value.designName ?? value.displayName, status: "ACTIVE" }).returning();
-    designId = design.puzzleDesignId;
+    const name = value.designName ?? value.displayName;
+    const [alias] = await tx.select().from(puzzleDesignAliases).where(eq(puzzleDesignAliases.normalizedAlias, normalizeDesign(name)));
+    if (alias) designId = alias.puzzleDesignId;
+    else {
+      const historical = (await tx.select().from(puzzleDesigns).where(isNull(puzzleDesigns.deletedAt))).filter(d => normalizeDesign(d.name) === normalizeDesign(name));
+      if (historical.length) throw conflict("Choose and confirm the existing design family; historical names alone do not prove identity.");
+      const [design] = await tx.insert(puzzleDesigns).values({ name, status: "ACTIVE" }).returning();
+      designId = design.puzzleDesignId;
+    }
   }
+  const [resolvedDesign] = await tx.select().from(puzzleDesigns).where(and(eq(puzzleDesigns.puzzleDesignId, designId), isNull(puzzleDesigns.deletedAt)));
+  if (!resolvedDesign) throw missing();
+  await rememberAlias(tx, designId, value.designName ?? value.displayName);
+  if (value.designName) await rememberAlias(tx, designId, value.displayName);
+  const duplicate = await completeDuplicate(tx, designId, value);
+  if (duplicate) return { ...duplicate, existingCanonical: true };
   let puzzleId: string | null = null;
   if (value.productType === "CIRCZLES" && value.levelId != null) {
     const [puzzle] = await tx.insert(puzzles).values({ puzzleDesignId: designId, name: value.displayName, sizeLabel: value.sizeLabel, pieceCount: value.pieceCount, levelId: value.levelId, image: value.image, description: value.description, status: value.status }).returning();
@@ -127,6 +156,21 @@ async function createBatch(tx: Tx, variantId: string, input: BatchInput, source?
 
 export class CatalogService {
   constructor(private db: Database) {}
+  async designs() { return (await identityContext(this.db)); }
+  confirmAlias(input: unknown) {
+    const value = read(z.object({ puzzleDesignId: z.string().uuid(), alias: short }).strict(), input);
+    return this.db.transaction(async tx => {
+      await managementLock(tx);
+      const [design] = await tx.select().from(puzzleDesigns).where(and(eq(puzzleDesigns.puzzleDesignId, value.puzzleDesignId), isNull(puzzleDesigns.deletedAt)));
+      if (!design) throw missing();
+      await rememberAlias(tx, value.puzzleDesignId, value.alias);
+      return { confirmed: true };
+    });
+  }
+  async propose(input: unknown) {
+    const value = read(z.object({ rows: z.array(sourceRow).min(1).max(5000) }).strict(), input);
+    return { proposals: proposeIdentities(value.rows, await identityContext(this.db)) };
+  }
   async list(query: { search?: string; status?: "DRAFT" | "ACTIVE" | "ARCHIVED"; productType?: "CIRCZLES" | "ACCESSORY"; limit?: number; offset?: number } = {}) {
     const conditions = [];
     if (query.status) conditions.push(eq(variants.status, query.status));
@@ -154,6 +198,7 @@ export class CatalogService {
       const current = await getVariant(tx, id);
       const children = await tx.select().from(batches).where(eq(batches.catalogVariantId, id)).orderBy(batches.manufacturingBatchId).for("update");
       const next = { ...current, ...patch, levelId: patch.levelId === undefined ? current.levelId : patch.levelId === null ? null : String(patch.levelId) };
+      if (next.status !== "ARCHIVED" && await completeDuplicate(tx, current.puzzleDesignId, next, id)) throw conflict("This playable CircZles already exists. Add a Manufacturing Batch instead.");
       if (next.productType === "CIRCZLES" && next.status === "ACTIVE" && next.levelId === null) throw validationFailed("Active CircZles require a positive level.");
       const gameplayChanged = next.levelId !== current.levelId || next.sizeLabel !== current.sizeLabel || next.pieceCount !== current.pieceCount;
       // Filling an incomplete draft is safe; an existing playable identity is not reconfigured.
@@ -265,9 +310,14 @@ export class CatalogService {
         const decision = manifest.mappings[row.sourceId];
         let variantId = decision.catalogVariantId ?? created.get(decision.newVariantKey ?? "");
         if (!variantId) {
-          const variant = await createVariant(tx, { displayName: row.name.trim(), brand: row.brand, productType: row.productType, sizeLabel: row.size, pieceCount: row.pieceCount ?? null, levelId: sourceLevel(row.level), status: sourceLevel(row.level) === null || row.productType === "ACCESSORY" ? "DRAFT" : "ACTIVE" });
+          const variant = await createVariant(tx, { displayName: row.name.trim(), designName: row.canonicalDesign ?? row.name, brand: row.brand, productType: row.productType, sizeLabel: row.size, pieceCount: row.pieceCount ?? null, levelId: sourceLevel(row.level), status: sourceLevel(row.level) === null || row.productType === "ACCESSORY" ? "DRAFT" : "ACTIVE" });
           variantId = variant.catalogVariantId;
           created.set(decision.newVariantKey!, variantId);
+        }
+        if (row.canonicalDesign) {
+          const target = await getVariant(tx, variantId);
+          await rememberAlias(tx, target.puzzleDesignId, row.canonicalDesign);
+          await rememberAlias(tx, target.puzzleDesignId, row.name);
         }
         await createBatch(tx, variantId, sourceBatch(row), { importKey: sourceKey(manifest.datasetId, row.sourceId), sourceFingerprint: fingerprint(row, decision), sourceData: sourceStrings(row) });
       }
@@ -276,7 +326,7 @@ export class CatalogService {
   }
 }
 
-export const sourceRow = z.object({ sourceId: short, name: z.string().min(1).max(200).refine(v => v.trim().length > 0), size: z.string().min(1).max(200), brand: z.string().min(1).max(200).refine(v => v.trim().length > 0), numberIdentifier: z.string().min(1).max(200), manufacturingCode: z.string().min(1).max(200), level: z.string().min(1).max(200), units: serial, firstFullSku: z.string().min(1).max(200), productType, pieceCount: z.number().int().positive().optional() }).strict();
+export const sourceRow = z.object({ sourceId: short, name: z.string().min(1).max(200).refine(v => v.trim().length > 0), size: z.string().min(1).max(200), brand: z.string().min(1).max(200).refine(v => v.trim().length > 0), numberIdentifier: z.string().min(1).max(200), manufacturingCode: z.string().min(1).max(200), level: z.string().min(1).max(200), units: serial, firstFullSku: z.string().min(1).max(200), productType, pieceCount: z.number().int().positive().max(1000000).optional(), canonicalDesign: short.optional() }).strict();
 const mapping = z.object({ catalogVariantId: z.string().uuid().optional(), newVariantKey: short.optional() }).strict().refine(v => Boolean(v.catalogVariantId) !== Boolean(v.newVariantKey), "Choose an existing variant or an explicit new variant key");
 export const importManifest = z.object({ datasetId: short, rows: z.array(sourceRow).min(1).max(5000), mappings: z.record(z.string(), mapping) }).strict();
 type Manifest = z.infer<typeof importManifest>;
@@ -295,6 +345,16 @@ function fingerprint(row: Source, decision: z.infer<typeof mapping>) { return cr
 async function planImport(tx: Tx, manifest: Manifest) {
   const errors: { sourceId: string; message: string }[] = [], skipped: string[] = [];
   const seen = new Set<string>(), prefixes = new Set<string>(), groups = new Map<string, Source>();
+  const context = await identityContext(tx);
+  const completeKeys = new Map<string, string>();
+  const stored = await tx.select().from(batches);
+  const byKey = new Map(stored.filter(b => b.importKey).map(b => [b.importKey!, b]));
+  const byPrefix = new Map(stored.map(b => [b.skuPrefix, b]));
+  const recoveredGroups = new Map<string, string>();
+  for (const row of manifest.rows) {
+    const decision = manifest.mappings[row.sourceId], previous = byKey.get(sourceKey(manifest.datasetId, row.sourceId));
+    if (decision?.newVariantKey && previous?.sourceFingerprint === fingerprint(row, decision)) recoveredGroups.set(decision.newVariantKey, previous.catalogVariantId);
+  }
   for (const row of manifest.rows) {
     try {
       if (seen.has(row.sourceId)) throw conflict("Duplicate source row identity.");
@@ -302,19 +362,32 @@ async function planImport(tx: Tx, manifest: Manifest) {
       const decision = manifest.mappings[row.sourceId];
       if (!Object.hasOwn(manifest.mappings, row.sourceId)) throw conflict("Explicit canonical mapping is required; names are never merged automatically.");
       const value = sourceBatch(row), key = sourceKey(manifest.datasetId, row.sourceId);
-      const [existing] = await tx.select().from(batches).where(eq(batches.importKey, key));
+      if (row.canonicalDesign) {
+        const displayAlias = context.aliases.find(a => a.normalizedAlias === normalizeDesign(row.name));
+        const canonicalAlias = context.aliases.find(a => a.normalizedAlias === normalizeDesign(row.canonicalDesign!));
+        if (displayAlias && displayAlias.puzzleDesignId !== canonicalAlias?.puzzleDesignId) throw conflict("Display alias and Canonical Design refer to conflicting families; review the alias explicitly.");
+      }
+      const existing = byKey.get(key);
       if (existing) {
         if (existing.sourceFingerprint !== fingerprint(row, decision)) throw conflict("Previously imported source or mapping changed; use explicit catalog correction.");
         skipped.push(row.sourceId);
       }
+      if (!existing && row.productType === "CIRCZLES" && row.level !== "NA" && row.pieceCount && decision.newVariantKey) {
+        const alias = context.aliases.find(a => a.normalizedAlias === normalizeDesign(row.canonicalDesign ?? row.name));
+        const duplicate = alias && await completeDuplicate(tx, alias.puzzleDesignId, { productType: row.productType, sizeLabel: row.size, levelId: sourceLevel(row.level), pieceCount: row.pieceCount });
+        if (duplicate && recoveredGroups.get(decision.newVariantKey) !== duplicate.catalogVariantId) throw conflict("This complete playable configuration already exists; link its existing CircZles instead of proposing a new identity.");
+        const signature = gameplaySignature(alias?.puzzleDesignId ?? normalizeDesign(row.canonicalDesign ?? row.name), row);
+        if (completeKeys.has(signature) && completeKeys.get(signature) !== decision.newVariantKey) throw conflict("Identical complete configurations require the same product identity; use the same manufacturing group.");
+        completeKeys.set(signature, decision.newVariantKey);
+      }
       if (prefixes.has(value.skuPrefix)) throw conflict("Duplicate manufacturing prefix in source.");
       prefixes.add(value.skuPrefix);
-      const [reserved] = await tx.select().from(batches).where(eq(batches.skuPrefix, value.skuPrefix));
+      const reserved = byPrefix.get(value.skuPrefix);
       if (reserved && reserved.importKey !== key) throw conflict("Manufacturing prefix is already reserved.");
       let target: Pick<typeof variants.$inferSelect, "levelId" | "productType"> = { levelId: sourceLevel(row.level)?.toString() ?? null, productType: row.productType };
       if (decision.catalogVariantId) {
         const variant = await getVariant(tx, decision.catalogVariantId);
-        if (variant.productType !== row.productType || variant.brand.trim() !== row.brand.trim() || variant.sizeLabel !== row.size || Number(variant.levelId) !== Number(sourceLevel(row.level)) || (row.pieceCount != null && variant.pieceCount !== row.pieceCount)) throw conflict("Source gameplay, size or brand disagrees with explicit canonical target.");
+        if (variant.productType !== row.productType || variant.brand.trim() !== row.brand.trim() || normalizeSize(variant.sizeLabel ?? "") !== normalizeSize(row.size) || Number(variant.levelId) !== Number(sourceLevel(row.level)) || (row.pieceCount != null && variant.pieceCount !== row.pieceCount)) throw conflict("Source gameplay, size or brand disagrees with explicit canonical target.");
         if (!existing && value.status === "ACTIVE" && variant.status !== "ACTIVE") throw conflict("Target canonical CircZles is not active.");
         const legacyRows = await tx.select().from(puzzleClaimPrefixes).where(eq(puzzleClaimPrefixes.normalizedPrefix, value.skuPrefix));
         if (legacyRows.length > 1) throw conflict("This prefix has multiple legacy identities. Explicit historical reconciliation is required.");
@@ -324,7 +397,11 @@ async function planImport(tx: Tx, manifest: Manifest) {
         target = variant;
       } else {
         const prior = groups.get(decision.newVariantKey!);
-        if (prior && [prior.size, prior.brand.trim(), sourceLevel(prior.level), prior.productType, prior.pieceCount ?? null].join("|") !== [row.size, row.brand.trim(), sourceLevel(row.level), row.productType, row.pieceCount ?? null].join("|")) throw conflict("Explicit shared variant key has conflicting gameplay, size or brand.");
+        if (prior && (row.level === "NA" || prior.level === "NA")) throw conflict("Incomplete NA-level drafts require separate catalog identities.");
+        if (prior && [normalizeSize(prior.size), prior.brand.trim(), sourceLevel(prior.level), prior.productType, prior.pieceCount ?? null, normalizeDesign(prior.canonicalDesign ?? prior.name)].join("|") !== [normalizeSize(row.size), row.brand.trim(), sourceLevel(row.level), row.productType, row.pieceCount ?? null, normalizeDesign(row.canonicalDesign ?? row.name)].join("|")) {
+          const family = (r: Source) => context.aliases.find(a => a.normalizedAlias === normalizeDesign(r.canonicalDesign ?? r.name))?.puzzleDesignId ?? normalizeDesign(r.canonicalDesign ?? r.name);
+          if (family(prior!) !== family(row) || [normalizeSize(prior!.size), prior!.brand.trim(), sourceLevel(prior!.level), prior!.productType, prior!.pieceCount ?? null].join("|") !== [normalizeSize(row.size), row.brand.trim(), sourceLevel(row.level), row.productType, row.pieceCount ?? null].join("|")) throw conflict("Explicit shared variant key has conflicting gameplay, design, size or brand.");
+        }
         groups.set(decision.newVariantKey!, row);
         const legacyRows = await tx.select().from(puzzleClaimPrefixes).where(eq(puzzleClaimPrefixes.normalizedPrefix, value.skuPrefix));
         if (legacyRows.length > 1) throw conflict("This prefix has multiple legacy identities. Explicit historical reconciliation is required.");

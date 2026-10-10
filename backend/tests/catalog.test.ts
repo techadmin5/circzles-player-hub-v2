@@ -23,7 +23,7 @@ async function player() {
   return { id: row.playerId, userId: user.userId };
 }
 async function variant(overrides: Partial<Parameters<CatalogService["create"]>[0]> = {}) {
-  return catalog.create({ displayName: "Lion", brand: "CircZles", productType: "CIRCZLES", sizeLabel: "12", pieceCount: 121, levelId: 1, status: "ACTIVE", ...overrides });
+  return catalog.create({ displayName: "Isolated test design " + crypto.randomUUID(), brand: "CircZles", productType: "CIRCZLES", sizeLabel: "12", pieceCount: 121, levelId: 1, status: "ACTIVE", ...overrides });
 }
 let number = 100;
 function batch(overrides: Partial<Parameters<CatalogService["addBatch"]>[1]> = {}) {

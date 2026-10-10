@@ -4,6 +4,7 @@ export interface CatalogVariant {
   catalogVariantId: string; puzzleDesignId: string; puzzleId: string | null; displayName: string; brand: string;
   productType: "CIRCZLES" | "ACCESSORY"; sizeLabel: string | null; pieceCount: number | null; levelId: string | null;
   image: string | null; description: string | null; marketingMetadata: Record<string, string>; status: CatalogStatus;
+  existingCanonical?: boolean;
 }
 export interface ManufacturingBatch {
   manufacturingBatchId: string; numberIdentifier: string; manufacturingCode: string; skuPrefix: string; firstFullSku: string | null;
@@ -15,6 +16,9 @@ export interface ImportReport { applied: boolean; rows: number; planned: number;
 const root = "/api/admin/catalog";
 const send = (body: unknown) => JSON.stringify(body);
 export const catalogAdmin = {
+  designs: (signal?: AbortSignal) => request<import("../../backend/src/domain/catalogIdentity").IdentityContext>(root + "/designs", { signal }),
+  alias: (puzzleDesignId: string, alias: string) => request<{ confirmed: boolean }>(root + "/design-aliases", { method: "POST", body: send({ puzzleDesignId, alias }) }),
+  propose: (rows: unknown[], signal?: AbortSignal) => request<{ proposals: import("../../backend/src/domain/catalogIdentity").IdentityProposal[] }>(root + "/import/propose", { method: "POST", body: send({ rows }), signal }),
   access: (signal?: AbortSignal) => request<{ allowed: boolean }>(root + "/access", { signal }),
   list: (query: URLSearchParams, signal?: AbortSignal) => request<CatalogVariant[]>(root + "?" + query, { signal }),
   detail: (id: string) => request<CatalogDetail>(root + "/" + id),

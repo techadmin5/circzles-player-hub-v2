@@ -4,9 +4,10 @@ import { catalogAdmin, type CatalogVariant, type ImportReport } from "@/lib/cata
 import { buildManifest, canApply, initialChoices, manifestRows, normalizeSheet, separateGroupKey, createSeparateDecisions } from "./manifestBuilder";
 import { detectColumns, fields, missingColumns, parseFile, readManifest, isWebsiteSku } from "./spreadsheetParser";
 import type { Choices, ColumnMap, ParsedFile, PreviewRow, RowChoice, Sheet } from "./types";
+import { proposeIdentities } from "../../../../backend/src/domain/catalogIdentity";
 
 const input = "mt-1 min-h-11 w-full rounded-lg border border-[var(--cz-hairline-strong)] bg-[var(--cz-inset)] p-2";
-const steps = ["Upload", "Worksheet & columns", "Select rows", "Canonical mapping", "Summary", "Validation"];
+const steps = ["Upload", "Worksheet & columns", "Select rows", "Product identity", "Summary", "Validation"];
 const errorText = (e: unknown) => e instanceof Error ? e.message : "Import request failed. Review and retry.";
 const pageSize = 50;
 
@@ -18,6 +19,7 @@ export function CatalogImportWizard({ onApplied }: { onApplied: () => void }) {
   const [report, setReport] = useState<ImportReport | null>(null), [snapshot, setSnapshot] = useState(""), [confirm, setConfirm] = useState(false);
   const [focusKey, setFocusKey] = useState<number | null>(null), [query, setQuery] = useState(""), [variants, setVariants] = useState<CatalogVariant[]>([]), [searchBusy, setSearchBusy] = useState(false), [searchError, setSearchError] = useState("");
   const [reuseSearch, setReuseSearch] = useState(""), [advanced, setAdvanced] = useState<string | null>(null);
+  const [identityBusy, setIdentityBusy] = useState(false);
   const epoch = useRef(0), alive = useRef(true), pending = useRef(false);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const sheet = loadedSheet;
@@ -25,8 +27,29 @@ export function CatalogImportWizard({ onApplied }: { onApplied: () => void }) {
   const built = useMemo(() => buildManifest(dataset, rows, choices), [dataset, rows, choices]);
   const visible = (step === 3 ? built.selected : rows).slice(page * pageSize, (page + 1) * pageSize);
   const focused = rows.find(row => row.key === focusKey);
-  const ready = advanced === null && canApply(report, snapshot, built.manifest, built.issues);
+  const ready = !identityBusy && advanced === null && canApply(report, snapshot, built.manifest, built.issues);
   const mappedColumns = new Set(Object.values(columns));
+  useEffect(() => {
+    if (!rows.length || file?.manifest) return;
+    const controller = new AbortController();
+    const valid = rows.filter(r => !r.errors.length).slice(0, 5000);
+    if (!valid.length) return;
+    const local = proposeIdentities(valid.map(r => r.source), { aliases: [], designs: [], variants: [] });
+    const installProposals = (proposals: typeof local) => setChoices(current => {
+      const next = { ...current };
+      for (const row of valid) {
+        const proposal = proposals.find(p => p.sourceId === row.source.sourceId);
+        if (!proposal || next[row.key]?.decision) continue;
+        next[row.key] = { ...next[row.key], decision: proposal.decision, needsReview: proposal.state === "NEEDS-REVIEW", identityState: proposal.state, identityReason: proposal.reason };
+      }
+      return next;
+    });
+    catalogAdmin.propose(valid.map(r => r.source), controller.signal).then(result => {
+      if (!controller.signal.aborted) installProposals(Array.isArray(result.proposals) ? result.proposals : local);
+    }).catch(() => { if (!controller.signal.aborted) installProposals(local.map(p => ({ ...p, decision: undefined, state: "NEEDS-REVIEW", reason: "Existing design families could not be checked. Retry identity reconciliation or explicitly resolve the row." }))); })
+      .finally(() => { if (!controller.signal.aborted) setIdentityBusy(false); });
+    return () => controller.abort();
+  }, [rows, file]);
   useEffect(() => {
     if (step !== 3 || !focused) return;
     const controller = new AbortController();
@@ -40,8 +63,9 @@ export function CatalogImportWizard({ onApplied }: { onApplied: () => void }) {
     return () => { clearTimeout(timer); controller.abort(); };
   }, [step, focusKey, query, focused]);
   function invalidate() { epoch.current++; setReport(null); setSnapshot(""); setConfirm(false); setNotice(""); setError(""); }
-  function choose(key: number, change: Partial<RowChoice>) { invalidate(); setChoices(current => ({ ...current, [key]: { ...current[key], ...change } })); }
+  function choose(key: number, change: Partial<RowChoice>) { invalidate(); setChoices(current => ({ ...current, [key]: { ...current[key], ...change, ...(Object.hasOwn(change, "decision") ? { needsReview: !change.decision, identityState: change.decision ? change.decision.catalogVariantId ? "EXISTING-CANONICAL" : "AUTO-SEPARATE" : "NEEDS-REVIEW", identityReason: "Operator reviewed product identity override." } : {}) } })); }
   function install(parsed: ParsedFile) {
+    setIdentityBusy(!parsed.manifest);
     invalidate(); setFile(parsed); setLoadedSheet(parsed.manifest ? null : parsed.sheets[parsed.defaultSheet]); setSheetIndex(parsed.defaultSheet); setPage(0); setFocusKey(null); setQuery("");
     const map = parsed.manifest ? {} : detectColumns(parsed.sheets[parsed.defaultSheet]?.headers ?? []);
     setColumns(map);
@@ -69,6 +93,7 @@ export function CatalogImportWizard({ onApplied }: { onApplied: () => void }) {
     finally { pending.current = false; if (alive.current) setBusy(false); }
   }
   function acceptSheet(selected: Sheet) {
+    setIdentityBusy(normalizeSheet(selected, detectColumns(selected.headers)).some(r => !r.errors.length));
     setLoadedSheet(selected); const map = detectColumns(selected.headers); setColumns(map);
     setChoices(initialChoices(normalizeSheet(selected, map)));
   }
@@ -83,10 +108,11 @@ export function CatalogImportWizard({ onApplied }: { onApplied: () => void }) {
   }
   function mapColumn(key: keyof ColumnMap, value: string) {
     invalidate(); const map = { ...columns }; if (value === "") delete map[key]; else map[key] = Number(value);
-    setColumns(map); setChoices(initialChoices(normalizeSheet(sheet!, map))); setFocusKey(null); setPage(0);
+    const normalized = normalizeSheet(sheet!, map); setIdentityBusy(normalized.some(r => !r.errors.length));
+    setColumns(map); setChoices(initialChoices(normalized)); setFocusKey(null); setPage(0);
   }
   async function validate() {
-    if (pending.current || built.issues.length || advanced !== null) return;
+    if (pending.current || identityBusy || built.issues.length || advanced !== null) return;
     const current = JSON.stringify(built.manifest); invalidate(); const version = epoch.current;
     pending.current = true; setBusy(true); setStep(5);
     try { const result = await catalogAdmin.import(built.manifest); if (alive.current && version === epoch.current) { setReport(result); setSnapshot(current); } }
@@ -105,12 +131,19 @@ export function CatalogImportWizard({ onApplied }: { onApplied: () => void }) {
   }
   function go(next: number) { setStep(next); setPage(0); if (next === 3) setFocusKey(built.selected[0]?.key ?? null); }
   function reviewRow(key: number) { go(3); setFocusKey(key); setQuery(""); setReuseSearch(""); setPage(Math.max(0, Math.floor(built.selected.findIndex(r => r.key === key) / pageSize))); }
+  const identityGroups = new Map<string, number>(), playableIdentities = new Set<string>();
+  for (const row of built.manifest.rows) {
+    const decision = built.manifest.mappings[row.sourceId], key = decision?.catalogVariantId ?? decision?.newVariantKey;
+    if (!key) continue;
+    identityGroups.set(key, (identityGroups.get(key) ?? 0) + 1);
+    if (row.productType === "CIRCZLES" && row.level !== "NA") playableIdentities.add(key);
+  }
   const plannedRows = built.manifest.rows.filter(row => !report?.skipped.includes(row.sourceId));
   const plannedUnits = plannedRows.reduce((sum, row) => sum + (/^[0-9]+$/.test(row.units) ? BigInt(row.units) : BigInt("0")), BigInt("0")).toString();
   const plannedNew = new Set(plannedRows.flatMap(row => built.manifest.mappings[row.sourceId]?.newVariantKey ? [built.manifest.mappings[row.sourceId].newVariantKey] : [])).size;
   return <section className="cz-surface space-y-4 p-5" aria-labelledby="catalog-import-title">
     <h2 id="catalog-import-title" className="cz-display text-xl">Import CircZles Catalog</h2>
-    <p className="text-sm">Upload a spreadsheet, select rows, explicitly resolve canonical products, then dry-run and confirm. Files are parsed in this browser; only the selected catalog manifest is sent to the existing admin API.</p>
+    <p className="text-sm">Upload a spreadsheet, select rows, review product identities, then dry-run and confirm. Files are parsed in this browser; only the selected catalog manifest is sent to the existing admin API.</p>
     <ol className="flex flex-wrap gap-3 text-sm" aria-label="Import steps">{steps.map((name, i) => <li key={name} aria-current={step === i ? "step" : undefined} className={step === i ? "font-bold" : "opacity-70"}>{i + 1}. {name}</li>)}</ol>
     {error && <p role="alert" className="text-[var(--cz-danger)]">{error}</p>}{notice && <p role="status">{notice}</p>}
     <fieldset disabled={busy || confirm} className="space-y-4 min-w-0">
@@ -133,30 +166,30 @@ export function CatalogImportWizard({ onApplied }: { onApplied: () => void }) {
           <div className="flex flex-wrap items-center gap-3"><p>Selected {built.summary.selected} of {rows.length} rows</p><button className="cz-btn" onClick={() => { invalidate(); setChoices(current => Object.fromEntries(rows.map(row => [row.key, { ...current[row.key], selected: true }]))); }}>Select All</button><button className="cz-btn" onClick={() => { invalidate(); setChoices(current => Object.fromEntries(rows.map(row => [row.key, { ...current[row.key], selected: false }]))); }}>Deselect All</button></div>
           <div className="overflow-x-auto"><table className="w-full text-left text-sm"><caption className="sr-only">Normalized catalog rows</caption><thead><tr>{["Import?", "CircZles Name", "Size", "Brand", "Number", "Run", "Level", "Units", "SKU Prefix", "First Full SKU", "Serial Range", "Product Type", "Validation / Mapping"].map(h => <th key={h} className="p-2">{h}</th>)}</tr></thead><tbody>{visible.map(row => {
             const choice = choices[row.key], issues = built.issues.filter(e => e.key === row.key), decision = choice?.decision;
-            return <tr key={row.key} className="border-t border-[var(--cz-hairline)]"><td className="p-2"><input aria-label={"Import row " + row.rowNumber} type="checkbox" checked={!!choice?.selected} onChange={e => choose(row.key, { selected: e.target.checked })} /></td>{[row.source.name, row.source.size, row.source.brand, row.source.numberIdentifier, row.source.manufacturingCode, row.source.level, row.source.units, row.prefix, row.source.firstFullSku, row.range].map((value, i) => <td key={i} className="p-2 whitespace-nowrap">{value}</td>)}<td className="p-2"><select aria-label={"Product type for row " + row.rowNumber} value={choice?.productType ?? row.source.productType} onChange={e => choose(row.key, { productType: e.target.value as "CIRCZLES" | "ACCESSORY" })}><option>CIRCZLES</option><option>ACCESSORY</option></select></td><td className="p-2 min-w-64">{row.warnings.map(w => <p key={w}>{w}</p>)}{issues.map((e, i) => <p key={i} className="text-[var(--cz-danger)]">{e.message}</p>)}{!issues.length && <p>{choice?.selected ? "Ready for server validation" : "Skipped"}</p>}{decision && <p>{decision.newVariantKey ? "New canonical group: " + decision.newVariantKey : "Existing canonical selected"}</p>}<button className="cz-btn" disabled={!choice?.selected} onClick={() => reviewRow(row.key)}>Resolve row {row.rowNumber}</button></td></tr>;
+            return <tr key={row.key} className="border-t border-[var(--cz-hairline)]"><td className="p-2"><input aria-label={"Import row " + row.rowNumber} type="checkbox" checked={!!choice?.selected} onChange={e => choose(row.key, { selected: e.target.checked })} /></td>{[row.source.name, row.source.size, row.source.brand, row.source.numberIdentifier, row.source.manufacturingCode, row.source.level, row.source.units, row.prefix, row.source.firstFullSku, row.range].map((value, i) => <td key={i} className="p-2 whitespace-nowrap">{value}</td>)}<td className="p-2"><select aria-label={"Product type for row " + row.rowNumber} value={choice?.productType ?? row.source.productType} onChange={e => choose(row.key, { productType: e.target.value as "CIRCZLES" | "ACCESSORY" })}><option>CIRCZLES</option><option>ACCESSORY</option></select></td><td className="p-2 min-w-64">{row.warnings.map(w => <p key={w}>{w}</p>)}{issues.map((e, i) => <p key={i} className="text-[var(--cz-danger)]">{e.message}</p>)}{!issues.length && <p>{choice?.selected ? "Ready for server validation" : "Skipped"}</p>}{choice?.identityState && <p>{choice.identityState === "AUTO-SHARED" ? "Automatically grouped: Same playable CircZles; different manufacturing batches" : choice.identityState}: {choice.identityReason}</p>}{decision && <p>{decision.newVariantKey ? "New product identity proposed" : "Existing CircZles selected"}</p>}<button className="cz-btn" disabled={!choice?.selected} onClick={() => reviewRow(row.key)}>Resolve row {row.rowNumber}</button></td></tr>;
           })}</tbody></table></div>
           <div className="flex items-center gap-3"><button className="cz-btn" disabled={!page} onClick={() => setPage(p => p - 1)}>Previous rows</button><span>Page {page + 1} · up to 50 rows per page</span><button className="cz-btn" disabled={(page + 1) * pageSize >= (step === 3 ? built.selected.length : rows.length)} onClick={() => setPage(p => p + 1)}>Next rows</button></div>
           {step === 3 && <>
-            <p className="text-sm">Names are review hints only. New groups and existing canonical products must be explicitly chosen. Accessories use catalog identities without creating playable products.</p>
-            <button className="cz-btn" onClick={() => { invalidate(); setChoices(current => createSeparateDecisions(built.selected, current)); }}>Create separate canonical products for all unmapped selected rows</button>
+            <p className="text-sm">Complete verified design, size, level and piece-count signatures are proposed automatically. Review or override each product identity before dry-run. NEEDS-REVIEW blocks Apply. Accessories use catalog identities without creating playable products.</p>
+            <button className="cz-btn" onClick={() => { invalidate(); setChoices(current => createSeparateDecisions(built.selected, current)); }}>Confirm new product identities for unresolved rows</button>
             {focused && choices[focused.key]?.selected && <article className="space-y-3 rounded-xl border border-[var(--cz-hairline-strong)] p-4" aria-label="Canonical decision">
               <h3 className="font-bold">Row {focused.rowNumber}: {focused.source.name} · {focused.prefix}</h3>
-              <p>Current decision: {choices[focused.key]?.decision?.newVariantKey ?? (choices[focused.key]?.decision?.catalogVariantId ? (variants.find(v => v.catalogVariantId === choices[focused.key]?.decision?.catalogVariantId)?.displayName ?? "Existing canonical product selected") : "Unresolved")}</p>
-              {choices[focused.key]?.decision?.catalogVariantId && <p className="text-xs opacity-70">Catalog variant ID: {choices[focused.key].decision!.catalogVariantId}</p>}
-              <div className="flex flex-wrap gap-2"><button className="cz-btn" onClick={() => choose(focused.key, { decision: { newVariantKey: separateGroupKey(focused.key, choices) } })}>Create new canonical product</button><button className="cz-btn" onClick={() => choose(focused.key, { decision: undefined })}>Clear canonical decision</button></div>
+              <p>Product identity: {choices[focused.key]?.decision?.newVariantKey ? built.selected.filter(r => choices[r.key]?.decision?.newVariantKey === choices[focused.key]?.decision?.newVariantKey).map(r => r.source.name + " " + r.source.manufacturingCode).join(" + ") : choices[focused.key]?.decision?.catalogVariantId ? (variants.find(v => v.catalogVariantId === choices[focused.key]?.decision?.catalogVariantId)?.displayName ?? "Existing CircZles selected") : "Needs review"}</p>
+              {choices[focused.key]?.decision && <details className="text-xs opacity-70"><summary>Technical identity</summary>{choices[focused.key].decision!.catalogVariantId ?? choices[focused.key].decision!.newVariantKey}</details>}
+              <div className="flex flex-wrap gap-2"><button className="cz-btn" onClick={() => choose(focused.key, { decision: { newVariantKey: separateGroupKey(focused.key, choices) } })}>New playable CircZles</button><button className="cz-btn" onClick={() => choose(focused.key, { decision: undefined })}>Clear canonical decision</button></div>
               <label className="block">Search existing canonical CircZles<input aria-label="Search existing canonical CircZles" className={input} value={query} onChange={e => { setVariants([]); setQuery(e.target.value); }} /></label>
               {searchBusy && <p role="status">Searching catalog…</p>}{searchError && <p role="alert">{searchError}</p>}
-              <label className="block">Map to existing canonical product<select aria-label="Existing canonical product" className={input} value={variants.some(v => v.catalogVariantId === choices[focused.key]?.decision?.catalogVariantId) ? choices[focused.key]?.decision?.catalogVariantId : ""} onChange={e => { if (e.target.value) choose(focused.key, { decision: { catalogVariantId: e.target.value } }); }}><option value="">Choose explicitly (search to find more)</option>{variants.map(v => <option key={v.catalogVariantId} value={v.catalogVariantId}>{v.displayName} · Size {v.sizeLabel ?? "NA"} · Level {v.levelId ?? "NA"} · {v.status} · {v.catalogVariantId}</option>)}</select></label>
+              <label className="block">Link to an existing CircZles<select aria-label="Existing canonical product" className={input} value={variants.some(v => v.catalogVariantId === choices[focused.key]?.decision?.catalogVariantId) ? choices[focused.key]?.decision?.catalogVariantId : ""} onChange={e => { if (e.target.value) choose(focused.key, { decision: { catalogVariantId: e.target.value } }); }}><option value="">Choose explicitly (search to find more)</option>{variants.map(v => <option key={v.catalogVariantId} value={v.catalogVariantId}>{v.displayName} · Size {v.sizeLabel ?? "NA"} · Level {v.levelId ?? "NA"} · {v.status} · {v.catalogVariantId}</option>)}</select></label>
               <label className="block">Find another row’s new canonical group<input aria-label="Find shared canonical group" className={input} value={reuseSearch} onChange={e => setReuseSearch(e.target.value)} placeholder="Search source ID or name" /></label>
-              <label className="block">Reuse another row’s new canonical key<select aria-label="Reuse new canonical group" className={input} value="" onChange={e => { if (e.target.value) choose(focused.key, { decision: { newVariantKey: e.target.value } }); }}><option value="">Choose explicitly (up to 50 matching rows)</option>{built.selected.filter(r => r.key !== focused.key && choices[r.key]?.decision?.newVariantKey && (r.source.sourceId + " " + r.source.name).toLowerCase().includes(reuseSearch.toLowerCase())).slice(0, 50).map(r => <option key={r.key} value={choices[r.key].decision!.newVariantKey}>{r.source.name} · {r.prefix} · {choices[r.key].decision!.newVariantKey}</option>)}</select></label>
+              <label className="block">Same CircZles as another manufacturing run<select aria-label="Reuse new canonical group" className={input} value="" onChange={e => { if (e.target.value) choose(focused.key, { decision: { newVariantKey: e.target.value } }); }}><option value="">Choose a matching configuration (up to 50 rows)</option>{built.selected.filter(r => r.key !== focused.key && choices[r.key]?.decision?.newVariantKey && (r.source.sourceId + " " + r.source.name).toLowerCase().includes(reuseSearch.toLowerCase())).slice(0, 50).map(r => <option key={r.key} value={choices[r.key].decision!.newVariantKey}>{r.source.name} · {r.source.manufacturingCode} · {r.prefix}</option>)}</select></label>
             </article>}
           </>}
         </>}
         {step >= 4 && <>
-          <h3 className="font-bold">Import summary</h3><dl className="grid gap-2 sm:grid-cols-3">{Object.entries({ "Rows found": built.summary.found, "Rows selected": built.summary.selected, "Rows skipped": built.summary.skipped, "CircZles rows": built.summary.circzles, "Accessory rows": built.summary.accessories, "Manufactured units": built.summary.totalUnits, "New canonical variants planned": built.summary.newVariants, "Existing variants referenced": built.summary.existingVariants, "Shared new canonical groups": built.summary.sharedGroups, "Rows needing mapping": built.summary.needsMapping, "Rows with errors": built.summary.errorRows }).map(([label, value]) => <div key={label}><dt className="text-sm opacity-70">{label}</dt><dd className="font-bold">{value}</dd></div>)}</dl>
+          <h3 className="font-bold">Import summary</h3><dl className="grid gap-2 sm:grid-cols-3">{Object.entries({ "Source rows": built.summary.found, "Manufacturing batches": built.summary.selected, "Rows selected": built.summary.selected, "Rows skipped": built.summary.skipped, "CircZles rows": built.summary.circzles, "Accessories": built.summary.accessories, "Draft/incomplete CircZles": built.manifest.rows.filter(r => r.productType === "CIRCZLES" && r.level === "NA").length, "Unique playable CircZles": playableIdentities.size, "Needs review": built.selected.filter(r => !choices[r.key]?.decision || choices[r.key]?.needsReview).length, "Manufactured units": built.summary.totalUnits, "New canonical variants planned": built.summary.newVariants, "Existing variants referenced": built.summary.existingVariants, "Shared manufacturing groups": [...identityGroups.values()].filter(n => n > 1).length, "Rows needing mapping": built.summary.needsMapping, "Rows with errors": built.summary.errorRows }).map(([label, value]) => <div key={label}><dt className="text-sm opacity-70">{label}</dt><dd className="font-bold">{value}</dd></div>)}</dl>
           <p className="text-sm">Counts are based on selected source rows. The server identifies already imported rows and validates all configuration. New playable variants do not receive competition/reward configuration from this workflow.</p>
           {!!built.issues.length && <div role="alert">{built.issues.slice(0, 100).map((issue, i) => <p key={i}><button className="underline" onClick={() => issue.key < 0 ? go(2) : reviewRow(issue.key)}>{issue.sourceId}: {issue.message}</button></p>)}{built.issues.length > 100 && <p>Showing the first 100 issues; review rows to resolve the rest.</p>}</div>}
-          <div className="flex gap-3"><button className="cz-btn" disabled={!!built.issues.length || advanced !== null} onClick={() => void validate()}>Dry-run validation</button><button className="cz-btn cz-btn-primary" disabled={!ready} onClick={() => setConfirm(true)}>Apply validated import</button></div>
+          <div className="flex gap-3"><button className="cz-btn" disabled={identityBusy || !!built.issues.length || advanced !== null} onClick={() => void validate()}>Dry-run validation</button><button className="cz-btn cz-btn-primary" disabled={!ready} onClick={() => setConfirm(true)}>Apply validated import</button></div>
           {report && <div role="status"><p>{report.applied ? "Applied" : "Preview only — no database changes have been made"}: {report.rows} rows · {report.planned} planned · {report.skipped.length} already imported</p>{report.reconciliationCandidates?.slice(0, 100).map(candidate => <p key={candidate.name}>Possible repeat: {candidate.name} · {candidate.sourceIds.join(", ")}. Review required; no automatic merge.</p>)}{report.errors.slice(0, 100).map((e, i) => <p key={i} className="text-[var(--cz-danger)]"><button className="underline" onClick={() => { const row = rows.find(r => r.source.sourceId === e.sourceId); if (row) reviewRow(row.key); }}>{e.sourceId}: {e.message}</button></p>)}</div>}
         </>}
         <div className="flex flex-wrap gap-3">{step > (file.manifest ? 2 : 1) && <button className="cz-btn" onClick={() => go(step - 1)}>Back</button>}{step === 2 && <button className="cz-btn cz-btn-primary" disabled={!built.summary.selected} onClick={() => go(3)}>Reconcile canonical products</button>}{step === 3 && <button className="cz-btn cz-btn-primary" onClick={() => go(4)}>Review import summary</button>}</div>

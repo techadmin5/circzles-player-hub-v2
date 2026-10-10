@@ -37,4 +37,14 @@ describe("bounded catalog import transport", () => {
       expect(importRows).not.toHaveBeenCalled();
     } finally { await app.close(); }
   });
+  it.each(["/api/admin/catalog/designs", "/api/admin/catalog/design-aliases", "/api/admin/catalog/import/propose"])("requires catalog authorization for identity endpoint %s", async url => {
+    const app = Fastify(); await app.register(cookie);
+    const requirePermission = vi.fn().mockRejectedValue(Object.assign(new Error("Admin permission required"), { statusCode: 403 }));
+    const action = vi.fn();
+    registerCatalogRoutes(app, { env: { NODE_ENV: "test", FRONTEND_ORIGIN: "https://hub.example.test" } as Env, adminAuth: { requirePermission } as unknown as AdminAuthorizationService, catalog: { designs: action, confirmAlias: action, propose: action } as unknown as CatalogService });
+    try {
+      const result = await app.inject({ method: url.endsWith("/designs") ? "GET" : "POST", url, ...(url.endsWith("/designs") ? {} : { payload: {} }) });
+      expect(result.statusCode).toBe(403); expect(requirePermission).toHaveBeenCalledWith(undefined, "CATALOG_MANAGE"); expect(action).not.toHaveBeenCalled();
+    } finally { await app.close(); }
+  });
 });

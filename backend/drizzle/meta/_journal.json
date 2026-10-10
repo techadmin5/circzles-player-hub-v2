@@ -169,6 +169,13 @@
       "when": 1791524227678,
       "tag": "0023_circzles_catalog_manufacturing",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791615996648,
+      "tag": "0024_catalog_design_aliases",
+      "breakpoints": true
     }
   ]
 }

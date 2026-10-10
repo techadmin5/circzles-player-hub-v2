@@ -256,3 +256,12 @@ test("distant ignored rows beyond the old raw-row cutoff are retained for delibe
   const remapped = normalizeSheet(sheet, { ...detectColumns(sheet.headers), name: 9 });
   assert.equal(remapped.length, 2); assert.equal(remapped[1].rowNumber, 6000); assert.ok(remapped[1].errors.length);
 });
+
+for (const alias of ["Piece Count", "Pieces", "No of pieces", "No. of Pieces", "Number of Pieces"]) test(`verified pieces map from ${alias}`, () => {
+  const sheet = parseCsv(csv([values.map((v, i) => i === 8 ? "37" : v)]).replace("Website SKU", alias));
+  assert.equal(detectColumns(sheet.headers).pieceCount, 8); assert.equal(normalizeSheet(sheet, detectColumns(sheet.headers))[0].source.pieceCount, 37);
+});
+for (const alias of ["Canonical Design", "Design Family", "Design Key", "Canonical Name"]) test(`optional family column ${alias} preserves verified design hint`, () => {
+  const sheet = parseCsv(csv([values]).replace("Website SKU", alias));
+  assert.equal(detectColumns(sheet.headers).canonicalDesign, 8); assert.equal(normalizeSheet(sheet, detectColumns(sheet.headers))[0].source.canonicalDesign, values[8]);
+});

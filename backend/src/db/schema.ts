@@ -217,6 +217,13 @@ export const puzzleDesigns = pgTable("puzzle_designs", {
   statusIndex: index("puzzle_designs_status_idx").on(table.status),
 }));
 
+export const puzzleDesignAliases = pgTable("puzzle_design_aliases", {
+  normalizedAlias: text("normalized_alias").primaryKey(),
+  displayAlias: text("display_alias").notNull(),
+  puzzleDesignId: uuid("puzzle_design_id").notNull().references(() => puzzleDesigns.puzzleDesignId, { onDelete: "restrict" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("puzzle_design_aliases_design_idx").on(t.puzzleDesignId), check("design_alias_not_empty", sql`length(${t.normalizedAlias}) BETWEEN 1 AND 200`)]);
+
 export const puzzles = pgTable("puzzles", {
   puzzleId: uuid("puzzle_id").primaryKey().defaultRandom(),
   puzzleDesignId: uuid("puzzle_design_id").notNull().references(() => puzzleDesigns.puzzleDesignId, { onDelete: "restrict" }),

@@ -69,6 +69,7 @@ export function normalizeSheet(sheet: Sheet, map: ColumnMap): PreviewRow[] {
       }
     }
     const source: SourceRow = { sourceId: values.numberIdentifier + "-" + values.manufacturingCode, name: values.name, size: values.size, brand: values.brand, numberIdentifier: values.numberIdentifier, manufacturingCode: values.manufacturingCode, level: values.level, units: values.units, firstFullSku: values.firstFullSku, productType: parts[0] === "CZ" ? "ACCESSORY" : "CIRCZLES", ...(values.pieceCount ? { pieceCount: Number(values.pieceCount) } : {}) };
+    if (values.canonicalDesign.trim()) source.canonicalDesign = values.canonicalDesign.trim();
     return [inspect(source, key, sheet.rowNumbers[key], warnings, errors)];
   });
 }
@@ -76,7 +77,10 @@ export function manifestRows(manifest: Manifest): PreviewRow[] {
   return manifest.rows.map((source, key) => inspect({ ...source }, key, key + 1, []));
 }
 export function initialChoices(rows: PreviewRow[], manifest?: Manifest): Choices {
-  return Object.fromEntries(rows.map(row => [row.key, { selected: true, ...(manifest && Object.hasOwn(manifest.mappings, row.source.sourceId) ? { decision: manifest.mappings[row.source.sourceId] } : {}) }]));
+  return Object.fromEntries(rows.map(row => {
+    const decision = manifest && Object.hasOwn(manifest.mappings, row.source.sourceId) ? manifest.mappings[row.source.sourceId] : undefined;
+    return [row.key, { selected: true, identityState: decision ? decision.catalogVariantId ? "EXISTING-CANONICAL" : "AUTO-SEPARATE" : "NEEDS-REVIEW", identityReason: decision ? "Reviewed manifest identity." : row.errors.length ? "Resolve row validation before product identity." : "Checking verified design, size, level and pieces.", ...(decision ? { decision } : {}) }];
+  }));
 }
 export function separateGroupKey(key: number, choices: Choices): string {
   const used = new Set(Object.entries(choices).filter(([id]) => Number(id) !== key).flatMap(([, choice]) => choice.decision?.newVariantKey ? [choice.decision.newVariantKey] : []));
@@ -92,7 +96,7 @@ export function createSeparateDecisions(rows: PreviewRow[], choices: Choices): C
     const base = "import-group-" + String(row.key + 1).padStart(4, "0");
     let candidate = base, suffix = 1;
     while (used.has(candidate)) candidate = base + "-" + suffix++;
-    used.add(candidate); next[row.key] = { ...next[row.key], decision: { newVariantKey: candidate } };
+    used.add(candidate); next[row.key] = { ...next[row.key], needsReview: false, identityState: "AUTO-SEPARATE", identityReason: "Operator explicitly chose a separate product identity override.", decision: { newVariantKey: candidate } };
   }
   return next;
 }
@@ -117,6 +121,7 @@ export function buildManifest(datasetId: string, rows: PreviewRow[], choices: Ch
       map.set(value, row.key);
     }
     const decision = choice.decision;
+    if (choice.needsReview) issues.push({ key: row.key, sourceId: source.sourceId, message: "NEEDS-REVIEW: " + (choice.identityReason ?? "Confirm product identity before applying.") });
     if (!decision || Boolean(decision.catalogVariantId) === Boolean(decision.newVariantKey)) { needsMapping++; issues.push({ key: row.key, sourceId: source.sourceId, message: "Explicit canonical mapping required; names are never merged automatically." }); }
     else {
       if (decision.catalogVariantId) {
