@@ -154,6 +154,15 @@ async function createBatch(tx: Tx, variantId: string, input: BatchInput, source?
   return created;
 }
 
+// Null is incomplete, never numeric zero. Size follows the existing canonical
+// identity normalization; piece counts are validated integers and compare exactly.
+function sameLevel(a: string | number | null, b: string | number | null) {
+  return a === null || b === null ? a === b : Number(a) === Number(b);
+}
+function sameSize(a: string | null, b: string | null) {
+  return a === null || b === null ? a === b : normalizeSize(a) === normalizeSize(b);
+}
+
 export class CatalogService {
   constructor(private db: Database) {}
   async designs() { return (await identityContext(this.db)); }
@@ -201,6 +210,22 @@ export class CatalogService {
     return this.db.transaction(async tx => {
       await managementLock(tx);
       const current = await getVariant(tx, id);
+      // The editor posts the full form. Remove semantic no-ops before deciding
+      // whether timing also needs a metadata/identity update (numeric is text in pg).
+      for (const [key, value] of Object.entries(patch)) {
+        let unchanged: boolean;
+        if (key === "designName") {
+          const [design] = await tx.select({ name: puzzleDesigns.name }).from(puzzleDesigns).where(eq(puzzleDesigns.puzzleDesignId, current.puzzleDesignId));
+          unchanged = value === design?.name;
+        } else if (key === "levelId") unchanged = sameLevel(value as number | null, current.levelId);
+        else if (key === "sizeLabel") unchanged = sameSize(value as string | null, current.sizeLabel);
+        else if (key === "image" || key === "description") unchanged = (value ?? "") === (current[key] ?? "");
+        else if (key === "marketingMetadata") {
+          const metadata = value as Record<string, string>;
+          unchanged = Object.keys(metadata).length === Object.keys(current.marketingMetadata).length && Object.entries(metadata).every(([name, entry]) => current.marketingMetadata[name] === entry);
+        } else unchanged = value === current[key as keyof typeof current];
+        if (unchanged) delete patch[key as keyof typeof patch];
+      }
       if (maxLeaderboardTimeMs !== undefined) {
         if (current.productType !== "CIRCZLES" || !current.puzzleId) throw validationFailed("Leaderboard timing becomes available when this is a playable CircZles.");
         // Timing-only rows carry no category/order; existing competition behavior is untouched.
@@ -211,7 +236,7 @@ export class CatalogService {
       const next = { ...current, ...patch, levelId: patch.levelId === undefined ? current.levelId : patch.levelId === null ? null : String(patch.levelId) };
       if (next.status !== "ARCHIVED" && await completeDuplicate(tx, current.puzzleDesignId, next, id)) throw conflict("This playable CircZles already exists. Add a Manufacturing Batch instead.");
       if (next.productType === "CIRCZLES" && next.status === "ACTIVE" && next.levelId === null) throw validationFailed("Active CircZles require a positive level.");
-      const gameplayChanged = next.levelId !== current.levelId || next.sizeLabel !== current.sizeLabel || next.pieceCount !== current.pieceCount;
+      const gameplayChanged = !sameLevel(next.levelId, current.levelId) || !sameSize(next.sizeLabel, current.sizeLabel) || next.pieceCount !== current.pieceCount;
       // Filling an incomplete draft is safe; an existing playable identity is not reconfigured.
       if (gameplayChanged && children.length && current.puzzleId) throw conflict("Create a separate variant for gameplay changes once manufacturing exists.");
       let puzzleId = current.puzzleId;

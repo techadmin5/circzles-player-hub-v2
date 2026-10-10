@@ -20,3 +20,11 @@ The migration has been exercised only in isolated test databases. Production mig
 - Frontend: `npm test`: 197 tests passed; lint, `tsc --noEmit` and production build passed (45 pages generated).
 - `git diff --check` passed.
 - Coverage includes ACTIVE/default filters, Edit/name navigation, null/render/save/clear/reload, exact time conversion and invalid input, shared batches, independent puzzle timing, archive access, accessory/incomplete-draft rejection, existing settings/identity preservation, database constraints, rollback, management locking/concurrent saves, and unchanged server authorization protections. Full importer/auth/player/submission/leaderboard regressions passed.
+
+## Existing-variant save correction
+
+PostgreSQL numeric levels are returned as strings such as `1.0`, while the details form sends numeric `1`. Direct string comparison incorrectly rejected full-form timing saves on manufactured variants. Regression tests reproduced that conflict for levels 1, 2 and 13, and unnecessary metadata rewrites for fractional levels 0.5 and 3.5.
+
+Catalog updates now compare levels numerically with explicit null handling. Sizes use the existing canonical size normalization; piece counts remain exact validated integer comparisons. The backend removes unchanged submitted fields, including null-versus-blank optional image/description inputs, equal metadata objects regardless of key order, and an unchanged design name. If timing is the only effective change, only competition timing is upserted under the existing transaction/advisory lock; catalog, puzzle, design, manufacturing, prefix and range records (including timestamps) are untouched. Genuine gameplay changes with manufacturing still fail and roll timing back atomically. Frontend behavior and leaderboard enforcement are unchanged. No new migration is needed.
+
+Hotfix validation: backend 900 tests across 46 files passed; frontend 197 tests passed. Backend/frontend lint, typecheck, builds and `git diff --check` passed. The six new regression cases cover stored levels 1.0/2.0/13.0/0.5/3.5 and full-form shared-run saves, exact record preservation, existing competition configuration, and rollback for real level/size/piece-count changes. The existing exact Lion R2/R3 test also verifies a full-form timing save. No production operation or migration was performed.

@@ -88,6 +88,8 @@ describe("manufactured CircZles claims", () => {
     const events = await db.select().from(s.gameEvents).where(eq(s.gameEvents.playerId, two.id));
     expect(events[0].payload).toMatchObject({ manufacturingBatchId: r3.manufacturingBatchId });
     expect(r2.puzzleClaimPrefixId).not.toBe(r3.puzzleClaimPrefixId);
+    await catalog.update(lion.catalogVariantId, { displayName: detail.displayName, brand: detail.brand, sizeLabel: detail.sizeLabel, levelId: 1, pieceCount: detail.pieceCount, status: detail.status, image: detail.image ?? "", description: detail.description ?? "", marketingMetadata: detail.marketingMetadata, maxLeaderboardTimeMs: 300000 });
+    expect(await catalog.detail(lion.catalogVariantId)).toEqual({ ...detail, maxLeaderboardTimeMs: 300000 });
   });
   it("enforces boundaries and added disjoint ranges, without materializing physical units", async () => {
     const v = await variant(), b = await catalog.addBatch(v.catalogVariantId, batch());
@@ -518,5 +520,48 @@ describe("catalog leaderboard timing storage", () => {
     await Promise.all([catalog.update(v.catalogVariantId, { maxLeaderboardTimeMs: 150000 }), catalog.update(v.catalogVariantId, { maxLeaderboardTimeMs: 300000 })]);
     expect([150000, 300000]).toContain((await catalog.detail(v.catalogVariantId)).maxLeaderboardTimeMs);
     expect(await db.select().from(s.puzzleCompetitionSettings).where(eq(s.puzzleCompetitionSettings.puzzleId, v.puzzleId!))).toHaveLength(1);
+  });
+});
+
+
+describe("timing saves with unchanged full-form metadata", () => {
+  it("preserves exact shared Lion manufacturing and configured competition rows on full-form timing save", async () => {
+    const v = await variant({ displayName: "Lion timing " + crypto.randomUUID(), pieceCount: 37 });
+    for (const [identifier, run, units] of [["9829", "R2", "48"], ["9861", "R3", "500"]]) await catalog.addBatch(v.catalogVariantId, batch({ numberIdentifier: identifier, manufacturingCode: run, skuPrefix: `CC-${identifier}-${run}-01`, firstFullSku: `CC-${identifier}-${run}-01-0001`, unitsManufactured: units, serialEnd: units }));
+    const [config] = await db.insert(s.puzzleCompetitionSettings).values({ puzzleId: v.puzzleId!, category: "MAIN_LEVEL", displayOrder: 8, leaderboardEnabled: true, rewardEnabled: true, synapseReward: 75, xpReward: 125 }).returning();
+    const before = await catalog.detail(v.catalogVariantId);
+    const tables = ["manufacturing_batches", "manufacturing_batch_ranges", "puzzle_claim_prefixes", "puzzles", "puzzle_designs", "catalog_variants"];
+    const snapshot = () => Promise.all(tables.map(table => pg.query("SELECT * FROM " + table + " ORDER BY 1").then(result => result.rows)));
+    const unchanged = await snapshot();
+    const [design] = await db.select().from(s.puzzleDesigns).where(eq(s.puzzleDesigns.puzzleDesignId, v.puzzleDesignId));
+    await catalog.update(v.catalogVariantId, { displayName: before.displayName, designName: design.name, brand: before.brand, sizeLabel: "12.0", levelId: 1, pieceCount: 37, status: "ACTIVE", image: before.image ?? "", description: before.description ?? "", marketingMetadata: before.marketingMetadata, maxLeaderboardTimeMs: 300000 });
+    expect(await snapshot()).toEqual(unchanged);
+    expect((await catalog.detail(v.catalogVariantId)).batches.map(b => b.puzzleId)).toEqual([v.puzzleId, v.puzzleId]);
+    expect((await db.select().from(s.puzzleCompetitionSettings).where(eq(s.puzzleCompetitionSettings.puzzleId, v.puzzleId!)))[0]).toEqual({ ...config, maxLeaderboardTimeMs: 300000 });
+    for (const change of [{ levelId: 2 }, { pieceCount: 38 }, { sizeLabel: "16" }]) {
+      await expect(catalog.update(v.catalogVariantId, { ...change, maxLeaderboardTimeMs: 45000 })).rejects.toMatchObject({ code: "CATALOG_CONFLICT" });
+      expect((await catalog.detail(v.catalogVariantId)).maxLeaderboardTimeMs).toBe(300000);
+      expect(await snapshot()).toEqual(unchanged);
+    }
+    await catalog.update(v.catalogVariantId, { maxLeaderboardTimeMs: 150000 });
+    expect(await snapshot()).toEqual(unchanged);
+    expect((await catalog.detail(v.catalogVariantId)).maxLeaderboardTimeMs).toBe(150000);
+  });
+  it.each([1, 2, 13, 0.5, 3.5])("treats stored numeric level formatting as unchanged for level %s", async levelId => {
+    const v = await variant({ displayName: "Timing regression " + crypto.randomUUID(), levelId, pieceCount: 37 });
+    const id = String(number++);
+    await catalog.addBatch(v.catalogVariantId, batch({ numberIdentifier: id, skuPrefix: `CC-${id}-R2-${levelId}`, manufacturingCode: "R2" }));
+    const before = await catalog.detail(v.catalogVariantId);
+    expect(before.levelId).toBe(levelId.toFixed(1));
+    const identityBefore = await db.select().from(s.puzzles).where(eq(s.puzzles.puzzleId, v.puzzleId!));
+    const saved = await catalog.update(v.catalogVariantId, {
+      displayName: before.displayName, brand: before.brand, sizeLabel: before.sizeLabel,
+      levelId, pieceCount: before.pieceCount, image: before.image ?? "", description: before.description ?? "",
+      marketingMetadata: before.marketingMetadata, status: before.status, maxLeaderboardTimeMs: 300000,
+    });
+    expect(saved.maxLeaderboardTimeMs).toBe(300000);
+    expect(await catalog.detail(v.catalogVariantId)).toEqual({ ...before, maxLeaderboardTimeMs: 300000 });
+    expect(await db.select().from(s.puzzles).where(eq(s.puzzles.puzzleId, v.puzzleId!))).toEqual(identityBefore);
+    expect((await catalog.list({ search: before.displayName }))[0].maxLeaderboardTimeMs).toBe(300000);
   });
 });
