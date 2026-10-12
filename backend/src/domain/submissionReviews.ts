@@ -92,7 +92,7 @@ export class DrizzleSubmissionReviewRepository implements SubmissionReviewReposi
         if (!video || video.playerId !== submission.playerId || !puzzle || puzzle.status !== "ACTIVE" || puzzle.deletedAt) throw validationFailed("Submission media or CircZles is no longer available.");
         assertSubmissionEligibility(puzzle.name, policy?.maxLeaderboardTimeMs, submission.completionTimeMs, video);
         if (!this.storage) throw new AppError("VIDEO_STORAGE_NOT_CONFIGURED", "Video verification is unavailable.", 503);
-        const verified = await this.storage.verifyUpload(video.publicId);
+        const verified = await this.storage.verifyUpload(video.publicId, { uploadId: video.videoUploadId, stage: "approval" });
         if (verified.publicId !== video.publicId || verified.bytes !== video.verifiedSizeBytes || verified.durationMs !== video.durationMs) throw validationFailed("The video changed or could not be verified.");
         timingProof = { maxLeaderboardTimeMs: policy!.maxLeaderboardTimeMs!, verifiedVideoDurationMs: video.durationMs! };
       }

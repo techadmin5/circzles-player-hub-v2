@@ -34,7 +34,7 @@ async function setup(t) {
   t.after(async () => { await act(async () => root.unmount()); dom.window.close(); for (const [key, desc] of saved) { if (desc) Object.defineProperty(globalThis, key, desc); else delete globalThis[key]; } for (const [key, desc] of urls) { if (desc) Object.defineProperty(URL, key, desc); else delete URL[key]; } if (xhrDescriptor) Object.defineProperty(globalThis, "XMLHttpRequest", xhrDescriptor); else delete globalThis.XMLHttpRequest; });
   return { root, transfers, setDuration: value => { duration = value; } };
 }
-async function click(text) { const button = [...document.querySelectorAll("button")].find(b => b.textContent.endsWith(text)); assert.ok(button, text); await act(async () => button.click()); }
+async function click(text) { const button = [...document.querySelectorAll("button")].find(b => (b.textContent.endsWith(text) || b.querySelector(".cz-display")?.textContent === text)); assert.ok(button, text); await act(async () => button.click()); }
 async function change(node, value) { await act(async () => { node.value = value; node[Object.keys(node).find(key => key.startsWith("__reactProps"))].onChange({ target: node }); }); }
 async function selectFile(file) { const input = document.querySelector('input[type="file"]'); await act(async () => { Object.defineProperty(input, "files", { configurable: true, value: [file] }); input.dispatchEvent(new window.Event("change", { bubbles: true })); await new Promise(setImmediate); }); }
 async function prepareVideo() { await click("Enter Time"); await change(document.querySelector('[aria-label="Completion time"]'), "05:00"); await click("Select Video"); await selectFile(new window.File(["recording"], "lion.mp4", { type: "video/mp4" })); }
@@ -60,7 +60,7 @@ test("direct protected upload retries finalization without transfer, preserves s
   await click("Upload"); await click("Continue"); assert.match(document.querySelector('[role="alert"]').textContent, /Verification/); assert.equal(document.querySelector('[role="dialog"]'), null);
   assert.equal(transfers.length, 1); assert.equal(transfers[0].form.get("type"), "authenticated"); assert.equal(transfers[0].headers["Content-Range"], "bytes 0-8/9");
   await click("Continue"); assert.equal(transfers.length, 1); assert.equal(finalize, 2); assert.equal(document.querySelector('[role="dialog"]'), null);
-  await click("Submit"); await click("Submit Attempt"); assert.equal(document.querySelector('[role="dialog"]'), null); assert.match(document.querySelector('[role="alert"]').textContent, /lost response/);
+  await click("Continue"); await click("Submit Attempt"); assert.equal(document.querySelector('[role="dialog"]'), null); assert.match(document.querySelector('[role="alert"]').textContent, /lost response/);
   await click("Submit Attempt"); assert.equal(keys[0], keys[1]); assert.match(document.querySelector('[role="dialog"]').textContent, /Submission Received!/); assert.match(document.body.textContent, /aims to review it within 24 hours/); assert.match(document.body.textContent, /Back to My CircZles/);
 });
 test("over-limit recording and missing timing are blocked before transfer", async t => {
@@ -103,7 +103,40 @@ test("100 MB uses direct chunks with progress and expiration prevents transfer",
 test("selecting invalid video surfaces preflight error without requesting upload authorization", async t => {
   const { root } = await setup(t); let calls = 0;
   t.mock.method(globalThis, "fetch", async () => { calls++; return Response.json([]); });
-  await act(async () => root.render(createElement(SubmissionStepper, { puzzles: [puzzle] }))); await click("Select Video");
+  await act(async () => root.render(createElement(SubmissionStepper, { puzzles: [puzzle] }))); await click("Enter Time"); await change(document.querySelector('[aria-label="Completion time"]'), "00:20"); await click("Select Video");
   await selectFile(new window.File(["not video"], "pretend.mp4", { type: "text/plain" }));
   assert.match(document.querySelector('[role="alert"]').textContent, /Filename extensions/); assert.equal(calls, 0);
+});
+
+
+test("compact mobile time entry normalizes MM:SS and keeps partial/invalid editing locked", async t => {
+  const { root } = await setup(t);
+  const { normalizeCompletionInput } = await import("./SubmissionStepper.tsx");
+  assert.equal(normalizeCompletionInput("04"), "04:"); assert.equal(normalizeCompletionInput("0459"), "04:59"); assert.equal(normalizeCompletionInput("04", true), "04"); assert.equal(parseCompletionTime("0459"), null);
+  await act(async () => root.render(createElement(SubmissionStepper, { puzzles: [puzzle] }))); await click("Enter Time");
+  const input = document.querySelector('[aria-label="Completion time"]');
+  await change(input, "0459"); assert.equal(input.value, "04:59");
+  await change(input, "04:60"); await click("Continue"); assert.match(document.querySelector('[role="alert"]').textContent, /valid/); assert.equal(document.querySelector('[data-testid="step-video"]').disabled, true);
+  await change(input, "04:5"); await click("Continue"); assert.equal(document.querySelector('[data-testid="step-video"]').disabled, true);
+  await change(input, ""); assert.equal(input.value, ""); await change(input, "00:20.063"); assert.equal(parseCompletionTime(input.value), 20063);
+});
+test("100 percent transfer with failed verification locks Review/Submit; verified retry unlocks Review", async t => {
+  const { root, transfers } = await setup(t); let calls = 0;
+  t.mock.method(globalThis, "fetch", async url => new URL(url).pathname.endsWith("signed-url") ? Response.json({ videoUploadId: "video", uploadUrl: "https://api.cloudinary.com/v1_1/test/video/upload", expiresAt: new Date(Date.now() + 600000).toISOString(), fields: { apiKey: "key", publicId: "bound", timestamp: 1, signature: "signature" } }) : (++calls === 1 ? Response.json({ message: "Processing still pending" }, { status: 503 }) : Response.json({ status: "COMPLETE", durationMs: 300000 })));
+  await act(async () => root.render(createElement(SubmissionStepper, { puzzles: [puzzle] }))); await prepareVideo(); await click("Upload"); await click("Continue");
+  assert.equal(transfers.length, 1); assert.equal(document.querySelector('[data-testid="step-review"]').disabled, true); assert.equal(document.querySelector('[data-testid="step-submit"]').disabled, true); assert.equal(document.querySelector('[data-testid="step-upload"]').dataset.state, "failed"); assert.doesNotMatch(document.body.textContent, /Ready to submit/);
+  await click("Review"); assert.equal(document.querySelector('[data-testid="submit-attempt-final"]'), null);
+  await click("Continue"); assert.equal(transfers.length, 1); assert.equal(document.querySelector('[data-testid="step-review"]').disabled, false); assert.equal(document.querySelector('[data-testid="step-submit"]').disabled, true);
+});
+test("new recording and selected CircZles invalidate verified downstream state", async t => {
+  const { root } = await setup(t);
+  t.mock.method(globalThis, "fetch", async url => new URL(url).pathname.endsWith("signed-url") ? Response.json({ videoUploadId: "video", uploadUrl: "https://api.cloudinary.com/v1_1/test/video/upload", expiresAt: new Date(Date.now() + 600000).toISOString(), fields: { apiKey: "key", publicId: "bound", timestamp: 1, signature: "signature" } }) : Response.json({ status: "COMPLETE", durationMs: 300000 }));
+  await act(async () => root.render(createElement(SubmissionStepper, { puzzles: [puzzle, { ...puzzle, id: "wolf", playerPuzzleId: "owned-wolf", name: "Wolf" }] }))); await prepareVideo(); await click("Upload"); await click("Continue"); assert.equal(document.querySelector('[data-testid="step-review"]').disabled, false);
+  await click("Select Video"); await selectFile(new window.File(["new"], "new.mp4", { type: "video/mp4" })); assert.equal(document.querySelector('[data-testid="step-review"]').disabled, true);
+  await click("Select CircZles"); await act(async () => [...document.querySelectorAll("button")].find(b => b.textContent.includes("Wolf")).click());
+  assert.equal(document.querySelector('[data-testid="step-video"]').disabled, true); assert.equal(document.querySelector('[data-testid="step-upload"]').disabled, true); await click("Enter Time"); assert.equal(document.querySelector('[aria-label="Completion time"]').value, "");
+});
+test("a 20 second recording cannot substantiate a 04:59 time before transfer", async t => {
+  const { root, setDuration, transfers } = await setup(t); setDuration(20.063);
+  await act(async () => root.render(createElement(SubmissionStepper, { puzzles: [puzzle] }))); await prepareVideo(); await click("Continue"); assert.match(document.querySelector('[role="alert"]').textContent, /cannot exceed/); assert.equal(transfers.length, 0);
 });

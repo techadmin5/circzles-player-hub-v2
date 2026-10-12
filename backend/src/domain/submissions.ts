@@ -69,25 +69,25 @@ export class SubmissionService {
     return { videoUploadId: record.videoUploadId, expiresAt: expiresAt.toISOString(), ...signed };
   }
 
-  async completeVideoUpload(playerId: string, videoUploadId: string) {
+  async completeVideoUpload(playerId: string, videoUploadId: string, requestId?: string) {
     if (!this.storage.configured) throw new AppError("VIDEO_STORAGE_NOT_CONFIGURED", "Video storage is not configured.", 503);
     const upload = await this.repo.getVideoUpload(videoUploadId);
     if (!upload || upload.playerId !== playerId) throw new AppError("VIDEO_UPLOAD_NOT_FOUND", "Video upload was not found.", 404);
     if (upload.status === "COMPLETE") return { videoUploadId, status: "COMPLETE" as const, sizeBytes: upload.verifiedSizeBytes, durationMs: upload.durationMs };
     if (upload.status === "SIGNED" && upload.expiresAt <= new Date()) {
       await this.repo.expireVideoUpload(videoUploadId);
-      throw new AppError("VIDEO_UPLOAD_NOT_FINALIZABLE", "Video upload cannot be finalized.", 409);
+      throw new AppError("VIDEO_UPLOAD_NOT_FINALIZABLE", "Upload expired. Select the recording again to start a new upload.", 409);
     }
     if (upload.status !== "SIGNED") throw new AppError("VIDEO_UPLOAD_NOT_FINALIZABLE", "Video upload cannot be finalized.", 409);
     try {
-      const asset = await this.storage.verifyUpload(upload.publicId);
+      const asset = await this.storage.verifyUpload(upload.publicId, { uploadId: videoUploadId, requestId, stage: "finalization" });
       if (asset.publicId !== upload.publicId || asset.resourceType !== "video" || !Number.isSafeInteger(asset.durationMs) || !asset.durationMs || asset.durationMs <= 0 || asset.durationMs > MAX_COMPLETION_TIME_MS) throw new AppError("VIDEO_UPLOAD_METADATA_INVALID", "The video duration could not be verified.", 422);
       if (!Number.isSafeInteger(asset.bytes) || asset.bytes <= 0 || asset.bytes > MAX_VIDEO_SIZE_BYTES) throw new AppError("VIDEO_UPLOAD_SIZE_INVALID", "Verified video size must be between 1 byte and 100 MB (100,000,000 bytes).", 422);
       await this.repo.completeVideoUpload(videoUploadId, asset);
       return { videoUploadId, status: "COMPLETE" as const, sizeBytes: asset.bytes, durationMs: asset.durationMs };
     } catch (error) {
       // Keep SIGNED for retryable provider/processing/database failures; expiration still applies.
-      if (error instanceof AppError && ["VIDEO_UPLOAD_SIZE_INVALID", "VIDEO_UPLOAD_METADATA_INVALID"].includes(error.code)) await this.repo.failVideoUpload(videoUploadId, "VERIFICATION_FAILED");
+      if (error instanceof AppError && ["VIDEO_UPLOAD_SIZE_INVALID", "VIDEO_UPLOAD_METADATA_INVALID", "VIDEO_MEDIA_UNSUPPORTED", "VIDEO_CODEC_UNSUPPORTED"].includes(error.code)) await this.repo.failVideoUpload(videoUploadId, error.code);
       throw error;
     }
   }
@@ -167,7 +167,7 @@ export class DrizzleSubmissionRepository implements SubmissionRepository {
         const [setting] = await tx.select().from(puzzleCompetitionSettings).where(eq(puzzleCompetitionSettings.puzzleId, owned.puzzle.puzzleId));
         assertSubmissionEligibility(owned.puzzle.name, setting?.maxLeaderboardTimeMs, input.completionTimeMs, upload);
         if (!this.storage) throw new AppError("VIDEO_STORAGE_NOT_CONFIGURED", "Video verification is unavailable.", 503);
-        const asset = await this.storage.verifyUpload(upload.publicId);
+        const asset = await this.storage.verifyUpload(upload.publicId, { uploadId: upload.videoUploadId, stage: "submission" });
         if (asset.publicId !== upload.publicId || asset.bytes !== upload.verifiedSizeBytes || asset.durationMs !== upload.durationMs) throw new AppError("VIDEO_UPLOAD_METADATA_INVALID", "Video metadata changed; upload a new recording.", 422);
         const [created] = await tx.insert(submissions).values({ playerId: input.playerId, playerPuzzleId: owned.playerPuzzle.playerPuzzleId, puzzleId: owned.puzzle.puzzleId, levelId: owned.puzzle.levelId, completionTimeMs: input.completionTimeMs, videoUploadId: input.videoUploadId, idempotencyKey: input.idempotencyKey, status: "PENDING_REVIEW" }).returning();
         await insertGameEventInTransaction(tx, {

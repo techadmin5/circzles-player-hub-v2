@@ -102,6 +102,17 @@ describe("verified competitive submission workflow", () => {
     expect((await f.repo.getVideoUpload(input.videoUploadId))?.status).toBe("COMPLETE");
     expect((await cleanupAbandonedVideos(db, f.storage)).candidates).toBe(0);
   });
+  it("blocks reported solving time longer than verified evidence at creation and approval", async () => {
+    const f = await fixture(), input = await f.input(20000);
+    f.storage.duration = 20063;
+    await db.update(s.videoUploads).set({ durationMs: 20063 }).where(eq(s.videoUploads.videoUploadId, input.videoUploadId));
+    await expect(f.service.createSubmission(f.player.playerId, { ...input, completionTimeMs: 299000 }, "inconsistent")).rejects.toMatchObject({ code: "COMPLETION_EXCEEDS_RECORDING" });
+    const created = await f.service.createSubmission(f.player.playerId, input, "valid");
+    await db.update(s.submissions).set({ completionTimeMs: 299000 }).where(eq(s.submissions.submissionId, created.id));
+    await expect(f.review(created.id)).rejects.toMatchObject({ code: "COMPLETION_EXCEEDS_RECORDING" });
+    expect(await db.select().from(s.submissionRewardGrants).where(eq(s.submissionRewardGrants.puzzleId, f.puzzle.puzzleId))).toHaveLength(0);
+    expect(await db.select().from(s.leaderboardEntries).where(eq(s.leaderboardEntries.puzzleId, f.puzzle.puzzleId))).toHaveLength(0);
+  });
   it("never invents rewards when disabled", async () => { const f = await fixture(300000, false), created = await f.service.createSubmission(f.player.playerId, await f.input(), "disabled"); expect((await f.review(created.id)).rewardGrant).toMatchObject({ rewardEnabledSnapshot: false, xpReward: 0, synapseReward: 0 }); });
   it("retries database finalization without poisoning an uploaded asset and rejects expired/oversized signing", async () => {
     const f = await fixture();
@@ -124,11 +135,38 @@ describe("Cloudinary metadata and protected transport", () => {
     const storage = new CloudinaryVideoStorage({ cloudName: "test", apiKey: "test", apiSecret: "test-secret" });
     expect((await storage.signUpload("owned")).fields).toMatchObject({ type: "authenticated", overwrite: "false", allowedFormats: "mp4,mov,webm,m4v" });
     const spy = vi.spyOn(cloudinary.api, "resource").mockResolvedValue({ ...asset, duration: 300.000001 });
-    try { expect((await storage.verifyUpload("owned")).durationMs).toBe(300001); expect(spy).toHaveBeenCalledWith("owned", { resource_type: "video", type: "authenticated" }); } finally { spy.mockRestore(); }
+    try { expect((await storage.verifyUpload("owned")).durationMs).toBe(300001); expect(spy).toHaveBeenCalledWith("owned", { resource_type: "video", type: "authenticated", media_metadata: true, timeout: 10000 }); } finally { spy.mockRestore(); }
   });
   it.each([{ duration: undefined }, { duration: 0 }, { video: undefined }, { format: "mp3" }, { public_id: "forged" }, { type: "upload" }, { bytes: NaN }])("fails safely on missing/broken/audio/public/forged media %j", async patch => {
     const storage = new CloudinaryVideoStorage({ cloudName: "test", apiKey: "test", apiSecret: "test-secret" });
     const spy = vi.spyOn(cloudinary.api, "resource").mockResolvedValue({ ...asset, ...patch });
-    try { await expect(storage.verifyUpload("owned")).rejects.toMatchObject({ code: "VIDEO_UPLOAD_VERIFICATION_FAILED" }); } finally { spy.mockRestore(); }
+    try { await expect(storage.verifyUpload("owned")).rejects.toBeInstanceOf(Error); } finally { spy.mockRestore(); }
+  });
+});
+
+
+describe("production-shaped verification", () => {
+  const asset = { public_id: "owned", resource_type: "video", type: "authenticated", bytes: 4095836, format: "mp4", duration: 20.062367, codec: "h264", width: 1920, height: 1080 };
+  it("accepts top-level codec from the actual authenticated Admin API response and logs no asset URL or credentials", async () => {
+    const entries: Record<string, unknown>[] = [];
+    const storage = new CloudinaryVideoStorage({ cloudName: "test", apiKey: "secret-key", apiSecret: "secret-secret", diagnostic: entry => entries.push(entry) });
+    const spy = vi.spyOn(cloudinary.api, "resource").mockResolvedValue({ ...asset, secure_url: "https://secret-video.invalid" });
+    try { expect(await storage.verifyUpload("owned", { uploadId: "upload", requestId: "request", stage: "finalization" })).toMatchObject({ durationMs: 20063, bytes: 4095836 }); }
+    finally { spy.mockRestore(); }
+    expect(entries[0]).toMatchObject({ uploadId: "upload", requestId: "request", codecLocation: "top_level" });
+    expect(JSON.stringify(entries)).not.toMatch(/secret|secure_url|public_id/);
+  });
+  it("retries genuine processing responses with a bounded budget and does not retry authorization errors", async () => {
+    const storage = new CloudinaryVideoStorage({ cloudName: "test", apiKey: "test", apiSecret: "test", retryDelaysMs: [0, 0], diagnostic: () => {} });
+    const spy = vi.spyOn(cloudinary.api, "resource").mockRejectedValueOnce({ error: { http_code: 423 } }).mockResolvedValueOnce(asset);
+    try { expect((await storage.verifyUpload("owned")).durationMs).toBe(20063); expect(spy).toHaveBeenCalledTimes(2);
+      spy.mockReset().mockRejectedValue({ error: { http_code: 423 } }); await expect(storage.verifyUpload("owned")).rejects.toMatchObject({ code: "VIDEO_PROCESSING_PENDING" }); expect(spy).toHaveBeenCalledTimes(3);
+      spy.mockReset().mockRejectedValue({ error: { http_code: 401 } }); await expect(storage.verifyUpload("owned")).rejects.toMatchObject({ code: "VIDEO_VERIFICATION_UNAVAILABLE" }); expect(spy).toHaveBeenCalledTimes(1);
+    } finally { spy.mockRestore(); }
+  });
+  it.each([[{ codec: undefined }, "VIDEO_UPLOAD_METADATA_INVALID"], [{ codec: "unknown-codec" }, "VIDEO_CODEC_UNSUPPORTED"], [{ format: "mp3" }, "VIDEO_MEDIA_UNSUPPORTED"], [{ bytes: 100000001 }, "VIDEO_UPLOAD_SIZE_INVALID"]])("rejects invalid provider evidence with a distinct safe code", async (patch, code) => {
+    const storage = new CloudinaryVideoStorage({ cloudName: "test", apiKey: "test", apiSecret: "test", diagnostic: () => {} });
+    const spy = vi.spyOn(cloudinary.api, "resource").mockResolvedValue({ ...asset, ...patch });
+    try { await expect(storage.verifyUpload("owned")).rejects.toMatchObject({ code }); } finally { spy.mockRestore(); }
   });
 });

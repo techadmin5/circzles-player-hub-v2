@@ -325,7 +325,7 @@ export function buildApp({ catalog, env, identity, gameState, puzzles, submissio
     const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
     const parsed = videoUploadParamsSchema.safeParse(request.params);
     if (!parsed.success) throw validationFailed("Invalid video upload id.", parsed.error.flatten());
-    return reply.send(await submissionService.completeVideoUpload(player.internalId, parsed.data.videoUploadId));
+    return reply.send(await submissionService.completeVideoUpload(player.internalId, parsed.data.videoUploadId, request.id));
   });
 
   app.get("/api/submissions", async (request, reply) => {
