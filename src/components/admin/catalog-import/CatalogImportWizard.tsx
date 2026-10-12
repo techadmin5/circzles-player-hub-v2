@@ -4,7 +4,7 @@ import { catalogAdmin, type CatalogVariant, type ImportReport } from "@/lib/cata
 import { buildManifest, canApply, initialChoices, manifestRows, normalizeSheet, separateGroupKey, createSeparateDecisions } from "./manifestBuilder";
 import { detectColumns, fields, missingColumns, parseFile, readManifest, isWebsiteSku } from "./spreadsheetParser";
 import type { Choices, ColumnMap, ParsedFile, PreviewRow, RowChoice, Sheet } from "./types";
-import { proposeIdentities } from "../../../../backend/src/domain/catalogIdentity";
+import { proposeIdentities } from "../../../../shared/catalogIdentity.mjs";
 
 const input = "mt-1 min-h-11 w-full rounded-lg border border-[var(--cz-hairline-strong)] bg-[var(--cz-inset)] p-2";
 const steps = ["Upload", "Worksheet & columns", "Select rows", "Product identity", "Summary", "Validation"];

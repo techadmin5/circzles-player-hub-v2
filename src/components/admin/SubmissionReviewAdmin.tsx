@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { request } from "@/lib/apiClient";
 import { formatVideoDuration } from "@/lib/submissionVideo";
 import { formatCatalogTime } from "@/lib/catalogTiming";
-import type { AdminSubmissionDto } from "../../../backend/src/domain/adminSubmissions";
+import type { AdminSubmissionDto } from "@/types/adminSubmissions";
 export function SubmissionReviewAdmin() {
   const [status, setStatus] = useState("PENDING_REVIEW"), [rows, setRows] = useState<AdminSubmissionDto[]>([]);
   const [detail, setDetail] = useState<AdminSubmissionDto | null>(null), [video, setVideo] = useState(""), [note, setNote] = useState("");

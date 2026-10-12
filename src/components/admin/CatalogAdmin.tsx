@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { parseCatalogTime, formatCatalogTime } from "@/lib/catalogTiming";
 import { CatalogImportWizard } from "./catalog-import/CatalogImportWizard";
 import { catalogAdmin, type CatalogDetail, type CatalogVariant, type ManufacturingBatch } from "@/lib/catalogAdmin";
-import type { IdentityContext } from "../../../backend/src/domain/catalogIdentity";
+import type { IdentityContext } from "../../../shared/catalogIdentity.mjs";
 
 const inputClass = "mt-1 min-h-11 w-full rounded-lg border border-[var(--cz-hairline-strong)] bg-[var(--cz-inset)] p-2";
 function Field({ label, name, value, type = "text", required = false, disabled = false }: { label: string; name: string; value?: string | number | null; type?: string; required?: boolean; disabled?: boolean }) {

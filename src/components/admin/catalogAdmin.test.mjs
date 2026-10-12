@@ -276,7 +276,7 @@ test("real worksheet preview excludes ignored column-17 notes and remapping reco
 });
 
 test("verified signatures automatically group manufacturing runs and missing pieces require explicit review", async t => {
-  const { proposeIdentities } = await import("../../../backend/src/domain/catalogIdentity.ts");
+  const { proposeIdentities } = await import("../../../shared/catalogIdentity.mjs");
   const root = await setup(t), previews = [];
   t.mock.method(globalThis, "fetch", async (url, init = {}) => {
     const path = new URL(url).pathname;

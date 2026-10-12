@@ -17,9 +17,9 @@ export interface ImportReport { applied: boolean; rows: number; planned: number;
 const root = "/api/admin/catalog";
 const send = (body: unknown) => JSON.stringify(body);
 export const catalogAdmin = {
-  designs: (signal?: AbortSignal) => request<import("../../backend/src/domain/catalogIdentity").IdentityContext>(root + "/designs", { signal }),
+  designs: (signal?: AbortSignal) => request<import("../../shared/catalogIdentity.mjs").IdentityContext>(root + "/designs", { signal }),
   alias: (puzzleDesignId: string, alias: string) => request<{ confirmed: boolean }>(root + "/design-aliases", { method: "POST", body: send({ puzzleDesignId, alias }) }),
-  propose: (rows: unknown[], signal?: AbortSignal) => request<{ proposals: import("../../backend/src/domain/catalogIdentity").IdentityProposal[] }>(root + "/import/propose", { method: "POST", body: send({ rows }), signal }),
+  propose: (rows: unknown[], signal?: AbortSignal) => request<{ proposals: import("../../shared/catalogIdentity.mjs").IdentityProposal[] }>(root + "/import/propose", { method: "POST", body: send({ rows }), signal }),
   access: (signal?: AbortSignal) => request<{ allowed: boolean }>(root + "/access", { signal }),
   list: (query: URLSearchParams, signal?: AbortSignal) => request<CatalogVariant[]>(root + "?" + query, { signal }),
   detail: (id: string) => request<CatalogDetail>(root + "/" + id),
