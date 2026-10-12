@@ -59,7 +59,7 @@ export class SubmissionService {
     if (!this.storage.configured) throw new AppError("VIDEO_STORAGE_NOT_CONFIGURED", "Video storage is not configured.", 503);
     if (!VIDEO_MIME_TYPES.has(input.mimeType.toLowerCase())) throw validationFailed("Unsupported video MIME type.");
     if (!Number.isSafeInteger(input.sizeBytes) || input.sizeBytes <= 0 || input.sizeBytes > MAX_VIDEO_SIZE_BYTES) {
-      throw validationFailed(`Video size must be between 1 and ${MAX_VIDEO_SIZE_BYTES} bytes.`);
+      throw validationFailed(`Video size must be between 1 byte and 100 MB (${MAX_VIDEO_SIZE_BYTES} bytes).`);
     }
     const videoUploadId = crypto.randomUUID();
     const publicId = `circzles/submissions/${playerId}/${videoUploadId}`;
@@ -82,7 +82,7 @@ export class SubmissionService {
     try {
       const asset = await this.storage.verifyUpload(upload.publicId);
       if (asset.publicId !== upload.publicId || asset.resourceType !== "video" || !Number.isSafeInteger(asset.durationMs) || !asset.durationMs || asset.durationMs <= 0 || asset.durationMs > MAX_COMPLETION_TIME_MS) throw new AppError("VIDEO_UPLOAD_METADATA_INVALID", "The video duration could not be verified.", 422);
-      if (!Number.isSafeInteger(asset.bytes) || asset.bytes <= 0 || asset.bytes > MAX_VIDEO_SIZE_BYTES) throw new AppError("VIDEO_UPLOAD_SIZE_INVALID", "Verified video size is outside the allowed limit.", 422);
+      if (!Number.isSafeInteger(asset.bytes) || asset.bytes <= 0 || asset.bytes > MAX_VIDEO_SIZE_BYTES) throw new AppError("VIDEO_UPLOAD_SIZE_INVALID", "Verified video size must be between 1 byte and 100 MB (100,000,000 bytes).", 422);
       await this.repo.completeVideoUpload(videoUploadId, asset);
       return { videoUploadId, status: "COMPLETE" as const, sizeBytes: asset.bytes, durationMs: asset.durationMs };
     } catch (error) {

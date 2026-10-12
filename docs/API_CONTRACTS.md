@@ -317,7 +317,7 @@ All sensitive admin mutations insert `audit_logs`.
 
 All endpoints below require the authenticated session cookie. The server derives `playerId` from that session.
 
-- `POST /api/uploads/videos/signed-url` accepts strict JSON `{ "filename", "mimeType", "sizeBytes" }`. Supported types are MP4, QuickTime, WebM, and M4V; the technical limit is 100 MiB (104,857,600 bytes). It returns `videoUploadId`, expiry, Cloudinary upload URL, public API key, backend-generated public ID, timestamp, and signature. It never returns the API secret.
+- `POST /api/uploads/videos/signed-url` accepts strict JSON `{ "filename", "mimeType", "sizeBytes" }`. Supported types are MP4, QuickTime, WebM, and M4V; the technical limit is 100 MB (100,000,000 bytes). It returns `videoUploadId`, expiry, Cloudinary upload URL, public API key, backend-generated public ID, timestamp, and signature. It never returns the API secret.
 - `POST /api/uploads/videos/:videoUploadId/complete` accepts no asset claims. The backend verifies the expected video with the storage provider, records authoritative bytes/duration, and marks the upload `COMPLETE`.
 - `GET /api/submissions` returns only the current player's submissions, newest first.
 - `GET /api/submissions/:submissionId` returns only the current player's submission; unknown and foreign IDs return `SUBMISSION_NOT_FOUND`.

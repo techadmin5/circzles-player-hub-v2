@@ -1,7 +1,7 @@
-export const MAX_VIDEO_SIZE_BYTES = 104857600;
+export const MAX_VIDEO_SIZE_BYTES = 100000000;
 export function validateVideoFile(file: Pick<File, "size" | "type">) {
   if (!["video/mp4", "video/quicktime", "video/webm", "video/x-m4v"].includes(file.type)) throw new Error("Use an MP4, MOV, WebM or M4V video. Filename extensions alone are not accepted.");
-  if (!file.size || file.size > MAX_VIDEO_SIZE_BYTES) throw new Error("Video must be no larger than 100 MB (100 MiB).");
+  if (!file.size || file.size > MAX_VIDEO_SIZE_BYTES) throw new Error("Video must be no larger than 100 MB.");
 }
 export async function readVideoDuration(file: File): Promise<number> {
   validateVideoFile(file);

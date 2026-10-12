@@ -1,4 +1,4 @@
-> Historical phase report: the 500 MiB limit and terminal verification-failure behavior below have been superseded by [Complete submission flow](COMPLETE_SUBMISSION_FLOW.md). Current uploads are capped at 100 MiB.
+> Historical phase report: the 500 MiB limit and terminal verification-failure behavior below have been superseded by [Complete submission flow](COMPLETE_SUBMISSION_FLOW.md). Current uploads are capped at 100 MB.
 
 # Phase 3D Result
 

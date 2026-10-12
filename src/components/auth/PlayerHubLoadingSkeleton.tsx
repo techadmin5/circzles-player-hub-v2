@@ -8,7 +8,7 @@ import { useSound } from "@/hooks/useSound";
 export const SESSION_LOADING_TIPS = [
   "Keep only one pair of hands in frame during your solve.",
   "Practice your solve before recording the final submission.",
-  "Keep your submission file under 100 MB.",
+  "Keep your submission file at or below 100 MB.",
   "Record your attempt in one continuous video without cuts.",
   "Make sure the CircZles and your hands stay clearly visible.",
   "Start the timer before opening or solving your CircZles challenge.",

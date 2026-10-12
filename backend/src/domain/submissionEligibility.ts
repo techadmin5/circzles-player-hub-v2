@@ -1,5 +1,5 @@
 import { AppError } from "./errors.js";
-export const MAX_VIDEO_SIZE_BYTES = 104857600;
+export const MAX_VIDEO_SIZE_BYTES = 100000000;
 export const VIDEO_MIME_TYPES = new Set(["video/mp4", "video/quicktime", "video/webm", "video/x-m4v"]);
 export function assertSubmissionEligibility(name: string, maximum: number | null | undefined, completion: number, video: { status: string; verifiedSizeBytes: number | null; durationMs: number | null; mimeType: string; storageProvider: string }) {
   if (!Number.isInteger(maximum) || !maximum || maximum <= 0) throw new AppError("COMPETITION_TIMING_NOT_CONFIGURED", `Competition timing has not been configured for ${name}. Please try again after an admin configures it.`, 422);

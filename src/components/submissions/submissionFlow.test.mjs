@@ -38,9 +38,10 @@ async function click(text) { const button = [...document.querySelectorAll("butto
 async function change(node, value) { await act(async () => { node.value = value; node[Object.keys(node).find(key => key.startsWith("__reactProps"))].onChange({ target: node }); }); }
 async function selectFile(file) { const input = document.querySelector('input[type="file"]'); await act(async () => { Object.defineProperty(input, "files", { configurable: true, value: [file] }); input.dispatchEvent(new window.Event("change", { bubbles: true })); await new Promise(setImmediate); }); }
 async function prepareVideo() { await click("Enter Time"); await change(document.querySelector('[aria-label="Completion time"]'), "05:00"); await click("Select Video"); await selectFile(new window.File(["recording"], "lion.mp4", { type: "video/mp4" })); }
-test("video preflight accepts exactly 100 MiB and rejects size/type spoofing; time parsing preserves milliseconds", () => {
-  validateVideoFile({ size: MAX_VIDEO_SIZE_BYTES, type: "video/mp4" });
-  assert.throws(() => validateVideoFile({ size: MAX_VIDEO_SIZE_BYTES + 1, type: "video/mp4" }));
+test("video preflight accepts exactly 100 MB and rejects size/type spoofing; time parsing preserves milliseconds", () => {
+  assert.equal(MAX_VIDEO_SIZE_BYTES, 100000000);
+  validateVideoFile({ size: 100000000, type: "video/mp4" });
+  assert.throws(() => validateVideoFile({ size: 100000001, type: "video/mp4" }));
   assert.throws(() => validateVideoFile({ size: 1, type: "text/plain", name: "video.mp4" }));
   assert.equal(parseCompletionTime("05:00"), 300000); assert.equal(parseCompletionTime("05:00.001"), 300001);
 });
@@ -74,28 +75,30 @@ test("submission history shows status, review note and date, and can retry faile
   await act(async () => root.render(createElement(SubmissionListClient, { initial: [] }))); assert.match(document.querySelector('[role="alert"]').textContent, /could not be loaded/); await click("Refresh Submissions"); assert.match(document.body.textContent, /Resubmission Required/); assert.match(document.body.textContent, /Record continuously/);
 });
 test("review UI loads verified metadata, obtains protected video and records authorized decision/history", async t => {
-  const { root } = await setup(t); const row = { submissionId: "attempt", status: "PENDING_REVIEW", puzzleName: "Lion", levelId: 1, completionTimeMs: 300000, maxLeaderboardTimeMs: 300000, submittedAt: "2026-10-12T00:00:00Z", player: { displayName: "Player", publicPlayerId: "CZ-1" }, video: { durationMs: 300000, verifiedSizeBytes: 104857600 }, reviewHistory: [] }; let reviewed = false; const decisions = [];
+  const { root } = await setup(t); const row = { submissionId: "attempt", status: "PENDING_REVIEW", puzzleName: "Lion", levelId: 1, completionTimeMs: 300000, maxLeaderboardTimeMs: 300000, submittedAt: "2026-10-12T00:00:00Z", player: { displayName: "Player", publicPlayerId: "CZ-1" }, video: { durationMs: 300000, verifiedSizeBytes: 100000000 }, reviewHistory: [] }; let reviewed = false; const decisions = [];
   t.mock.method(globalThis, "fetch", async (url, init = {}) => {
     if (new URL(url).pathname.endsWith("/review")) { decisions.push(JSON.parse(init.body)); assert.ok(init.headers["Idempotency-Key"]); reviewed = true; return Response.json({ decision: "APPROVED" }); }
     if (new URL(url).pathname.endsWith("/video")) return Response.json({ url: "https://api.cloudinary.com/protected-short-lived" });
     if (new URL(url).pathname.endsWith("attempt")) return Response.json({ ...row, status: reviewed ? "APPROVED" : "PENDING_REVIEW", reviewHistory: reviewed ? [{ decision: "APPROVED", reviewerAdminUserId: "reviewer", createdAt: "2026-10-12T01:00:00Z", reviewNote: "Valid evidence" }] : [] });
     return Response.json([row]);
   });
-  await act(async () => root.render(createElement(SubmissionReviewAdmin))); await click("Review attempt"); assert.match(document.body.textContent, /Verified recording 05:00/); assert.match(document.body.textContent, /100.00 MiB/); await click("Open protected video (5 minutes)"); assert.equal(document.querySelector("video").getAttribute("src"), "https://api.cloudinary.com/protected-short-lived"); await change(document.querySelector("textarea"), "Valid evidence"); await click("Approve"); assert.deepEqual(decisions[0], { decision: "APPROVED", reviewNote: "Valid evidence" }); assert.match(document.body.textContent, /Review recorded successfully/); assert.match(document.body.textContent, /Reviewer reviewer/);
+  await act(async () => root.render(createElement(SubmissionReviewAdmin))); await click("Review attempt"); assert.match(document.body.textContent, /Verified recording 05:00/); assert.match(document.body.textContent, /100.00 MB/); await click("Open protected video (5 minutes)"); assert.equal(document.querySelector("video").getAttribute("src"), "https://api.cloudinary.com/protected-short-lived"); await change(document.querySelector("textarea"), "Valid evidence"); await click("Approve"); assert.deepEqual(decisions[0], { decision: "APPROVED", reviewNote: "Valid evidence" }); assert.match(document.body.textContent, /Review recorded successfully/); assert.match(document.body.textContent, /Reviewer reviewer/);
 });
 
 
-test("100 MiB uses direct chunks with progress and expiration prevents transfer", async t => {
+test("100 MB uses direct chunks with progress and expiration prevents transfer", async t => {
   const { transfers } = await setup(t);
   const { uploadVideoDirectly } = await import("../../lib/apiClient.ts");
   const signed = { uploadUrl: "https://api.cloudinary.com/v1_1/test/video/upload", expiresAt: new Date(Date.now() + 600000).toISOString(), fields: { apiKey: "public", timestamp: 1, publicId: "bound", signature: "signature", type: "authenticated", overwrite: "false" } };
   const file = new window.File([new Uint8Array(MAX_VIDEO_SIZE_BYTES)], "large.mp4", { type: "video/mp4" });
   const progress = []; await uploadVideoDirectly(signed, file, value => progress.push(value));
-  assert.equal(transfers.length, 17); assert.equal(progress.at(-1), 100); assert.ok(progress.some(value => value > 0 && value < 100));
-  assert.equal(transfers.at(-1).headers["Content-Range"], "bytes 100663296-104857599/104857600");
+  assert.equal(transfers.length, 16); assert.equal(progress.at(-1), 100); assert.ok(progress.some(value => value > 0 && value < 100));
+  assert.equal(transfers.at(-1).headers["Content-Range"], "bytes 94371840-99999999/100000000");
   assert.equal(new Set(transfers.map(chunk => chunk.headers["X-Unique-Upload-Id"])).size, 1);
   await assert.rejects(uploadVideoDirectly({ ...signed, expiresAt: new Date(0).toISOString() }, file, () => {}), /expired/);
-  assert.equal(transfers.length, 17);
+  assert.equal(transfers.length, 16);
+  await assert.rejects(uploadVideoDirectly(signed, { size: 100000001, type: "video/mp4" }, () => {}), /100 MB/);
+  assert.equal(transfers.length, 16);
 });
 test("selecting invalid video surfaces preflight error without requesting upload authorization", async t => {
   const { root } = await setup(t); let calls = 0;

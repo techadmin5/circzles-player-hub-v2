@@ -1,3 +1,4 @@
+import { MAX_VIDEO_SIZE_BYTES } from "./submissionVideo";
 import type { ApiMissionDto, ApiStoreCatalogItem, AuthenticatedPlayerIdentity, EquipmentSlot, InventoryResponse, LeaderboardCatalog, LeaderboardResponse, Mission, MissionClaimResult, PlayerProfile, PlayerPuzzle, PublicPlayerProfile, Puzzle, RenameDisplayNameResult, RewardWheelResult, RewardWheelStatus, SignedVideoUpload, StorePurchaseResult, Submission } from "@/types";
 import { apiBaseUrl } from "@/config/dataMode";
 import { usePlayerUiState } from "@/stores/playerUiState";
@@ -225,7 +226,7 @@ export const apiClient = {
 };
 
 export async function uploadVideoDirectly(signed: SignedVideoUpload, file: File, onProgress: (percent: number) => void) {
-  if (file.size <= 0 || file.size > 104857600 || !["video/mp4", "video/quicktime", "video/webm", "video/x-m4v"].includes(file.type)) throw new Error("Use a supported video up to 100 MB.");
+  if (file.size <= 0 || file.size > MAX_VIDEO_SIZE_BYTES || !["video/mp4", "video/quicktime", "video/webm", "video/x-m4v"].includes(file.type)) throw new Error("Use a supported video up to 100 MB.");
   const chunkSize = 6 * 1024 * 1024, uploadId = crypto.randomUUID();
   for (let offset = 0; offset < file.size; offset += chunkSize) {
     if (Date.parse(signed.expiresAt) <= Date.now()) throw new Error("Upload authorization expired. Select the recording again to retry.");

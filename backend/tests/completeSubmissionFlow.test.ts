@@ -14,7 +14,7 @@ import { cleanupAbandonedVideos } from "../src/operations/cleanupAbandonedVideos
 import { FakeVideoStorage } from "./fakes.js";
 let pg: PGlite, db: Database;
 class Storage extends FakeVideoStorage {
-  duration = 300000; bytes = 104857600; wrongId = false; removed: string[] = [];
+  duration = 300000; bytes = 100000000; wrongId = false; removed: string[] = [];
   async verifyUpload(publicId: string) { if (this.verificationFails) throw new Error("Provider unavailable"); return { publicId: this.wrongId ? "forged" : publicId, bytes: this.bytes, durationMs: this.duration, resourceType: "video" as const }; }
   async deleteUpload(id: string) { this.removed.push(id); }
 }
@@ -35,7 +35,8 @@ async function fixture(maximum: number | null = 300000, rewardEnabled = true) {
   return { player, puzzle, owned, storage, repo, service, reviews, upload, input, review };
 }
 describe("verified competitive submission workflow", () => {
-  it("accepts exactly 100 MiB and 05:00, retries creation once, protects the video, and rewards first approval exactly once", async () => {
+  it("accepts exactly 100 MB and 05:00, retries creation once, protects the video, and rewards first approval exactly once", async () => {
+    expect(MAX_VIDEO_SIZE_BYTES).toBe(100000000);
     const f = await fixture(), input = await f.input();
     const result = await Promise.all([f.service.createSubmission(f.player.playerId, input, "retry"), f.service.createSubmission(f.player.playerId, input, "retry")]);
     expect(result[0].id).toBe(result[1].id); expect(result[0].status).toBe("PENDING_REVIEW");
@@ -49,6 +50,15 @@ describe("verified competitive submission workflow", () => {
     expect((await db.select().from(s.leaderboardEntries).where(eq(s.leaderboardEntries.puzzleId, f.puzzle.puzzleId)))[0].bestCompletionTimeMs).toBe(280000);
     expect((await f.service.getSubmission(f.player.playerId, next.id)).reviewNote).toBe("Checked continuous recording");
     await expect(f.service.getSubmission(crypto.randomUUID(), next.id)).rejects.toMatchObject({ code: "SUBMISSION_NOT_FOUND" });
+  });
+  it("rejects 100000001 provider bytes even when the declared size passes signing", async () => {
+    const f = await fixture();
+    const signed = await f.service.signVideoUpload(f.player.playerId, { filename: "solve.mp4", mimeType: "video/mp4", sizeBytes: 100000000 });
+    f.storage.bytes = 100000001;
+    await expect(f.service.completeVideoUpload(f.player.playerId, signed.videoUploadId)).rejects.toMatchObject({ code: "VIDEO_UPLOAD_SIZE_INVALID" });
+    expect((await f.repo.getVideoUpload(signed.videoUploadId))?.status).toBe("FAILED");
+    expect(await db.select().from(s.submissions).where(eq(s.submissions.puzzleId, f.puzzle.puzzleId))).toHaveLength(0);
+    await expect(f.service.signVideoUpload(f.player.playerId, { filename: "solve.mp4", mimeType: "video/mp4", sizeBytes: 100000001 })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
   });
   it.each(["long-video", "long-completion", "missing-limit", "unverified-duration", "oversize", "foreign-asset", "foreign-player"])("blocks %s without pending/audit/reward/leaderboard writes", async mode => {
     const f = await fixture(mode === "missing-limit" ? null : 300000), input = await f.input();
@@ -109,7 +119,7 @@ describe("verified competitive submission workflow", () => {
   });
 });
 describe("Cloudinary metadata and protected transport", () => {
-  const asset = { public_id: "owned", resource_type: "video", type: "authenticated", bytes: 104857600, format: "mp4", duration: 300, video: { codec: "h264" }, width: 1280, height: 720 };
+  const asset = { public_id: "owned", resource_type: "video", type: "authenticated", bytes: 100000000, format: "mp4", duration: 300, video: { codec: "h264" }, width: 1280, height: 720 };
   it("signs authenticated non-overwriting uploads and rounds duration conservatively", async () => {
     const storage = new CloudinaryVideoStorage({ cloudName: "test", apiKey: "test", apiSecret: "test-secret" });
     expect((await storage.signUpload("owned")).fields).toMatchObject({ type: "authenticated", overwrite: "false", allowedFormats: "mp4,mov,webm,m4v" });
