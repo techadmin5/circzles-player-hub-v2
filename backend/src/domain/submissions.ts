@@ -1,16 +1,18 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type * as schema from "../db/schema.js";
-import { playerPuzzles, puzzles, submissions, videoUploads } from "../db/schema.js";
+import { playerPuzzles, puzzles, submissions, videoUploads, puzzleCompetitionSettings } from "../db/schema.js";
 import type { VideoStorage, VerifiedVideoAsset } from "../storage/videoStorage.js";
 import { AppError, validationFailed } from "./errors.js";
 import { insertGameEventInTransaction } from "./gameEvents.js";
 
 type Db = NodePgDatabase<typeof schema>;
-export const MAX_VIDEO_SIZE_BYTES = 500 * 1024 * 1024;
+export { MAX_VIDEO_SIZE_BYTES } from "./submissionEligibility.js";
+import { MAX_VIDEO_SIZE_BYTES, VIDEO_MIME_TYPES, assertSubmissionEligibility } from "./submissionEligibility.js";
+import { managementLock } from "./catalog.js";
 export const VIDEO_UPLOAD_TTL_MS = 30 * 60 * 1000;
 export const MAX_COMPLETION_TIME_MS = 2_147_483_647;
-const VIDEO_MIME_TYPES = new Set(["video/mp4", "video/quicktime", "video/webm", "video/x-m4v"]);
+
 
 export interface VideoUploadRecord {
   videoUploadId: string;
@@ -20,6 +22,8 @@ export interface VideoUploadRecord {
   declaredSizeBytes: number;
   status: "SIGNED" | "COMPLETE" | "FAILED" | "EXPIRED";
   expiresAt: Date;
+  verifiedSizeBytes?: number | null;
+  durationMs?: number | null;
 }
 
 export interface SubmissionDto {
@@ -33,9 +37,11 @@ export interface SubmissionDto {
   status: "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "RESUBMISSION_REQUIRED";
   createdAt: string;
   videoUploadId: string;
+  reviewNote?: string;
 }
 
 export interface SubmissionRepository {
+  abandonVideoUpload?(playerId: string, videoUploadId: string): Promise<void>;
   createVideoUpload(input: { playerId: string; publicId: string; filename: string; mimeType: string; sizeBytes: number; expiresAt: Date }): Promise<VideoUploadRecord>;
   getVideoUpload(videoUploadId: string): Promise<VideoUploadRecord | null>;
   completeVideoUpload(videoUploadId: string, asset: VerifiedVideoAsset): Promise<void>;
@@ -67,7 +73,7 @@ export class SubmissionService {
     if (!this.storage.configured) throw new AppError("VIDEO_STORAGE_NOT_CONFIGURED", "Video storage is not configured.", 503);
     const upload = await this.repo.getVideoUpload(videoUploadId);
     if (!upload || upload.playerId !== playerId) throw new AppError("VIDEO_UPLOAD_NOT_FOUND", "Video upload was not found.", 404);
-    if (upload.status === "COMPLETE") return { videoUploadId, status: "COMPLETE" as const };
+    if (upload.status === "COMPLETE") return { videoUploadId, status: "COMPLETE" as const, sizeBytes: upload.verifiedSizeBytes, durationMs: upload.durationMs };
     if (upload.status === "SIGNED" && upload.expiresAt <= new Date()) {
       await this.repo.expireVideoUpload(videoUploadId);
       throw new AppError("VIDEO_UPLOAD_NOT_FINALIZABLE", "Video upload cannot be finalized.", 409);
@@ -75,11 +81,13 @@ export class SubmissionService {
     if (upload.status !== "SIGNED") throw new AppError("VIDEO_UPLOAD_NOT_FINALIZABLE", "Video upload cannot be finalized.", 409);
     try {
       const asset = await this.storage.verifyUpload(upload.publicId);
-      if (asset.bytes <= 0 || asset.bytes > MAX_VIDEO_SIZE_BYTES) throw new AppError("VIDEO_UPLOAD_SIZE_INVALID", "Verified video size is outside the allowed limit.", 422);
+      if (asset.publicId !== upload.publicId || asset.resourceType !== "video" || !Number.isSafeInteger(asset.durationMs) || !asset.durationMs || asset.durationMs <= 0 || asset.durationMs > MAX_COMPLETION_TIME_MS) throw new AppError("VIDEO_UPLOAD_METADATA_INVALID", "The video duration could not be verified.", 422);
+      if (!Number.isSafeInteger(asset.bytes) || asset.bytes <= 0 || asset.bytes > MAX_VIDEO_SIZE_BYTES) throw new AppError("VIDEO_UPLOAD_SIZE_INVALID", "Verified video size is outside the allowed limit.", 422);
       await this.repo.completeVideoUpload(videoUploadId, asset);
       return { videoUploadId, status: "COMPLETE" as const, sizeBytes: asset.bytes, durationMs: asset.durationMs };
     } catch (error) {
-      await this.repo.failVideoUpload(videoUploadId, "VERIFICATION_FAILED");
+      // Keep SIGNED for retryable provider/processing/database failures; expiration still applies.
+      if (error instanceof AppError && ["VIDEO_UPLOAD_SIZE_INVALID", "VIDEO_UPLOAD_METADATA_INVALID"].includes(error.code)) await this.repo.failVideoUpload(videoUploadId, "VERIFICATION_FAILED");
       throw error;
     }
   }
@@ -90,6 +98,11 @@ export class SubmissionService {
     }
     return this.repo.createSubmission({ playerId, ...input, idempotencyKey });
   }
+  async abandonVideoUpload(playerId: string, videoUploadId: string) {
+    if (!this.repo.abandonVideoUpload) throw new AppError("VIDEO_STORAGE_NOT_CONFIGURED", "Upload cleanup is unavailable.", 503);
+    await this.repo.abandonVideoUpload(playerId, videoUploadId);
+    return { removed: true };
+  }
   getSubmissions(playerId: string) { return this.repo.getSubmissions(playerId); }
   async getSubmission(playerId: string, submissionId: string) {
     const result = await this.repo.getSubmission(playerId, submissionId);
@@ -99,8 +112,22 @@ export class SubmissionService {
 }
 
 export class DrizzleSubmissionRepository implements SubmissionRepository {
-  constructor(private db: Db) {}
+  constructor(private db: Db, private storage?: VideoStorage) {}
 
+  async abandonVideoUpload(playerId: string, videoUploadId: string) {
+    if (!this.storage?.deleteUpload) throw new AppError("VIDEO_STORAGE_NOT_CONFIGURED", "Upload cleanup is unavailable.", 503);
+    await this.db.transaction(async tx => {
+      await managementLock(tx);
+      const [upload] = await tx.select().from(videoUploads).where(and(eq(videoUploads.videoUploadId, videoUploadId), eq(videoUploads.playerId, playerId))).for("update");
+      if (!upload) throw new AppError("VIDEO_UPLOAD_NOT_FOUND", "Video upload was not found.", 404);
+      const [used] = await tx.select().from(submissions).where(eq(submissions.videoUploadId, videoUploadId));
+      if (used) throw new AppError("VIDEO_UPLOAD_ALREADY_USED", "Submitted recordings cannot be removed.", 409);
+      // Mark terminal before deletion; the transaction lock excludes concurrent submission creation.
+      await tx.update(videoUploads).set({ status: "EXPIRED" }).where(eq(videoUploads.videoUploadId, videoUploadId));
+      await this.storage!.deleteUpload!(upload.publicId);
+      await tx.update(videoUploads).set({ failureCode: "ABANDONED_REMOVED" }).where(eq(videoUploads.videoUploadId, videoUploadId));
+    });
+  }
   async createVideoUpload(input: { playerId: string; publicId: string; filename: string; mimeType: string; sizeBytes: number; expiresAt: Date }) {
     const [row] = await this.db.insert(videoUploads).values({ playerId: input.playerId, storageProvider: "CLOUDINARY", publicId: input.publicId, originalFilename: input.filename, mimeType: input.mimeType, declaredSizeBytes: input.sizeBytes, expiresAt: input.expiresAt }).returning();
     return toVideoUploadRecord(row);
@@ -110,18 +137,21 @@ export class DrizzleSubmissionRepository implements SubmissionRepository {
     return row ? toVideoUploadRecord(row) : null;
   }
   async completeVideoUpload(videoUploadId: string, asset: VerifiedVideoAsset) {
-    await this.db.update(videoUploads).set({ status: "COMPLETE", verifiedSizeBytes: asset.bytes, durationMs: asset.durationMs, completedAt: new Date(), failureCode: null }).where(eq(videoUploads.videoUploadId, videoUploadId));
+    const [updated] = await this.db.update(videoUploads).set({ status: "COMPLETE", verifiedSizeBytes: asset.bytes, durationMs: asset.durationMs, completedAt: new Date(), failureCode: null }).where(and(eq(videoUploads.videoUploadId, videoUploadId), eq(videoUploads.status, "SIGNED"), sql`${videoUploads.expiresAt} > now()`)).returning();
+    if (!updated && (await this.getVideoUpload(videoUploadId))?.status !== "COMPLETE") throw new AppError("VIDEO_UPLOAD_NOT_FINALIZABLE", "Video upload expired or was abandoned.", 409);
   }
   async failVideoUpload(videoUploadId: string, failureCode: string) {
-    await this.db.update(videoUploads).set({ status: "FAILED", failureCode }).where(eq(videoUploads.videoUploadId, videoUploadId));
+    await this.db.update(videoUploads).set({ status: "FAILED", failureCode }).where(and(eq(videoUploads.videoUploadId, videoUploadId), eq(videoUploads.status, "SIGNED")));
   }
   async expireVideoUpload(videoUploadId: string) {
-    await this.db.update(videoUploads).set({ status: "EXPIRED" }).where(eq(videoUploads.videoUploadId, videoUploadId));
+    await this.db.update(videoUploads).set({ status: "EXPIRED" }).where(and(eq(videoUploads.videoUploadId, videoUploadId), eq(videoUploads.status, "SIGNED")));
   }
 
   async createSubmission(input: { playerId: string; playerPuzzleId: string; completionTimeMs: number; videoUploadId: string; idempotencyKey?: string }) {
     try {
       return await this.db.transaction(async (tx) => {
+        await managementLock(tx);
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${input.playerId}:${input.idempotencyKey ?? input.videoUploadId}`}, 0))`);
         if (input.idempotencyKey) {
           const existing = await selectSubmissions(tx).where(and(eq(submissions.playerId, input.playerId), eq(submissions.idempotencyKey, input.idempotencyKey))).limit(1);
           if (existing[0]) {
@@ -134,6 +164,11 @@ export class DrizzleSubmissionRepository implements SubmissionRepository {
         const [upload] = await tx.select().from(videoUploads).where(and(eq(videoUploads.videoUploadId, input.videoUploadId), eq(videoUploads.playerId, input.playerId))).limit(1);
         if (!upload) throw new AppError("VIDEO_UPLOAD_NOT_FOUND", "Video upload was not found.", 404);
         if (upload.status !== "COMPLETE") throw new AppError("VIDEO_UPLOAD_NOT_COMPLETE", "Video upload has not been verified.", 409);
+        const [setting] = await tx.select().from(puzzleCompetitionSettings).where(eq(puzzleCompetitionSettings.puzzleId, owned.puzzle.puzzleId));
+        assertSubmissionEligibility(owned.puzzle.name, setting?.maxLeaderboardTimeMs, input.completionTimeMs, upload);
+        if (!this.storage) throw new AppError("VIDEO_STORAGE_NOT_CONFIGURED", "Video verification is unavailable.", 503);
+        const asset = await this.storage.verifyUpload(upload.publicId);
+        if (asset.publicId !== upload.publicId || asset.bytes !== upload.verifiedSizeBytes || asset.durationMs !== upload.durationMs) throw new AppError("VIDEO_UPLOAD_METADATA_INVALID", "Video metadata changed; upload a new recording.", 422);
         const [created] = await tx.insert(submissions).values({ playerId: input.playerId, playerPuzzleId: owned.playerPuzzle.playerPuzzleId, puzzleId: owned.puzzle.puzzleId, levelId: owned.puzzle.levelId, completionTimeMs: input.completionTimeMs, videoUploadId: input.videoUploadId, idempotencyKey: input.idempotencyKey, status: "PENDING_REVIEW" }).returning();
         await insertGameEventInTransaction(tx, {
           playerId: input.playerId, eventType: "submission.created", sourceType: "SUBMISSION", sourceId: created.submissionId,
@@ -143,7 +178,8 @@ export class DrizzleSubmissionRepository implements SubmissionRepository {
         return toSubmissionDto({ submission: created, puzzle: owned.puzzle });
       });
     } catch (error) {
-      const pgError = error as { code?: string; constraint?: string };
+      const wrapped = error as { cause?: { code?: string; constraint?: string }; code?: string; constraint?: string };
+      const pgError = wrapped.cause ?? wrapped;
       if (pgError.code === "23505" && input.idempotencyKey) {
         const [existing] = await selectSubmissions(this.db).where(and(eq(submissions.playerId, input.playerId), eq(submissions.idempotencyKey, input.idempotencyKey))).limit(1);
         if (existing) {
@@ -170,17 +206,17 @@ export class DrizzleSubmissionRepository implements SubmissionRepository {
 }
 
 function selectSubmissions(db: Pick<Db, "select">) {
-  return db.select({ submission: submissions, puzzle: puzzles }).from(submissions).innerJoin(puzzles, eq(submissions.puzzleId, puzzles.puzzleId));
+  return db.select({ submission: submissions, puzzle: puzzles, reviewNote: sql<string | null>`(select review_note from submission_reviews where submission_id = ${submissions.submissionId} order by created_at desc limit 1)` }).from(submissions).innerJoin(puzzles, eq(submissions.puzzleId, puzzles.puzzleId));
 }
 function toVideoUploadRecord(row: typeof videoUploads.$inferSelect): VideoUploadRecord {
-  return { videoUploadId: row.videoUploadId, playerId: row.playerId, publicId: row.publicId, mimeType: row.mimeType, declaredSizeBytes: row.declaredSizeBytes, status: row.status, expiresAt: row.expiresAt };
+  return { videoUploadId: row.videoUploadId, playerId: row.playerId, publicId: row.publicId, mimeType: row.mimeType, declaredSizeBytes: row.declaredSizeBytes, status: row.status, expiresAt: row.expiresAt, verifiedSizeBytes: row.verifiedSizeBytes, durationMs: row.durationMs };
 }
-function toSubmissionDto(row: { submission: typeof submissions.$inferSelect; puzzle: typeof puzzles.$inferSelect }): SubmissionDto {
+function toSubmissionDto(row: { submission: typeof submissions.$inferSelect; puzzle: typeof puzzles.$inferSelect; reviewNote?: string | null }): SubmissionDto {
   const ms = row.submission.completionTimeMs;
   const hours = Math.floor(ms / 3_600_000);
   const minutes = Math.floor(ms / 60_000) % 60;
   const seconds = Math.floor(ms / 1000) % 60;
   const millis = ms % 1000;
   const base = hours > 0 ? `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}` : `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-  return { id: row.submission.submissionId, playerPuzzleId: row.submission.playerPuzzleId, puzzleId: row.submission.puzzleId, puzzleName: row.puzzle.name, levelId: Number(row.submission.levelId), completionTimeMs: ms, completionTime: millis ? `${base}.${String(millis).padStart(3, "0")}` : base, status: row.submission.status, createdAt: row.submission.createdAt.toISOString(), videoUploadId: row.submission.videoUploadId };
+  return { reviewNote: row.reviewNote ?? undefined, id: row.submission.submissionId, playerPuzzleId: row.submission.playerPuzzleId, puzzleId: row.submission.puzzleId, puzzleName: row.puzzle.name, levelId: Number(row.submission.levelId), completionTimeMs: ms, completionTime: millis ? `${base}.${String(millis).padStart(3, "0")}` : base, status: row.submission.status, createdAt: row.submission.createdAt.toISOString(), videoUploadId: row.submission.videoUploadId };
 }

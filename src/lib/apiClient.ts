@@ -200,7 +200,8 @@ export const apiClient = {
     body: JSON.stringify({ code }),
   }),
   signVideoUpload: async (input: { filename: string; mimeType: string; sizeBytes: number }) => request<SignedVideoUpload>("/api/uploads/videos/signed-url", { method: "POST", body: JSON.stringify(input) }),
-  completeVideoUpload: async (videoUploadId: string) => request<{ videoUploadId: string; status: "COMPLETE" }>(`/api/uploads/videos/${encodeURIComponent(videoUploadId)}/complete`, { method: "POST", body: JSON.stringify({}) }),
+  abandonVideoUpload: (videoUploadId: string) => request(`/api/uploads/videos/${encodeURIComponent(videoUploadId)}`, { method: "DELETE" }),
+  completeVideoUpload: async (videoUploadId: string) => request<{ videoUploadId: string; status: "COMPLETE"; durationMs?: number; sizeBytes?: number }>(`/api/uploads/videos/${encodeURIComponent(videoUploadId)}/complete`, { method: "POST", body: JSON.stringify({}) }),
   getSubmissions: async () => request<Submission[]>("/api/submissions"),
   getSubmission: async (submissionId: string) => request<Submission>(`/api/submissions/${encodeURIComponent(submissionId)}`),
   createSubmission: async (input: { playerPuzzleId: string; completionTimeMs: number; videoUploadId: string }, idempotencyKey: string) => playerMutation<Submission>("/api/submissions", { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(input) }),
@@ -223,19 +224,28 @@ export const apiClient = {
   spinRewardWheel: async (idempotencyKey: string) => playerMutation<RewardWheelResult>("/api/wheel/spin", { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify({}) }),
 };
 
-export function uploadVideoDirectly(signed: SignedVideoUpload, file: File, onProgress: (percent: number) => void) {
-  return new Promise<void>((resolve, reject) => {
-    const form = new FormData();
-    form.set("file", file);
-    form.set("api_key", signed.fields.apiKey);
-    form.set("timestamp", String(signed.fields.timestamp));
-    form.set("public_id", signed.fields.publicId);
-    form.set("signature", signed.fields.signature);
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", signed.uploadUrl);
-    xhr.upload.onprogress = (event) => { if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100)); };
-    xhr.onerror = () => reject(new ApiClientError("VIDEO_UPLOAD_NETWORK_ERROR", "Video upload failed.", 0));
-    xhr.onload = () => xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new ApiClientError("VIDEO_UPLOAD_FAILED", "Video upload failed.", xhr.status));
-    xhr.send(form);
-  });
+export async function uploadVideoDirectly(signed: SignedVideoUpload, file: File, onProgress: (percent: number) => void) {
+  if (file.size <= 0 || file.size > 104857600 || !["video/mp4", "video/quicktime", "video/webm", "video/x-m4v"].includes(file.type)) throw new Error("Use a supported video up to 100 MB.");
+  const chunkSize = 6 * 1024 * 1024, uploadId = crypto.randomUUID();
+  for (let offset = 0; offset < file.size; offset += chunkSize) {
+    if (Date.parse(signed.expiresAt) <= Date.now()) throw new Error("Upload authorization expired. Select the recording again to retry.");
+    const end = Math.min(file.size, offset + chunkSize);
+    await new Promise<void>((resolve, reject) => {
+      const form = new FormData();
+      form.set("file", file.slice(offset, end), file.name);
+      form.set("api_key", signed.fields.apiKey); form.set("timestamp", String(signed.fields.timestamp));
+      form.set("public_id", signed.fields.publicId); form.set("signature", signed.fields.signature);
+      if (signed.fields.type) form.set("type", signed.fields.type);
+      if (signed.fields.overwrite) form.set("overwrite", signed.fields.overwrite);
+      if (signed.fields.allowedFormats) form.set("allowed_formats", signed.fields.allowedFormats);
+      const xhr = new XMLHttpRequest(); xhr.open("POST", signed.uploadUrl);
+      xhr.setRequestHeader("Content-Range", `bytes ${offset}-${end - 1}/${file.size}`);
+      xhr.setRequestHeader("X-Unique-Upload-Id", uploadId); xhr.timeout = 120000;
+      xhr.upload.onprogress = event => { if (event.lengthComputable) onProgress(Math.min(99, Math.round((offset + (end - offset) * event.loaded / event.total) / file.size * 100))); };
+      xhr.onerror = xhr.ontimeout = xhr.onabort = () => reject(new ApiClientError("VIDEO_UPLOAD_NETWORK_ERROR", "Video upload interrupted. Retry the upload.", 0));
+      xhr.onload = () => xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new ApiClientError("VIDEO_UPLOAD_FAILED", "Cloudinary could not accept this recording. Retry or contact support.", xhr.status));
+      xhr.send(form);
+    });
+  }
+  onProgress(100);
 }

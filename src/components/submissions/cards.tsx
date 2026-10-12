@@ -24,7 +24,7 @@ export function SubmissionCard({ submission }: { submission: Submission }) {
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="cz-display text-base font-bold">{submission.puzzleName}</h3>
-          <p className="text-xs text-[var(--cz-text-tertiary)]">puzzleId {submission.puzzleId} · difficulty levelId {submission.levelId}</p>
+          <p className="text-xs text-[var(--cz-text-tertiary)]">CircZles · Level {submission.levelId}</p>
         </div>
         <SubmissionStatusPill status={submission.status} />
       </div>

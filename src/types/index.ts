@@ -49,6 +49,7 @@ export interface Puzzle {
 }
 
 export interface PlayerPuzzle extends Puzzle {
+  maxLeaderboardTimeMs?: number | null;
   playerPuzzleId?: string;
   status: PuzzleStatus;
   personalBest?: string;
@@ -74,7 +75,7 @@ export interface SignedVideoUpload {
   videoUploadId: string;
   uploadUrl: string;
   expiresAt: string;
-  fields: { apiKey: string; timestamp: number; publicId: string; signature: string };
+  fields: { apiKey: string; timestamp: number; publicId: string; signature: string; type?: "authenticated"; overwrite?: string; allowedFormats?: string };
 }
 
 export interface LeaderboardFilter {

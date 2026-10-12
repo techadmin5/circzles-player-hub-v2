@@ -103,7 +103,7 @@ async function appWithFakes(overrides: Partial<Env> = {}, directAuth?: DirectAut
   const adminAuthRepo = new FakeAdminAuthorizationRepository(identityRepo);
   const adminAuth = new AdminAuthorizationService(adminAuthRepo, testEnv.SESSION_SECRET);
   const adminSubmissionRepo = new FakeAdminSubmissionRepository();
-  const adminSubmissions = new AdminSubmissionService(adminSubmissionRepo);
+  const adminSubmissions = new AdminSubmissionService(adminSubmissionRepo, videoStorage);
   const leaderboardRepo = new FakeLeaderboardRepository();
   const leaderboards = new LeaderboardService(leaderboardRepo);
   const reviewRepo = new FakeSubmissionReviewRepository();
@@ -975,6 +975,8 @@ describe("admin review authorization and read API", () => {
 
   it.each([
     "/api/admin/submissions",
+    "/api/admin/submissions/access",
+    "/api/admin/submissions/60000000-0000-4000-8000-000000000001/video",
     "/api/admin/submissions/60000000-0000-4000-8000-000000000001",
   ])("requires an authenticated session for %s", async (url) => {
     const { app } = await appWithFakes();
@@ -1401,5 +1403,24 @@ describe("native auth HTTP integration", () => {
     expect((await app.inject({ method: "POST", url: "/api/auth/password/forgot", headers: { "x-player-hub-client-ip": "1.2.3.4" }, payload })).statusCode).toBe(403);
     expect((await app.inject({ method: "POST", url: "/api/auth/password/forgot", headers: { "x-player-hub-proxy-secret": secret, "x-player-hub-client-ip": "1.2.3.4" }, payload })).statusCode).toBe(200);
     expect(repo.rateLimit).toHaveBeenCalled(); await app.close();
+  });
+});
+
+
+describe("protected submission media transport", () => {
+  it("authorizes reviewer viewing, keeps links out of player history, and rejects cross-site decisions", async () => {
+    const { app, adminAuthRepo, adminSubmissionRepo, reviewRepo } = await appWithFakes({ NODE_ENV: "development" });
+    const cookie = await login(app); const item = adminSubmission(); adminSubmissionRepo.items.push(item);
+    const url = `/api/admin/submissions/${item.submissionId}/video`;
+    expect((await app.inject({ url, headers: { cookie } })).statusCode).toBe(403);
+    adminAuthRepo.admins.set("user-1", { adminUserId: "50000000-0000-4000-8000-000000000001", role: "REVIEWER", active: true });
+    expect((await app.inject({ url: "/api/admin/submissions/access", headers: { cookie } })).json()).toEqual({ allowed: true });
+    const viewing = await app.inject({ url, headers: { cookie } }); expect(viewing.statusCode).toBe(200); expect(viewing.json().expiresInSeconds).toBe(300); expect(viewing.headers["cache-control"]).toContain("no-store");
+    const bad = await app.inject({ method: "POST", url: `/api/admin/submissions/${item.submissionId}/review`, headers: { cookie, origin: "https://evil.test", "idempotency-key": "x" }, payload: { decision: "APPROVED" } });
+    expect(bad.statusCode).toBe(403); expect(reviewRepo.calls).toHaveLength(0);
+  });
+  it("requires the trusted proxy for submission media and review routes in production", async () => {
+    const { app } = await appWithFakes({ NODE_ENV: "production", PLAYER_HUB_PROXY_SECRET: "production-proxy-secret-at-least-32" });
+    for (const url of ["/api/admin/submissions/access", "/api/submissions", "/api/uploads/videos/signed-url"]) expect((await app.inject({ url })).statusCode).toBe(403);
   });
 });

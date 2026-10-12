@@ -1,7 +1,8 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type * as schema from "../db/schema.js";
-import { players, puzzles, submissions, videoUploads } from "../db/schema.js";
+import { players, puzzles, submissions, videoUploads, puzzleCompetitionSettings, submissionReviews, adminUsers, users } from "../db/schema.js";
+import type { VideoStorage } from "../storage/videoStorage.js";
 import { AppError } from "./errors.js";
 
 type Db = NodePgDatabase<typeof schema>;
@@ -25,6 +26,8 @@ export interface AdminSubmissionDto {
   runCode?: string;
   player: { publicPlayerId: string; displayName: string };
   playerPuzzleId: string;
+  maxLeaderboardTimeMs?: number | null;
+  reviewHistory?: { decision: string; reviewNote: string | null; reviewerAdminUserId: string; reviewerName?: string; createdAt: Date }[];
   video: {
     videoUploadId: string;
     storageProvider: string;
@@ -44,7 +47,12 @@ export interface AdminSubmissionRepository {
 }
 
 export class AdminSubmissionService {
-  constructor(private repo: AdminSubmissionRepository) {}
+  constructor(private repo: AdminSubmissionRepository, private storage?: VideoStorage) {}
+  async video(submissionId: string) {
+    const submission = await this.get(submissionId);
+    if (!this.storage?.viewingUrl) throw new AppError("VIDEO_STORAGE_NOT_CONFIGURED", "Protected video viewing is unavailable.", 503);
+    return { url: await this.storage.viewingUrl(submission.video.publicId), expiresInSeconds: 300 };
+  }
   list(filter: AdminSubmissionFilter) { return this.repo.list(filter); }
   async get(submissionId: string) {
     const submission = await this.repo.get(submissionId);
@@ -66,20 +74,22 @@ export class DrizzleAdminSubmissionRepository implements AdminSubmissionReposito
 
   async get(submissionId: string) {
     const [row] = await selectAdminSubmissions(this.db).where(eq(submissions.submissionId, submissionId)).limit(1);
-    return row ? toAdminSubmissionDto(row) : null;
+    return row ? { ...toAdminSubmissionDto(row), reviewHistory: await this.db.select({ decision: submissionReviews.decision, reviewNote: submissionReviews.reviewNote, reviewerAdminUserId: submissionReviews.reviewerAdminUserId, reviewerName: sql<string>`coalesce(${players.displayName}, ${users.verifiedEmail})`, createdAt: submissionReviews.createdAt }).from(submissionReviews).innerJoin(adminUsers, eq(adminUsers.adminUserId, submissionReviews.reviewerAdminUserId)).innerJoin(users, eq(users.userId, adminUsers.userId)).leftJoin(players, eq(players.userId, users.userId)).where(eq(submissionReviews.submissionId, submissionId)) } : null;
   }
 }
 
 function selectAdminSubmissions(db: Pick<Db, "select">) {
-  return db.select({ submission: submissions, puzzle: puzzles, player: players, video: videoUploads })
+  return db.select({ submission: submissions, puzzle: puzzles, player: players, video: videoUploads, maximum: puzzleCompetitionSettings.maxLeaderboardTimeMs })
     .from(submissions)
     .innerJoin(puzzles, eq(puzzles.puzzleId, submissions.puzzleId))
     .innerJoin(players, eq(players.playerId, submissions.playerId))
-    .innerJoin(videoUploads, eq(videoUploads.videoUploadId, submissions.videoUploadId));
+    .innerJoin(videoUploads, eq(videoUploads.videoUploadId, submissions.videoUploadId))
+    .leftJoin(puzzleCompetitionSettings, eq(puzzleCompetitionSettings.puzzleId, submissions.puzzleId));
 }
 
-function toAdminSubmissionDto(row: { submission: typeof submissions.$inferSelect; puzzle: typeof puzzles.$inferSelect; player: typeof players.$inferSelect; video: typeof videoUploads.$inferSelect }): AdminSubmissionDto {
+function toAdminSubmissionDto(row: { submission: typeof submissions.$inferSelect; puzzle: typeof puzzles.$inferSelect; player: typeof players.$inferSelect; video: typeof videoUploads.$inferSelect; maximum: number | null }): AdminSubmissionDto {
   return {
+    maxLeaderboardTimeMs: row.maximum,
     submissionId: row.submission.submissionId,
     status: row.submission.status,
     submittedAt: row.submission.submittedAt.toISOString(),

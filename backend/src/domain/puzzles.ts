@@ -3,6 +3,7 @@ import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type * as schema from "../db/schema.js";
 import { manufacturingBatches, manufacturingBatchRanges, catalogVariants, playerPuzzles, puzzleClaimPrefixes, puzzleClaims, puzzleDesigns, puzzles } from "../db/schema.js";
 import { AppError, validationFailed } from "./errors.js";
+import { puzzleCompetitionSettings } from "../db/schema.js";
 import { assertValidLevelId } from "./competitionSettings.js";
 import { insertGameEventInTransaction } from "./gameEvents.js";
 
@@ -127,11 +128,13 @@ export class DrizzlePuzzleRepository implements PuzzleRepository {
     const rows = await this.db.select({
       playerPuzzle: playerPuzzles,
       puzzle: puzzles,
+      maximum: puzzleCompetitionSettings.maxLeaderboardTimeMs,
     }).from(playerPuzzles)
       .innerJoin(puzzles, eq(playerPuzzles.puzzleId, puzzles.puzzleId))
+      .leftJoin(puzzleCompetitionSettings, eq(puzzleCompetitionSettings.puzzleId, puzzles.puzzleId))
       .where(and(eq(playerPuzzles.playerId, playerId), isNull(playerPuzzles.deletedAt), isNull(puzzles.deletedAt)));
 
-    return rows.map(({ playerPuzzle, puzzle }) => toPlayerPuzzleDto(puzzle, playerPuzzle.status, playerPuzzle.playerPuzzleId));
+    return rows.map(({ playerPuzzle, puzzle, maximum }) => ({ ...toPlayerPuzzleDto(puzzle, playerPuzzle.status, playerPuzzle.playerPuzzleId), maxLeaderboardTimeMs: maximum }));
   }
 
   async getPuzzle(puzzleId: string): Promise<PuzzleDto | null> {

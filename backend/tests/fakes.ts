@@ -346,6 +346,7 @@ export class FakeVideoStorage implements VideoStorage {
     this.signedPublicIds.push(publicId);
     return { uploadUrl: "https://example.test/video/upload", fields: { apiKey: "public-test-key", timestamp: 1, publicId, signature: "test-signature" } };
   }
+  async viewingUrl(publicId: string) { return `https://example.test/protected?public_id=${encodeURIComponent(publicId)}&expires_at=300`; }
   async verifyUpload(publicId: string): Promise<VerifiedVideoAsset> {
     if (this.verificationFails) throw new AppError("VIDEO_UPLOAD_VERIFICATION_FAILED", "The uploaded video could not be verified.", 422);
     return { publicId, bytes: 1024, durationMs: 12_500, resourceType: "video" };

@@ -32,7 +32,7 @@ export function PuzzleDetailExplorer({ id, initialPuzzle, initialSubmissions = [
         <PuzzleStateBadge status={puzzle.status} />
         <p className="text-sm text-[var(--cz-text-secondary)]">{puzzle.description}</p>
         <div className="grid grid-cols-1 gap-2 min-[390px]:grid-cols-3"><Stat label="Difficulty levelId" value={String(puzzle.levelId)} icon={<Gauge size={12} />} tone="aqua" /><Stat label="Personal Best" value={puzzle.personalBest ?? "Unavailable"} /><Stat label="Placement" value={puzzle.leaderboardRank ? `#${puzzle.leaderboardRank}` : "Unavailable"} tone="gold" /></div>
-        <div className="mt-auto flex flex-wrap gap-2"><Link href="/submissions/new" className="cz-btn cz-btn-primary"><Camera size={16} />Submit Attempt</Link><Link href="/leaderboard" className="cz-btn cz-btn-ghost"><Trophy size={16} />Leaderboard</Link><Link href="/puzzles" className="cz-btn cz-btn-ghost"><RotateCcw size={16} />Back</Link></div>
+        <div className="mt-auto flex flex-wrap gap-2"><Link href={`/submissions/new?puzzleId=${encodeURIComponent(puzzle.id)}`} className="cz-btn cz-btn-primary"><Camera size={16} />Submit Attempt</Link><Link href="/leaderboard" className="cz-btn cz-btn-ghost"><Trophy size={16} />Leaderboard</Link><Link href="/puzzles" className="cz-btn cz-btn-ghost"><RotateCcw size={16} />Back</Link></div>
       </div>
     </div>
     <div className="mt-8"><SectionHeader title="Submission History" />{related.length ? <div className="grid gap-3">{related.map((submission) => <SubmissionCard key={submission.id} submission={submission} />)}</div> : <p className="cz-surface p-6 text-center text-sm text-[var(--cz-text-tertiary)]">No submissions yet for this CircZles.</p>}</div>

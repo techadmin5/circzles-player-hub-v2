@@ -58,12 +58,12 @@ describe("submission pipeline", () => {
     expect(repo.uploads.get(signed.videoUploadId)?.status).toBe("COMPLETE");
   });
 
-  it("marks failed verification without completing the upload", async () => {
+  it("keeps unverifiable uploads signed for safe retry until expiration", async () => {
     const { service, repo, storage } = await setup();
     storage.verificationFails = true;
     const signed = await service.signVideoUpload("player-1", { filename: "solve.mp4", mimeType: "video/mp4", sizeBytes: 100 });
     await expect(service.completeVideoUpload("player-1", signed.videoUploadId)).rejects.toMatchObject({ code: "VIDEO_UPLOAD_VERIFICATION_FAILED" });
-    expect(repo.uploads.get(signed.videoUploadId)?.status).toBe("FAILED");
+    expect(repo.uploads.get(signed.videoUploadId)?.status).toBe("SIGNED");
   });
 
   it("creates PENDING_REVIEW with canonical puzzle and level ids", async () => {

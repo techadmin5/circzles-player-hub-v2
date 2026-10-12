@@ -14,6 +14,7 @@ import type { FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { Env } from "../config/env.js";
 import { toSessionPlayerDto, type IdentityProvider, type IdentityService, type PlayerDto, type VerifiedExternalIdentity } from "../domain/identity.js";
+import { constantTimeEqual } from "../domain/sessions.js";
 import { AppError, forbidden, unauthorized, validationFailed } from "../domain/errors.js";
 import type { GameStateService } from "../domain/gameState.js";
 import type { PuzzleOwnershipService } from "../domain/puzzles.js";
@@ -153,6 +154,15 @@ export function buildApp({ catalog, env, identity, gameState, puzzles, submissio
     methods: ["GET", "HEAD", "POST", "PATCH", "DELETE", "OPTIONS"],
   });
   app.register(cookie, { secret: env.SESSION_SECRET });
+  app.addHook("preHandler", async (request, reply) => {
+    const path = request.url.split("?")[0];
+    if (!path.startsWith("/api/admin/submissions") && !path.startsWith("/api/submissions") && !path.startsWith("/api/uploads/videos")) return;
+    reply.header("Cache-Control", "private, no-store");
+    const proxy = request.headers["x-player-hub-proxy-secret"];
+    if (env.NODE_ENV === "production" && (!env.PLAYER_HUB_PROXY_SECRET || typeof proxy !== "string" || !constantTimeEqual(proxy, env.PLAYER_HUB_PROXY_SECRET))) throw forbidden("Use the Player Hub website.");
+    if (!["GET", "HEAD"].includes(request.method) && ((request.headers.origin && request.headers.origin !== new URL(env.FRONTEND_ORIGIN).origin) || request.headers["sec-fetch-site"] === "cross-site")) throw forbidden("Invalid submission request origin.");
+  });
+
   if (catalog) registerCatalogRoutes(app, { env, adminAuth, catalog });
   app.register(couponWebhookRoutes, { handler: couponRedemptionWebhooks });
 
@@ -305,6 +315,12 @@ export function buildApp({ catalog, env, identity, gameState, puzzles, submissio
     return reply.send(await submissionService.signVideoUpload(player.internalId, parsed.data));
   });
 
+  app.delete("/api/uploads/videos/:videoUploadId", async request => {
+    const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+    const parsed = videoUploadParamsSchema.safeParse(request.params);
+    if (!parsed.success) throw validationFailed("Invalid video upload id.");
+    return submissionService.abandonVideoUpload(player.internalId, parsed.data.videoUploadId);
+  });
   app.post("/api/uploads/videos/:videoUploadId/complete", async (request, reply) => {
     const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
     const parsed = videoUploadParamsSchema.safeParse(request.params);
@@ -433,6 +449,16 @@ export function buildApp({ catalog, env, identity, gameState, puzzles, submissio
     return reply.send(await publicProfiles.getPublicProfile(parsed.data.publicPlayerId));
   });
 
+  app.get("/api/admin/submissions/access", async request => {
+    await adminAuth.requirePermission(request.cookies[SESSION_COOKIE_NAME], "SUBMISSIONS_REVIEW");
+    return { allowed: true };
+  });
+  app.get("/api/admin/submissions/:submissionId/video", async request => {
+    await adminAuth.requirePermission(request.cookies[SESSION_COOKIE_NAME], "SUBMISSIONS_REVIEW");
+    const parsed = adminSubmissionParamsSchema.safeParse(request.params);
+    if (!parsed.success) throw validationFailed("Invalid submission id.");
+    return adminSubmissions.video(parsed.data.submissionId);
+  });
   app.get("/api/admin/submissions", async (request, reply) => {
     await adminAuth.requirePermission(request.cookies[SESSION_COOKIE_NAME], "SUBMISSIONS_REVIEW");
     const parsed = adminSubmissionQuerySchema.safeParse(request.query);

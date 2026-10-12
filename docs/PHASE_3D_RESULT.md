@@ -1,3 +1,5 @@
+> Historical phase report: the 500 MiB limit and terminal verification-failure behavior below have been superseded by [Complete submission flow](COMPLETE_SUBMISSION_FLOW.md). Current uploads are capped at 100 MiB.
+
 # Phase 3D Result
 
 Phase 3D implements the real submission and signed video-upload pipeline while preserving mock mode and the existing Player Hub visual design.

@@ -18,6 +18,7 @@ import { DrizzlePublicProfileRepository } from "../src/domain/publicProfiles.js"
 import { DrizzleGameStateRepository } from "../src/domain/gameState.js";
 import { DrizzleStorePurchaseRepository } from "../src/domain/storePurchases.js";
 import { DrizzleMissionClaimRepository, periodKeyFor } from "../src/domain/missions.js";
+import { FakeVideoStorage } from "./fakes.js";
 import { CloudinaryAvatarStorage, decodeAvatar, MAX_AVATAR_BYTES } from "../src/storage/avatarStorage.js";
 
 let pg: PGlite, db: Database, profiles: PlayerProfileService;
@@ -140,9 +141,9 @@ describe("persisted authoritative Player Hub profile", () => {
     const [design] = await db.insert(s.puzzleDesigns).values({ name: "Event fixture" }).returning();
     const [puzzle] = await db.insert(s.puzzles).values({ puzzleDesignId: design.puzzleDesignId, name: "Event fixture", levelId: 1 }).returning();
     const [ownedPuzzle] = await db.insert(s.playerPuzzles).values({ playerId: id, puzzleId: puzzle.puzzleId, source: "TEST" }).returning();
-    const [video] = await db.insert(s.videoUploads).values({ playerId: id, storageProvider: "TEST", publicId: crypto.randomUUID(), mimeType: "video/mp4", declaredSizeBytes: 1, status: "COMPLETE", expiresAt: new Date(Date.now()+60_000) }).returning();
+    const [video] = await db.insert(s.videoUploads).values({ playerId: id, storageProvider: "CLOUDINARY", publicId: crypto.randomUUID(), mimeType: "video/mp4", declaredSizeBytes: 1024, verifiedSizeBytes: 1024, durationMs: 12500, status: "COMPLETE", expiresAt: new Date(Date.now()+60_000) }).returning();
     const [submission] = await db.insert(s.submissions).values({ playerId: id, playerPuzzleId: ownedPuzzle.playerPuzzleId, puzzleId: puzzle.puzzleId, levelId: 1, completionTimeMs: 1000, videoUploadId: video.videoUploadId }).returning();
-    await db.insert(s.puzzleCompetitionSettings).values({ puzzleId: puzzle.puzzleId, category: "MAIN_LEVEL", displayOrder: 0, rewardEnabled: true, synapseReward: 100, xpReward: 12 });
+    await db.insert(s.puzzleCompetitionSettings).values({ puzzleId: puzzle.puzzleId, category: "MAIN_LEVEL", displayOrder: 0, maxLeaderboardTimeMs: 300000, rewardEnabled: true, synapseReward: 100, xpReward: 12 });
     const events = new PlayerStateEvents(); events.setReady(true);
     const changed = vi.fn(), otherChanged = vi.fn();
     const off = events.subscribe(id, changed, () => undefined)!;
@@ -150,7 +151,7 @@ describe("persisted authoritative Player Hub profile", () => {
     const notifications: string[] = [];
     const stop = await pg.listen(PLAYER_STATE_CHANNEL, (payload) => { notifications.push(payload); events.receive(payload); });
     try {
-      const reviews = new DrizzleSubmissionReviewRepository(db);
+      const reviews = new DrizzleSubmissionReviewRepository(db, new FakeVideoStorage());
       const input = { submissionId: submission.submissionId, reviewerAdminUserId: admin.adminUserId, decision: "APPROVED" as const, idempotencyKey: crypto.randomUUID() };
       await reviews.review(input);
       expect(changed).toHaveBeenCalled(); expect(otherChanged).not.toHaveBeenCalled();

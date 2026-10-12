@@ -317,7 +317,7 @@ All sensitive admin mutations insert `audit_logs`.
 
 All endpoints below require the authenticated session cookie. The server derives `playerId` from that session.
 
-- `POST /api/uploads/videos/signed-url` accepts strict JSON `{ "filename", "mimeType", "sizeBytes" }`. Supported types are MP4, QuickTime, WebM, and M4V; the technical limit is 500 MiB. It returns `videoUploadId`, expiry, Cloudinary upload URL, public API key, backend-generated public ID, timestamp, and signature. It never returns the API secret.
+- `POST /api/uploads/videos/signed-url` accepts strict JSON `{ "filename", "mimeType", "sizeBytes" }`. Supported types are MP4, QuickTime, WebM, and M4V; the technical limit is 100 MiB (104,857,600 bytes). It returns `videoUploadId`, expiry, Cloudinary upload URL, public API key, backend-generated public ID, timestamp, and signature. It never returns the API secret.
 - `POST /api/uploads/videos/:videoUploadId/complete` accepts no asset claims. The backend verifies the expected video with the storage provider, records authoritative bytes/duration, and marks the upload `COMPLETE`.
 - `GET /api/submissions` returns only the current player's submissions, newest first.
 - `GET /api/submissions/:submissionId` returns only the current player's submission; unknown and foreign IDs return `SUBMISSION_NOT_FOUND`.
@@ -404,3 +404,17 @@ Provider transport verification confirmed a real `circzles.in` Wix Coupon Applie
 For email login, Wix HTTP 404 with exact provider code `-19999` maps to `WIX_ACCOUNT_NOT_FOUND`; arbitrary 404 responses do not. Register V2 `emailAlreadyExists` identifiers map to `WIX_ACCOUNT_ALREADY_EXISTS`, while a returned email-verification state continues through the verification challenge.
 
 No auth endpoint accepts `userId`, `playerId`, `publicPlayerId`, or a free-standing Wix member ID. Direct auth is restricted to `CIRCZLES_COM`; handoff source comes from the signed issuer. `/api/dev/login` remains development-only.
+
+
+### Completed competitive submission flow
+
+See [Complete submission flow](COMPLETE_SUBMISSION_FLOW.md) for current policy and operations. Uploads are authenticated, non-overwriting Cloudinary videos. Signed fields include `type`, `overwrite`, and `allowedFormats`; the browser sends `allowed_formats` and uses direct 6 MiB chunks. Upload verification and both creation/approval require authoritative duration/size. `max_leaderboard_time_ms` must be configured; both completion time and verified recording duration must be within the current maximum. Missing/over-limit/changed media fails before pending/approval side effects.
+
+- `GET /api/me/puzzles` includes `maxLeaderboardTimeMs` for owned playable puzzles.
+- `GET /api/admin/submissions/access` requires SUBMISSIONS_REVIEW.
+- `GET /api/admin/submissions/:submissionId/video` requires SUBMISSIONS_REVIEW and returns a protected URL expiring in 300 seconds. No public video URL is returned by player APIs.
+- Admin detail includes current maximum and immutable review history with reviewer/timestamp/note.
+- Player submission history/detail includes the latest review note without reviewer identity.
+- `DELETE /api/uploads/videos/:videoUploadId` abandons only the current player's unused upload. Submitted recordings cannot be deleted.
+- Submission/upload/admin-review routes require the website proxy in production; mutations reject foreign Origin/cross-site requests. Responses are no-store.
+- Temporary provider/processing/database finalization failures remain retryable until upload expiration; invalid size/duration is terminal. Finalization uses conditional updates so a delayed failure cannot downgrade a completed upload.

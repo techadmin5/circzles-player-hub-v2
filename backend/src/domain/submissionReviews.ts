@@ -1,11 +1,14 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Database } from "../db/client.js";
 import {
   puzzleCompetitionSettings,
   submissionReviews,
   submissionRewardGrants,
-  submissions,
+  submissions, videoUploads, puzzles, playerPuzzles,
 } from "../db/schema.js";
+import type { VideoStorage } from "../storage/videoStorage.js";
+import { assertSubmissionEligibility } from "./submissionEligibility.js";
+import { managementLock } from "./catalog.js";
 import { AppError, validationFailed } from "./errors.js";
 import { creditPointsInTransaction, grantXpInTransaction } from "./gameState.js";
 import { processPersonalBestInTransaction } from "./leaderboards.js";
@@ -56,10 +59,11 @@ export class SubmissionReviewService {
 }
 
 export class DrizzleSubmissionReviewRepository implements SubmissionReviewRepository {
-  constructor(private db: Database) {}
+  constructor(private db: Database, private storage?: VideoStorage) {}
 
   review(input: SubmissionReviewInput) {
     return this.db.transaction(async (tx) => {
+      await managementLock(tx);
       const [submission] = await tx.select().from(submissions).where(eq(submissions.submissionId, input.submissionId)).limit(1).for("update");
       if (!submission) throw new AppError("SUBMISSION_NOT_FOUND", "Submission was not found.", 404);
 
@@ -78,6 +82,20 @@ export class DrizzleSubmissionReviewRepository implements SubmissionReviewReposi
         throw new AppError("SUBMISSION_ALREADY_REVIEWED", "Submission has already been reviewed.", 409, { status: submission.status });
       }
 
+      let timingProof: { maxLeaderboardTimeMs: number; verifiedVideoDurationMs: number } | undefined;
+      if (input.decision === "APPROVED") {
+        const [owned] = await tx.select().from(playerPuzzles).where(and(eq(playerPuzzles.playerPuzzleId, submission.playerPuzzleId), eq(playerPuzzles.playerId, submission.playerId), eq(playerPuzzles.puzzleId, submission.puzzleId), isNull(playerPuzzles.deletedAt)));
+        if (!owned) throw validationFailed("This CircZles is no longer owned by the submitting player.");
+        const [video] = await tx.select().from(videoUploads).where(eq(videoUploads.videoUploadId, submission.videoUploadId));
+        const [puzzle] = await tx.select().from(puzzles).where(eq(puzzles.puzzleId, submission.puzzleId));
+        const [policy] = await tx.select().from(puzzleCompetitionSettings).where(eq(puzzleCompetitionSettings.puzzleId, submission.puzzleId));
+        if (!video || video.playerId !== submission.playerId || !puzzle || puzzle.status !== "ACTIVE" || puzzle.deletedAt) throw validationFailed("Submission media or CircZles is no longer available.");
+        assertSubmissionEligibility(puzzle.name, policy?.maxLeaderboardTimeMs, submission.completionTimeMs, video);
+        if (!this.storage) throw new AppError("VIDEO_STORAGE_NOT_CONFIGURED", "Video verification is unavailable.", 503);
+        const verified = await this.storage.verifyUpload(video.publicId);
+        if (verified.publicId !== video.publicId || verified.bytes !== video.verifiedSizeBytes || verified.durationMs !== video.durationMs) throw validationFailed("The video changed or could not be verified.");
+        timingProof = { maxLeaderboardTimeMs: policy!.maxLeaderboardTimeMs!, verifiedVideoDurationMs: video.durationMs! };
+      }
       const [review] = await tx.insert(submissionReviews).values({
         submissionId: submission.submissionId,
         reviewerAdminUserId: input.reviewerAdminUserId,
@@ -93,7 +111,7 @@ export class DrizzleSubmissionReviewRepository implements SubmissionReviewReposi
       await insertGameEventInTransaction(tx, {
         playerId: submission.playerId, eventType: reviewEventType, sourceType: "SUBMISSION_REVIEW", sourceId: review.submissionReviewId,
         idempotencyKey: `${reviewEventType}:${submission.submissionId}`,
-        payload: { submissionId: submission.submissionId, puzzleId: submission.puzzleId, levelId: Number(submission.levelId), completionTimeMs: submission.completionTimeMs, decision: input.decision },
+        payload: { submissionId: submission.submissionId, puzzleId: submission.puzzleId, levelId: Number(submission.levelId), completionTimeMs: submission.completionTimeMs, decision: input.decision, ...timingProof },
       });
 
       if (input.decision === "APPROVED") {
@@ -133,7 +151,7 @@ export class DrizzleSubmissionReviewRepository implements SubmissionReviewReposi
             idempotencyKey: `submission:first-completion:${submission.playerId}:${submission.puzzleId}:xp`,
             metadata,
           }) : undefined;
-          await tx.update(submissionRewardGrants).set({
+          if (pointResult || xpResult) await tx.update(submissionRewardGrants).set({
             pointTransactionId: pointResult?.transactionId,
             xpTransactionId: xpResult?.transactionId,
           }).where(eq(submissionRewardGrants.submissionRewardGrantId, grant.submissionRewardGrantId));
