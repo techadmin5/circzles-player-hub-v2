@@ -1,3 +1,5 @@
+import { registerMissionClaimMaintenance } from "./missionMaintenance.js";
+import type { MissionWorkerState } from "../domain/missionProcessorRunner.js";
 import { registerCatalogRoutes } from "./catalogRoutes.js";
 import type { CatalogService } from "../domain/catalog.js";
 import { registerPlayerStateEventRoutes } from "./playerStateEventRoutes.js";
@@ -68,6 +70,7 @@ export interface AppDeps {
   googleAuth?: GoogleAuthService;
   playerProfile?: PlayerProfileService;
   playerStateEvents?: PlayerStateEvents;
+  missionWorkerState?: () => MissionWorkerState;
   checkDb: () => Promise<void>;
 }
 
@@ -138,7 +141,7 @@ const equipmentParamsSchema = z.object({ slot: z.enum(equipmentSlots) }).strict(
 const equipBodySchema = z.object({ slot: z.enum(equipmentSlots) }).strict();
 const renameDisplayNameBodySchema = z.object({ inventoryItemId: z.string().uuid(), displayName: z.string() }).strict();
 
-export function buildApp({ catalog, env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, missionChests, rewardCatalog, storePurchases, inventory, coupons, playerIdentityActions, rewardWheel, couponRedemptionWebhooks, authHandoff, directAuth, nativeAuth, googleAuth, playerProfile, playerStateEvents, checkDb }: AppDeps) {
+export function buildApp({ catalog, env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, missionChests, rewardCatalog, storePurchases, inventory, coupons, playerIdentityActions, rewardWheel, couponRedemptionWebhooks, authHandoff, directAuth, nativeAuth, googleAuth, playerProfile, playerStateEvents, missionWorkerState, checkDb }: AppDeps) {
   const handoffVerifier = authHandoff ?? new AuthHandoffVerifier({ circzlesCom: env.AUTH_HANDOFF_CIRCZLES_COM_SECRET, circzlesIn: env.AUTH_HANDOFF_CIRCZLES_IN_SECRET });
   const directAuthProvider = directAuth ?? new UnconfiguredDirectAuthProvider();
   const app = Fastify({
@@ -165,6 +168,8 @@ export function buildApp({ catalog, env, identity, gameState, puzzles, submissio
     if (!["GET", "HEAD"].includes(request.method) && ((request.headers.origin && request.headers.origin !== new URL(env.FRONTEND_ORIGIN).origin) || request.headers["sec-fetch-site"] === "cross-site")) throw forbidden("Invalid submission request origin.");
   });
 
+  registerMissionClaimMaintenance(app, env.MISSION_CLAIMS_ENABLED ?? true, request => requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]));
+
   if (catalog) registerCatalogRoutes(app, { env, adminAuth, catalog });
   app.register(couponWebhookRoutes, { handler: couponRedemptionWebhooks });
 
@@ -184,7 +189,7 @@ export function buildApp({ catalog, env, identity, gameState, puzzles, submissio
 
   app.get("/health", async () => {
     await checkDb();
-    return { ok: true };
+    return { ok: true, missions: { worker: missionWorkerState?.() ?? null, claimsEnabled: env.MISSION_CLAIMS_ENABLED ?? true } };
   });
 
   app.get("/api/auth/session", async (request, reply) => {
