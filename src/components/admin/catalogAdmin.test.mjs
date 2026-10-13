@@ -319,31 +319,24 @@ test("catalog time converts whole minutes/seconds exactly and rejects invalid co
   for (const [m, s] of [["0", "0"], ["-1", "0"], ["1", "60"], ["1.5", "0"], ["1", "0.5"], ["abc", "0"], ["", "30"], ["999999", "0"]]) assert.throws(() => parseCatalogTime(m, s));
   assert.equal(formatCatalogTime(300000), "05:00"); assert.equal(formatCatalogTime(150000), "02:30"); assert.equal(formatCatalogTime(null), "Not set");
 });
-test("catalog defaults ACTIVE, permits all status filters, and Edit opens the existing time editor with save/clear/reload", async t => {
-  const root = await setup(t), urls = [], patches = []; let time = null;
+test("competition editor loads and saves rewards without clearing maximum and time without clearing rewards", async t => {
+  const root = await setup(t), patches = []; let settings = { active: true, category: "SIDE_QUEST", displayOrder: 7, leaderboardEnabled: true, rewardEnabled: true, xpReward: 75, synapseReward: 50, maxLeaderboardTimeMs: 300001 };
   t.mock.method(globalThis, "fetch", async (url, init = {}) => {
     const path = new URL(url).pathname;
-    if (path.endsWith("/designs")) return Response.json({ designs: [] });
-    urls.push(new URL(url));
-    if (init.method === "PATCH") { const body = JSON.parse(init.body); patches.push(body); time = body.maxLeaderboardTimeMs; return Response.json({ ...v, maxLeaderboardTimeMs: time }); }
-    return Response.json(path.endsWith(v.catalogVariantId) ? { ...v, maxLeaderboardTimeMs: time, batches: [b] } : [{ ...v, maxLeaderboardTimeMs: time }]);
+    if (path.endsWith("/competition")) { if (init.method === "PATCH") { const body = JSON.parse(init.body); patches.push(body); settings = { ...settings, ...body }; } return Response.json(settings); }
+    return Response.json(path.endsWith(v.catalogVariantId) ? { ...v, maxLeaderboardTimeMs: settings.maxLeaderboardTimeMs, batches: [b] } : path.endsWith("/designs") ? { designs: [] } : [{ ...v, maxLeaderboardTimeMs: settings.maxLeaderboardTimeMs }]);
   });
-  await act(async () => root.render(createElement(CatalogAdmin)));
-  assert.equal(urls[0].searchParams.get("status"), "ACTIVE"); assert.match(document.body.textContent, /Max Leaderboard Time/); assert.match(document.body.textContent, /Not set/);
-  const filter = Array.from(document.querySelectorAll("select")).find(node => node.parentElement.textContent.startsWith("Status"));
-  for (const status of ["", "DRAFT", "ARCHIVED", "ACTIVE"]) { await act(async () => { filter.value = status; filter.dispatchEvent(new window.Event("change", { bubbles: true })); }); assert.equal(urls.at(-1).searchParams.get("status"), status || null); }
-  await click("Edit"); assert.match(document.body.textContent, /CircZles Details/);
-  await submit(document.querySelector("form"), { timeMinutes: "5", timeSeconds: "0" });
-  assert.equal(patches.at(-1).maxLeaderboardTimeMs, 300000); assert.match(document.body.textContent, /CircZles updated successfully/); assert.match(document.body.textContent, /05:00/);
-  await click("Lion"); assert.equal(document.querySelector('[name="timeMinutes"]').value, "5");
-  await submit(document.querySelector("form"), { timeMinutes: "2", timeSeconds: "30" }); assert.equal(patches.at(-1).maxLeaderboardTimeMs, 150000);
-  await submit(document.querySelector("form"), { timeMinutes: "0", timeSeconds: "60" }); assert.match(document.querySelector('[role="alert"]').textContent, /Seconds/); assert.equal(patches.length, 2);
-  await click("Clear / Not configured"); await submit(document.querySelector("form"), {}); assert.equal(patches.at(-1).maxLeaderboardTimeMs, null);
-  await click("Edit"); assert.equal(document.querySelector('[name="timeMinutes"]').value, ""); assert.match(document.body.textContent, /Not set/);
+  await act(async () => root.render(createElement(CatalogAdmin))); await click("Edit");
+  const form = () => document.querySelector('form[aria-label="Competition and completion rewards"]');
+  assert.match(document.body.textContent, /Competition & Completion Rewards/); assert.equal(form().elements.namedItem("xpReward").value, "75"); assert.equal(form().elements.namedItem("rewardEnabled").checked, true);
+  await submit(form(), { xpReward: "0", synapseReward: "120" }); assert.equal(patches[0].xpReward, 0); assert.equal("maxLeaderboardTimeMs" in patches[0], false); assert.equal(settings.maxLeaderboardTimeMs, 300001); assert.match(document.body.textContent, /completion rewards saved/);
+  await submit(form(), { timeMinutes: "2", timeSeconds: "30" }); assert.equal(settings.maxLeaderboardTimeMs, 150000); assert.equal(settings.synapseReward, 120); assert.equal(settings.xpReward, 0);
+  await submit(form(), { timeMinutes: "0", timeSeconds: "60" }); assert.match(document.querySelector('[role="alert"]').textContent, /Seconds/); assert.equal(patches.length, 2);
+  await submit(form(), { xpReward: "-1" }); assert.equal(patches.length, 2);
 });
 for (const productType of ["ACCESSORY", "CIRCZLES"]) test("non-playable " + productType + " has no editable timing", async t => {
   const root = await setup(t); const row = { ...v, productType, puzzleId: null, levelId: null, status: "DRAFT" };
   t.mock.method(globalThis, "fetch", async url => Response.json(new URL(url).pathname.endsWith(v.catalogVariantId) ? { ...row, batches: [] } : [row]));
   await act(async () => root.render(createElement(CatalogAdmin))); await click("Edit");
-  assert.equal(document.querySelector('[name="timeMinutes"]'), null); assert.match(document.body.textContent, /Leaderboard timing becomes available when this is a playable CircZles/);
+  assert.equal(document.querySelector('[name="timeMinutes"]'), null); assert.match(document.body.textContent, /Activate a complete playable CircZles/);
 });

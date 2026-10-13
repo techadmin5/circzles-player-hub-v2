@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { getTableColumns, and, eq, ne, lt, gt, lte, gte, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
+import { CompetitionSettingsService, DrizzleCompetitionSettingsRepository, competitionSettingsPatch } from "./competitionSettings.js";
 import type { Database } from "../db/client.js";
 import { catalogVariants as variants, manufacturingBatches as batches, manufacturingBatchRanges as ranges, puzzles, puzzleDesigns, puzzleDesignAliases, puzzleClaimPrefixes, puzzleClaims, playerPuzzles, puzzleCompetitionSettings as competition } from "../db/schema.js";
 import { gameplaySignature, normalizeDesign, normalizeSize, proposeIdentities, type IdentityContext } from "./catalogIdentity.js";
@@ -203,6 +204,18 @@ export class CatalogService {
     const [setting] = await db.select({ time: competition.maxLeaderboardTimeMs }).from(competition).where(eq(competition.puzzleId, puzzleId));
     return setting?.time ?? null;
   }
+  async competitionSettings(id: string) {
+    const variant = await getVariant(this.db, id);
+    if (variant.productType !== "CIRCZLES" || !variant.puzzleId || variant.status !== "ACTIVE") throw validationFailed("Competition settings require an active playable CircZles.");
+    return new CompetitionSettingsService(new DrizzleCompetitionSettingsRepository(this.db)).getByPuzzleId(variant.puzzleId);
+  }
+  async saveCompetitionSettings(id: string, input: unknown) {
+    const parsed = competitionSettingsPatch.safeParse(input);
+    if (!parsed.success) throw validationFailed("Invalid competition settings.", parsed.error.flatten());
+    const variant = await getVariant(this.db, id);
+    if (variant.productType !== "CIRCZLES" || !variant.puzzleId || variant.status !== "ACTIVE") throw validationFailed("Competition settings require an active playable CircZles.");
+    return new CompetitionSettingsService(new DrizzleCompetitionSettingsRepository(this.db)).upsert({ puzzleId: variant.puzzleId, ...parsed.data });
+  }
   create(input: VariantInput) { return this.db.transaction(async tx => { await managementLock(tx); return createVariant(tx, input); }); }
   addBatch(id: string, input: BatchInput) { return this.db.transaction(async tx => { await managementLock(tx); return createBatch(tx, id, input); }); }
   update(id: string, input: unknown) {
@@ -228,6 +241,10 @@ export class CatalogService {
       }
       if (maxLeaderboardTimeMs !== undefined) {
         if (current.productType !== "CIRCZLES" || !current.puzzleId) throw validationFailed("Leaderboard timing becomes available when this is a playable CircZles.");
+        if (maxLeaderboardTimeMs === null) {
+          const [saved] = await tx.select().from(competition).where(eq(competition.puzzleId, current.puzzleId));
+          if (saved?.active && (saved.leaderboardEnabled || saved.rewardEnabled)) throw validationFailed("Disable competition or its leaderboard and rewards before clearing the maximum completion time.");
+        }
         // Timing-only rows carry no category/order; existing competition behavior is untouched.
         await tx.insert(competition).values({ puzzleId: current.puzzleId, maxLeaderboardTimeMs }).onConflictDoUpdate({ target: competition.puzzleId, set: { maxLeaderboardTimeMs } });
         if (!Object.keys(patch).length) return { ...current, maxLeaderboardTimeMs };

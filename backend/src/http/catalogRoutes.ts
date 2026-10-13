@@ -30,6 +30,8 @@ export function registerCatalogRoutes(app: FastifyInstance, deps: { env: Env; ad
       return catalogJson(await deps.catalog.list(query.data));
     });
     scope.get("/api/admin/catalog/:variantId", async request => catalogJson(await deps.catalog.detail(id(request.params, "variantId"))));
+    scope.get("/api/admin/catalog/:variantId/competition", async request => deps.catalog.competitionSettings(id(request.params, "variantId")));
+    scope.patch("/api/admin/catalog/:variantId/competition", async request => deps.catalog.saveCompetitionSettings(id(request.params, "variantId"), request.body));
     scope.post("/api/admin/catalog", async (request, reply) => reply.code(201).send(catalogJson(await deps.catalog.create(request.body as Parameters<CatalogService["create"]>[0]))));
     scope.patch("/api/admin/catalog/:variantId", async request => catalogJson(await deps.catalog.update(id(request.params, "variantId"), request.body)));
     scope.post("/api/admin/catalog/:variantId/batches", async (request, reply) => reply.code(201).send(catalogJson(await deps.catalog.addBatch(id(request.params, "variantId"), request.body as Parameters<CatalogService["addBatch"]>[1]))));

@@ -4,7 +4,7 @@ The failing submission preview imported AdminSubmissionDto from backend/src/doma
 
 ## Fix and contract synchronization
 
-- src/types/adminSubmissions.ts contains the frontend JSON contract, preserving IDs/status, player/puzzle data, video metadata, maximum time, review history and optional/null fields. Review createdAt is a JSON string, not the backend Date object.
+- src/types/adminSubmissions.ts contains the frontend JSON contract, preserving IDs/status, player/puzzle data, video metadata, maximum time, review history, current completion reward configuration, historical first-grant snapshots and optional/null fields. Review createdAt is a JSON string, not the backend Date object.
 - backend/tests/frontendContracts.test.ts requires exact type equality between the frontend DTO and the recursively JSON-serialized backend DTO during backend typecheck. Changing either contract without synchronizing the other fails compilation.
 - Catalog identity functions/types moved unchanged to dependency-free shared/catalogIdentity.mjs and shared/catalogIdentity.d.mts. Both browser previews and backend catalog/import/repair consume the same implementation. The backend source module re-exports it, preserving existing imports and build output entry points. The compiled backend runtime was checked resolving this shared module.
 - All frontend imports into backend implementation modules were removed, including catalog UI, API client, import wizard and test imports.

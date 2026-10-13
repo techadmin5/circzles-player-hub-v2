@@ -38,10 +38,10 @@ export function parseCompletionTime(value: string): number | null {
 }
 
 export function normalizeCompletionInput(value: string, deleting = false) {
-  value = value.trim();
-  if (/^\d{4}$/.test(value)) return value.slice(0, 2) + ":" + value.slice(2);
-  if (!deleting && /^\d{2}$/.test(value)) return value + ":";
-  return value;
+  const digits = value.replace(/\D/g, "");
+  if (digits.length > 7) return ""; // Never silently truncate a pasted duration.
+  if (digits.length < 2 || deleting && digits.length === 2) return digits;
+  return digits.slice(0, 2) + ":" + digits.slice(2, 4) + (digits.length > 4 ? "." + digits.slice(4) : "");
 }
 
 export function SubmissionStepper({ puzzles: initialPuzzles }: { puzzles: PuzzleOption[] }) {
@@ -72,8 +72,8 @@ export function SubmissionStepper({ puzzles: initialPuzzles }: { puzzles: Puzzle
   const completion = /:\d{2}(?:\.\d{1,3})?$/.test(time) ? parseCompletionTime(time) : null;
   const puzzleValid = !!selected && (dataMode !== "api" || !!selected.playerPuzzleId) && !!selected.maxLeaderboardTimeMs;
   const timeValid = puzzleValid && completion !== null && completion <= selected!.maxLeaderboardTimeMs!;
-  const fileValid = !!file && duration !== null && timeValid && completion! <= duration && duration <= selected!.maxLeaderboardTimeMs!;
-  const uploadValid = fileValid && verification === "verified" && !!videoUploadId && verifiedDuration !== null && completion! <= verifiedDuration && verifiedDuration <= selected!.maxLeaderboardTimeMs!;
+  const fileValid = !!file && duration !== null && duration > 0 && timeValid;
+  const uploadValid = fileValid && verification === "verified" && !!videoUploadId && verifiedDuration !== null && verifiedDuration > 0;
   const accessible = [true, puzzleValid, timeValid, fileValid, uploadValid, uploadValid && reviewed];
   const activeStep = Math.min(step, accessible.lastIndexOf(true));
   const active = STEPS[activeStep];
@@ -99,8 +99,7 @@ export function SubmissionStepper({ puzzles: initialPuzzles }: { puzzles: Puzzle
     const limit = selected?.maxLeaderboardTimeMs;
     const completion = /:\d{2}(?:\.\d{1,3})?$/.test(time) ? parseCompletionTime(time) : null;
     if (!completion) throw new Error("Enter a valid completion time.");
-    if (duration !== null && completion > duration) throw new Error("Completion time cannot exceed the recording duration.");
-    if (limit && (completion > limit || (duration != null && duration > limit))) throw new Error(`This recording or completion time exceeds the ${formatCatalogTime(limit)} maximum for ${selected?.name}.`);
+    if (limit && completion > limit) throw new Error(`Reported completion time exceeds the ${formatCatalogTime(limit)} maximum for ${selected?.name}.`);
   }
   async function selectFile(nextFile: File | null) {
     const ticket = ++fileSequence.current;
@@ -126,9 +125,8 @@ export function SubmissionStepper({ puzzles: initialPuzzles }: { puzzles: Puzzle
         if (!uploadRef.current.transferred) { await uploadVideoDirectly(signed, file, setProgress); uploadRef.current.transferred = true; }
         setVerification("verifying");
         const verified = await apiClient.completeVideoUpload(signed.videoUploadId);
+        if (verified.status !== "COMPLETE") throw new Error("The recording has not completed backend verification. Retry verification.");
         if (!Number.isInteger(verified.durationMs) || !verified.durationMs || verified.durationMs <= 0) throw new Error("The recording duration has not been verified. Retry verification.");
-        if (completion! > verified.durationMs) throw new Error("Completion time cannot exceed the verified recording duration.");
-        if (verified.durationMs > selected!.maxLeaderboardTimeMs!) throw new Error("The verified recording exceeds the maximum duration.");
         setDuration(verified.durationMs); setVerifiedDuration(verified.durationMs);
         setVideoUploadId(signed.videoUploadId);
       } else { setProgress(100); setVideoUploadId("mock-video-upload"); setVerifiedDuration(duration); }
@@ -164,10 +162,21 @@ export function SubmissionStepper({ puzzles: initialPuzzles }: { puzzles: Puzzle
   return <div className="grid gap-5 lg:grid-cols-[280px_1fr]" data-testid="submission-stepper">
     <ol className="cz-surface grid gap-1 p-2">{STEPS.map((item, index) => <li key={item.key}><button disabled={busy || !accessible[index]} aria-current={index === activeStep ? "step" : undefined} data-state={index === 3 && ["failed", "expired"].includes(verification) ? "failed" : index === activeStep ? "active" : !accessible[index] ? "locked" : completed[index] ? "completed" : "available"} onClick={() => navigate(index)} data-testid={`step-${item.key}`} className={cn("flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm", index === activeStep ? "bg-[var(--cz-aqua-dim)]" : "text-[var(--cz-text-secondary)]")}><span className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-[var(--cz-hairline-strong)]">{completed[index] ? <CheckCircle2 size={15} /> : index + 1}</span><span className="cz-display font-medium">{item.title}</span>{!accessible[index] && <span className="text-xs">Locked</span>}{index === 3 && ["failed", "expired"].includes(verification) && <span className="text-xs">Failed</span>}</button></li>)}</ol>
     <div className="cz-surface flex flex-col gap-4 p-5"><div className="flex items-center gap-2 text-[var(--cz-aqua)]">{active.icon}<span className="text-xs font-semibold uppercase tracking-wide">Step {activeStep + 1} of {STEPS.length}</span></div><h2 className="cz-display text-2xl font-bold">{active.title}</h2><p className="text-sm text-[var(--cz-text-secondary)]">{active.body}</p>
-      <p>{selected?.name} | Level {selected?.levelId} | Maximum eligible duration: {formatCatalogTime(selected?.maxLeaderboardTimeMs)}</p><p className="text-sm">MP4, MOV, WebM or M4V | Maximum 100 MB. {duration != null && `Actual recording duration: ${formatVideoDuration(duration)}`}</p>
+      <p>{selected?.name} | Level {selected?.levelId} | Maximum completion time: {formatCatalogTime(selected?.maxLeaderboardTimeMs)}</p><p className="text-sm">MP4, MOV, WebM or M4V | Maximum 100 MB. {duration != null && `Actual recording duration: ${formatVideoDuration(duration)}`}</p>
+      {completion !== null && duration !== null && duration < completion && <p role="status" className="text-sm text-[var(--cz-gold)]">Your recording is shorter than your reported completion time. You can submit it, but the reviewer may request another recording.</p>}
       <div className="cz-inset grid gap-3 p-4">
         {active.key === "puzzle" && <div className="grid gap-2 sm:grid-cols-2">{puzzles.map((p) => <button key={p.playerPuzzleId ?? p.id} disabled={busy} onClick={() => { if (selectedId !== (p.playerPuzzleId ?? p.id)) { void selectFile(null); setTime(""); setSelectedId(p.playerPuzzleId ?? p.id); setStep(0); } idempotencyKey.current = null; }} className={cn("rounded-xl border px-3 py-2.5 text-left text-sm", selectedId === (p.playerPuzzleId ?? p.id) ? "border-[rgba(61,234,212,0.4)] bg-[var(--cz-aqua-dim)]" : "border-[var(--cz-hairline)]")}><span className="cz-display block font-semibold">{p.name}</span><span className="text-xs text-[var(--cz-text-tertiary)]">Level {p.levelId}</span></button>)}</div>}
-        {active.key === "time" && <input disabled={busy} aria-label="Completion time" inputMode="decimal" autoComplete="off" value={time} onChange={(event) => { setTime(normalizeCompletionInput(event.target.value, event.target.value.length < time.length)); setReviewed(false); idempotencyKey.current = null; }} className="min-h-11 rounded-xl border border-[var(--cz-hairline-strong)] bg-black/20 px-3 text-lg outline-none" onBlur={() => { const parsed = /:\d{2}(?:\.\d{1,3})?$/.test(time) ? parseCompletionTime(time) : null; if (parsed !== null) setTime(formatVideoDuration(parsed)); }} placeholder="MM:SS.mmm" />}
+        {active.key === "time" && <label>Completion time (MM:SS; optional millisecond digits)<input disabled={busy} aria-label="Completion time" inputMode="numeric" autoComplete="off" value={time} onChange={(event) => {
+          const input = event.target, raw = input.value, deleting = raw.length < time.length;
+          const deletingForward = (event.nativeEvent as InputEvent | undefined)?.inputType === "deleteContentForward";
+          const digitsBeforeCursor = raw.slice(0, input.selectionStart ?? raw.length).replace(/\D/g, "").length;
+          const normalized = normalizeCompletionInput(raw, deleting);
+          input.value = normalized; // Restore separators even when state is unchanged.
+          setTime(normalized); setReviewed(false); idempotencyKey.current = null;
+          // Restore the caret by digit position after inserted separators; edits in
+          // the middle must not jump to the end of the controlled input.
+          queueMicrotask(() => { let caret = 0, digits = 0; while (caret < normalized.length && digits < digitsBeforeCursor) { if (/\d/.test(normalized[caret])) digits++; caret++; } if ((!deleting || deletingForward) && [":", "."].includes(normalized[caret])) caret++; input.setSelectionRange(caret, caret); });
+        }} className="min-h-11 w-full rounded-xl border border-[var(--cz-hairline-strong)] bg-black/20 px-3 text-lg outline-none" placeholder="MM:SS" /></label>}
         {active.key === "video" && <label className="inline-flex min-h-24 cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--cz-hairline-strong)] text-sm text-[var(--cz-text-secondary)]"><Film size={22} />{file?.name ?? "Select solve video"}<input className="sr-only" disabled={busy} type="file" accept="video/mp4,video/quicktime,video/webm,video/x-m4v" onChange={event => void selectFile(event.target.files?.[0] ?? null)} /></label>}
         {active.key === "upload" && <div><div className="cz-track"><div className="cz-track-fill" style={{ width: `${progress}%` }} /></div><p className="mt-2 text-xs text-[var(--cz-text-tertiary)]">{verification === "verifying" ? "Transfer complete. Verifying recording..." : busy ? `Uploading ${progress}%` : uploadValid ? "Upload verified." : ["failed", "expired"].includes(verification) ? "Upload verification failed. Retry or select a new recording." : "Ready to upload and verify."}</p></div>}
         {active.key === "review" && <ul className="grid gap-1.5 text-sm text-[var(--cz-text-secondary)]"><li>CircZles: <span className="text-[var(--cz-text-primary)]">{selected?.name}</span></li><li>Completion time: <span className="cz-num text-[var(--cz-text-primary)]">{completion ? formatVideoDuration(completion) : "Incomplete"}</span></li><li>Video: <span className="text-[var(--cz-text-primary)]">{file?.name}</span></li></ul>}

@@ -56,17 +56,17 @@ test("direct protected upload retries finalization without transfer, preserves s
     return Response.json([]);
   });
   await act(async () => root.render(createElement(SubmissionStepper, { puzzles: [puzzle] })));
-  assert.match(document.body.textContent, /Maximum eligible duration: 05:00/); await prepareVideo(); assert.match(document.body.textContent, /Actual recording duration: 05:00/);
+  assert.match(document.body.textContent, /Maximum completion time: 05:00/); await prepareVideo(); assert.match(document.body.textContent, /Actual recording duration: 05:00/);
   await click("Upload"); await click("Continue"); assert.match(document.querySelector('[role="alert"]').textContent, /Verification/); assert.equal(document.querySelector('[role="dialog"]'), null);
   assert.equal(transfers.length, 1); assert.equal(transfers[0].form.get("type"), "authenticated"); assert.equal(transfers[0].headers["Content-Range"], "bytes 0-8/9");
   await click("Continue"); assert.equal(transfers.length, 1); assert.equal(finalize, 2); assert.equal(document.querySelector('[role="dialog"]'), null);
   await click("Continue"); await click("Submit Attempt"); assert.equal(document.querySelector('[role="dialog"]'), null); assert.match(document.querySelector('[role="alert"]').textContent, /lost response/);
   await click("Submit Attempt"); assert.equal(keys[0], keys[1]); assert.match(document.querySelector('[role="dialog"]').textContent, /Submission Received!/); assert.match(document.body.textContent, /aims to review it within 24 hours/); assert.match(document.body.textContent, /Back to My CircZles/);
 });
-test("over-limit recording and missing timing are blocked before transfer", async t => {
+test("over-limit reported time and missing timing are blocked before transfer", async t => {
   const { root, transfers, setDuration } = await setup(t); setDuration(301);
   t.mock.method(globalThis, "fetch", async () => Response.json([]));
-  await act(async () => root.render(createElement(SubmissionStepper, { puzzles: [puzzle] }))); await prepareVideo(); await click("Upload"); await click("Continue"); assert.match(document.querySelector('[role="alert"]').textContent, /exceeds/); assert.equal(transfers.length, 0);
+  await act(async () => root.render(createElement(SubmissionStepper, { puzzles: [puzzle] }))); await click("Enter Time"); await change(document.querySelector('[aria-label="Completion time"]'), "05:01"); await click("Continue"); assert.match(document.querySelector('[role="alert"]').textContent, /exceeds/); assert.equal(transfers.length, 0);
   await act(async () => root.render(createElement(SubmissionStepper, { key: "missing", puzzles: [{ ...puzzle, maxLeaderboardTimeMs: null }] }))); await click("Continue"); assert.match(document.querySelector('[role="alert"]').textContent, /not been configured/);
 });
 test("submission history shows status, review note and date, and can retry failed loading", async t => {
@@ -75,14 +75,14 @@ test("submission history shows status, review note and date, and can retry faile
   await act(async () => root.render(createElement(SubmissionListClient, { initial: [] }))); assert.match(document.querySelector('[role="alert"]').textContent, /could not be loaded/); await click("Refresh Submissions"); assert.match(document.body.textContent, /Resubmission Required/); assert.match(document.body.textContent, /Record continuously/);
 });
 test("review UI loads verified metadata, obtains protected video and records authorized decision/history", async t => {
-  const { root } = await setup(t); const row = { submissionId: "attempt", status: "PENDING_REVIEW", puzzleName: "Lion", levelId: 1, completionTimeMs: 300000, maxLeaderboardTimeMs: 300000, submittedAt: "2026-10-12T00:00:00Z", player: { displayName: "Player", publicPlayerId: "CZ-1" }, video: { durationMs: 300000, verifiedSizeBytes: 100000000 }, reviewHistory: [] }; let reviewed = false; const decisions = [];
+  const { root } = await setup(t); const row = { submissionId: "attempt", status: "PENDING_REVIEW", puzzleName: "Lion", levelId: 1, completionTimeMs: 300000, maxLeaderboardTimeMs: 300000, submittedAt: "2026-10-12T00:00:00Z", player: { displayName: "Player", publicPlayerId: "CZ-1" }, video: { durationMs: 300000, verifiedSizeBytes: 100000000 }, completionRewards: { active: true, rewardEnabled: true, xpReward: 75, synapseReward: 50, alreadyProcessed: false }, reviewHistory: [] }; let reviewed = false; const decisions = [];
   t.mock.method(globalThis, "fetch", async (url, init = {}) => {
     if (new URL(url).pathname.endsWith("/review")) { decisions.push(JSON.parse(init.body)); assert.ok(init.headers["Idempotency-Key"]); reviewed = true; return Response.json({ decision: "APPROVED" }); }
     if (new URL(url).pathname.endsWith("/video")) return Response.json({ url: "https://api.cloudinary.com/protected-short-lived" });
     if (new URL(url).pathname.endsWith("attempt")) return Response.json({ ...row, status: reviewed ? "APPROVED" : "PENDING_REVIEW", reviewHistory: reviewed ? [{ decision: "APPROVED", reviewerAdminUserId: "reviewer", createdAt: "2026-10-12T01:00:00Z", reviewNote: "Valid evidence" }] : [] });
     return Response.json([row]);
   });
-  await act(async () => root.render(createElement(SubmissionReviewAdmin))); await click("Review attempt"); assert.match(document.body.textContent, /Verified recording 05:00/); assert.match(document.body.textContent, /100.00 MB/); await click("Open protected video (5 minutes)"); assert.equal(document.querySelector("video").getAttribute("src"), "https://api.cloudinary.com/protected-short-lived"); await change(document.querySelector("textarea"), "Valid evidence"); await click("Approve"); assert.deepEqual(decisions[0], { decision: "APPROVED", reviewNote: "Valid evidence" }); assert.match(document.body.textContent, /Review recorded successfully/); assert.match(document.body.textContent, /Reviewer reviewer/);
+  await act(async () => root.render(createElement(SubmissionReviewAdmin))); await click("Review attempt"); assert.match(document.body.textContent, /Verified recording 05:00/); assert.match(document.body.textContent, /100.00 MB/); await click("Open protected video (5 minutes)"); assert.equal(document.querySelector("video").getAttribute("src"), "https://api.cloudinary.com/protected-short-lived"); await change(document.querySelector("textarea"), "Valid evidence"); await click("Approve"); assert.equal(decisions.length, 0); assert.equal([...document.querySelectorAll("button")].find(b => b.textContent === "Confirm approval").disabled, true); await act(async () => document.querySelector('input[type="checkbox"]').click()); await click("Confirm approval"); assert.deepEqual(decisions[0], { decision: "APPROVED", reviewNote: "Valid evidence" }); assert.match(document.body.textContent, /Review recorded successfully/); assert.match(document.body.textContent, /Reviewer reviewer/);
 });
 
 
@@ -136,7 +136,37 @@ test("new recording and selected CircZles invalidate verified downstream state",
   await click("Select CircZles"); await act(async () => [...document.querySelectorAll("button")].find(b => b.textContent.includes("Wolf")).click());
   assert.equal(document.querySelector('[data-testid="step-video"]').disabled, true); assert.equal(document.querySelector('[data-testid="step-upload"]').disabled, true); await click("Enter Time"); assert.equal(document.querySelector('[aria-label="Completion time"]').value, "");
 });
-test("a 20 second recording cannot substantiate a 04:59 time before transfer", async t => {
-  const { root, setDuration, transfers } = await setup(t); setDuration(20.063);
-  await act(async () => root.render(createElement(SubmissionStepper, { puzzles: [puzzle] }))); await prepareVideo(); await click("Continue"); assert.match(document.querySelector('[role="alert"]').textContent, /cannot exceed/); assert.equal(transfers.length, 0);
+for (const [completion, recording] of [["04:29", 20], ["04:59", 310], ["03:15", 210]]) test(`reported ${completion} with ${recording}s recording reaches verified Review`, async t => {
+  const { root, setDuration, transfers } = await setup(t); setDuration(recording);
+  t.mock.method(globalThis, "fetch", async url => new URL(url).pathname.endsWith("signed-url") ? Response.json({ videoUploadId: "video", uploadUrl: "https://api.cloudinary.com/v1_1/test/video/upload", expiresAt: new Date(Date.now() + 600000).toISOString(), fields: { apiKey: "key", publicId: "bound", timestamp: 1, signature: "signature" } }) : Response.json({ status: "COMPLETE", durationMs: recording * 1000 }));
+  await act(async () => root.render(createElement(SubmissionStepper, { puzzles: [puzzle] })));
+  await click("Enter Time"); await change(document.querySelector('[aria-label="Completion time"]'), completion); await click("Select Video"); await selectFile(new window.File(["recording"], "lion.mp4", { type: "video/mp4" }));
+  if (recording === 20) assert.match(document.body.textContent, /recording is shorter/);
+  await click("Upload"); await click("Continue"); assert.equal(transfers.length, 1); assert.equal(document.querySelector('[data-testid="step-review"]').disabled, false); assert.match(document.body.textContent, new RegExp(completion)); await click("Continue"); assert.equal(document.querySelector('[data-testid="submit-attempt-final"]').disabled, false);
+});
+test("time input removes nonnumeric paste, preserves numeric milliseconds and cursor edits", async t => {
+  const { root } = await setup(t);
+  await act(async () => root.render(createElement(SubmissionStepper, { puzzles: [puzzle] }))); await click("Enter Time");
+  const input = document.querySelector('[aria-label="Completion time"]'); assert.equal(input.inputMode, "numeric");
+  await change(input, "xx03a15$!"); assert.equal(input.value, "03:15");
+  await change(input, "0459"); assert.equal(input.value, "04:59");
+  await change(input, "00:20.063"); assert.equal(parseCompletionTime(input.value), 20063);
+  await change(input, "03:1"); assert.equal(input.value, "03:1"); assert.equal(document.querySelector('[data-testid="step-video"]').disabled, true);
+  await change(input, ""); await change(input, "04"); assert.equal(input.value, "04:"); await change(input, "04:29"); assert.equal(input.value, "04:29");
+  await act(async () => { input.value = "03:29"; input.setSelectionRange(2, 2); input[Object.keys(input).find(key => key.startsWith("__reactProps"))].onChange({ target: input }); });
+  assert.equal(input.value, "03:29"); assert.equal(input.selectionStart, 3);
+  await act(async () => { input.value = "0329"; input.setSelectionRange(2, 2); input[Object.keys(input).find(key => key.startsWith("__reactProps"))].onChange({ target: input, nativeEvent: { inputType: "deleteContentForward" } }); });
+  assert.equal(input.value, "03:29"); assert.equal(input.selectionStart, 3);
+  await change(input, "03:9"); assert.equal(input.value, "03:9"); assert.equal(document.querySelector('[data-testid="step-video"]').disabled, true);
+  await change(input, "12345678"); assert.equal(input.value, ""); assert.equal(document.querySelector('[data-testid="step-video"]').disabled, true);
+});
+
+test("review warns about historical duration mismatch and shows previous first-completion reward without granting again", async t => {
+  const { root } = await setup(t);
+  const row = { submissionId: "existing", status: "PENDING_REVIEW", puzzleName: "Lion", levelId: 1, completionTimeMs: 269000, maxLeaderboardTimeMs: 300000, submittedAt: "2026-10-12T00:00:00Z", player: { displayName: "Player", publicPlayerId: "CZ-1" }, video: { durationMs: 20000, verifiedSizeBytes: 4095836 }, completionRewards: { active: true, rewardEnabled: true, xpReward: 250, synapseReward: 100, alreadyProcessed: true, grantedXpReward: 75, grantedSynapseReward: 50 }, reviewHistory: [{ decision: "RESUBMISSION_REQUIRED", reviewerAdminUserId: "admin", createdAt: "2026-10-12T00:00:00Z", reviewNote: "Existing note" }] };
+  let mutations = 0;
+  t.mock.method(globalThis, "fetch", async (url, init = {}) => { if (init.method) mutations++; return Response.json(new URL(url).pathname.endsWith("existing") ? row : [row]); });
+  await act(async () => root.render(createElement(SubmissionReviewAdmin))); await click("Review attempt");
+  assert.match(document.body.textContent, /Recording is shorter/); assert.match(document.body.textContent, /Configured 250 XP/); assert.match(document.body.textContent, /Already processed \(75 XP/); assert.match(document.body.textContent, /Existing note/);
+  await click("Approve"); assert.match(document.querySelector('[role="dialog"]').textContent, /0 XP and 0 Synapse Points/); assert.equal(mutations, 0); await click("Cancel approval"); assert.equal(document.querySelector('[role="dialog"]'), null); assert.equal(mutations, 0);
 });

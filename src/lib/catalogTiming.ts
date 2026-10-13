@@ -1,4 +1,4 @@
-// Storage only. Future eligibility checks must run server-side on verified submissions.
+// Reported completion eligibility is independently enforced server-side.
 export function parseCatalogTime(minutes: string, seconds: string): number | null {
   if (!minutes && !seconds) return null;
   if (!/^[0-9]+$/.test(minutes) || !/^[0-9]+$/.test(seconds)) throw new Error("Enter whole, non-negative minutes and seconds.");

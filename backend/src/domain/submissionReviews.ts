@@ -82,7 +82,7 @@ export class DrizzleSubmissionReviewRepository implements SubmissionReviewReposi
         throw new AppError("SUBMISSION_ALREADY_REVIEWED", "Submission has already been reviewed.", 409, { status: submission.status });
       }
 
-      let timingProof: { maxLeaderboardTimeMs: number; verifiedVideoDurationMs: number } | undefined;
+      let timingProof: { maxLeaderboardTimeMs: number; verifiedVideoDurationMs: number; durationReviewWarning: boolean; videoDurationPolicy: string } | undefined;
       if (input.decision === "APPROVED") {
         const [owned] = await tx.select().from(playerPuzzles).where(and(eq(playerPuzzles.playerPuzzleId, submission.playerPuzzleId), eq(playerPuzzles.playerId, submission.playerId), eq(playerPuzzles.puzzleId, submission.puzzleId), isNull(playerPuzzles.deletedAt)));
         if (!owned) throw validationFailed("This CircZles is no longer owned by the submitting player.");
@@ -94,7 +94,7 @@ export class DrizzleSubmissionReviewRepository implements SubmissionReviewReposi
         if (!this.storage) throw new AppError("VIDEO_STORAGE_NOT_CONFIGURED", "Video verification is unavailable.", 503);
         const verified = await this.storage.verifyUpload(video.publicId, { uploadId: video.videoUploadId, stage: "approval" });
         if (verified.publicId !== video.publicId || verified.bytes !== video.verifiedSizeBytes || verified.durationMs !== video.durationMs) throw validationFailed("The video changed or could not be verified.");
-        timingProof = { maxLeaderboardTimeMs: policy!.maxLeaderboardTimeMs!, verifiedVideoDurationMs: video.durationMs! };
+        timingProof = { maxLeaderboardTimeMs: policy!.maxLeaderboardTimeMs!, verifiedVideoDurationMs: video.durationMs!, durationReviewWarning: video.durationMs! < submission.completionTimeMs || Math.abs(video.durationMs! - submission.completionTimeMs) >= 1000, videoDurationPolicy: "MANUAL_REVIEW" };
       }
       const [review] = await tx.insert(submissionReviews).values({
         submissionId: submission.submissionId,

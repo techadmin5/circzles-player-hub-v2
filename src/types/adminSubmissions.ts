@@ -12,6 +12,7 @@ export interface AdminSubmissionDto {
   player: { publicPlayerId: string; displayName: string };
   playerPuzzleId: string;
   maxLeaderboardTimeMs?: number | null;
+  completionRewards?: { active: boolean; rewardEnabled: boolean; synapseReward: number; xpReward: number; alreadyProcessed: boolean; grantedSynapseReward: number | null; grantedXpReward: number | null };
   reviewHistory?: {
     decision: string;
     reviewNote: string | null;

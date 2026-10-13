@@ -13,6 +13,10 @@ export interface ManufacturingBatch {
   ranges: { serialStart: string; serialEnd: string }[];
 }
 export type CatalogDetail = CatalogVariant & { batches: ManufacturingBatch[] };
+export interface CompetitionSettings {
+  puzzleId: string; category: "MAIN_LEVEL" | "SIDE_QUEST"; displayOrder: number; leaderboardEnabled: boolean;
+  rewardEnabled: boolean; synapseReward: number; xpReward: number; active: boolean; maxLeaderboardTimeMs?: number | null;
+}
 export interface ImportReport { applied: boolean; rows: number; planned: number; skipped: string[]; ready: boolean; errors: { sourceId: string; message: string }[]; reconciliationCandidates?: { name: string; sourceIds: string[]; reason: string }[] }
 const root = "/api/admin/catalog";
 const send = (body: unknown) => JSON.stringify(body);
@@ -23,6 +27,8 @@ export const catalogAdmin = {
   access: (signal?: AbortSignal) => request<{ allowed: boolean }>(root + "/access", { signal }),
   list: (query: URLSearchParams, signal?: AbortSignal) => request<CatalogVariant[]>(root + "?" + query, { signal }),
   detail: (id: string) => request<CatalogDetail>(root + "/" + id),
+  competition: (id: string, signal?: AbortSignal) => request<CompetitionSettings | null>(root + "/" + id + "/competition", { signal }),
+  saveCompetition: (id: string, body: Partial<CompetitionSettings>) => request<CompetitionSettings>(root + "/" + id + "/competition", { method: "PATCH", body: send(body) }),
   create: (body: unknown) => request<CatalogVariant>(root, { method: "POST", body: send(body) }),
   update: (id: string, body: unknown) => request<CatalogVariant>(root + "/" + id, { method: "PATCH", body: send(body) }),
   batch: (id: string, body: unknown) => request<ManufacturingBatch>(root + "/" + id + "/batches", { method: "POST", body: send(body) }),

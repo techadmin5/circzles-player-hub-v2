@@ -417,7 +417,7 @@ describe("server-authorized catalog APIs", { timeout: 20000 }, () => {
     const { app, headers } = await setup(role, active, expired);
     const uuid = "10000000-0000-4000-8000-000000000001";
     try {
-      for (const [method, url] of [["GET", "/api/admin/catalog"], ["GET", "/api/admin/catalog/" + uuid], ["POST", "/api/admin/catalog"], ["PATCH", "/api/admin/catalog/" + uuid], ["POST", "/api/admin/catalog/" + uuid + "/batches"], ["PATCH", "/api/admin/catalog/batches/" + uuid], ["POST", "/api/admin/catalog/batches/" + uuid + "/ranges"], ["POST", "/api/admin/catalog/import/preview"], ["POST", "/api/admin/catalog/import/apply"]] as const) expect((await app.inject({ method, url, headers, ...(method !== "GET" ? { payload: method === "PATCH" && url === "/api/admin/catalog/" + uuid ? { maxLeaderboardTimeMs: 300000 } : {} } : {}) })).statusCode).toBe(code);
+      for (const [method, url] of [["GET", "/api/admin/catalog"], ["GET", "/api/admin/catalog/" + uuid], ["GET", "/api/admin/catalog/" + uuid + "/competition"], ["PATCH", "/api/admin/catalog/" + uuid + "/competition"], ["POST", "/api/admin/catalog"], ["PATCH", "/api/admin/catalog/" + uuid], ["POST", "/api/admin/catalog/" + uuid + "/batches"], ["PATCH", "/api/admin/catalog/batches/" + uuid], ["POST", "/api/admin/catalog/batches/" + uuid + "/ranges"], ["POST", "/api/admin/catalog/import/preview"], ["POST", "/api/admin/catalog/import/apply"]] as const) expect((await app.inject({ method, url, headers, ...(method !== "GET" ? { payload: method === "PATCH" && url === "/api/admin/catalog/" + uuid ? { maxLeaderboardTimeMs: 300000 } : {} } : {}) })).statusCode).toBe(code);
     } finally { await app.close(); }
   });
   it("requires a valid session on every route and ignores spoofed browser authority", async () => {
@@ -433,7 +433,8 @@ describe("server-authorized catalog APIs", { timeout: 20000 }, () => {
     } finally { await app.close(); }
   });
   it("requires the trusted website proxy in production", async () => {
-    const { app, headers } = await setup("SUPER_ADMIN", true, false, true); try { expect((await app.inject({ url: "/api/admin/catalog/access", headers })).statusCode).toBe(403); expect((await app.inject({ url: "/api/admin/catalog/access", headers: { ...headers, "x-player-hub-proxy-secret": "test-proxy-secret" } })).statusCode).toBe(200); } finally { await app.close(); }
+    const { app, headers } = await setup("SUPER_ADMIN", true, false, true); try { expect((await app.inject({ url: "/api/admin/catalog/access", headers })).statusCode).toBe(403);
+      expect((await app.inject({ method: "PATCH", url: "/api/admin/catalog/" + crypto.randomUUID() + "/competition", headers, payload: { xpReward: 99 } })).statusCode).toBe(403); expect((await app.inject({ url: "/api/admin/catalog/access", headers: { ...headers, "x-player-hub-proxy-secret": "test-proxy-secret" } })).statusCode).toBe(200); } finally { await app.close(); }
   });
   it("allows authorized catalog metadata, manufacturing activation, statistics and archival through the APIs", async () => {
     const { app, headers } = await setup("SUPER_ADMIN");
@@ -442,6 +443,11 @@ describe("server-authorized catalog APIs", { timeout: 20000 }, () => {
       const updated = await app.inject({ method: "PATCH", url: "/api/admin/catalog/" + v.catalogVariantId, headers, payload: { displayName: "API Lion" } }); expect(updated.statusCode).toBe(200);
       expect((await app.inject({ method: "PATCH", url: "/api/admin/catalog/" + v.catalogVariantId, headers, payload: { maxLeaderboardTimeMs: 300000 } })).json().maxLeaderboardTimeMs).toBe(300000);
       expect((await app.inject({ method: "PATCH", url: "/api/admin/catalog/" + v.catalogVariantId, headers: { ...headers, origin: "https://evil.test" }, payload: { maxLeaderboardTimeMs: 150000 } })).statusCode).toBe(403);
+      const competitionUrl = "/api/admin/catalog/" + v.catalogVariantId + "/competition";
+      expect((await app.inject({ method: "PATCH", url: competitionUrl, headers, payload: { rewardEnabled: true, xpReward: 75, synapseReward: 50 } })).statusCode).toBe(200);
+      expect((await app.inject({ url: competitionUrl, headers })).json()).toMatchObject({ maxLeaderboardTimeMs: 300000, xpReward: 75, synapseReward: 50 });
+      expect((await app.inject({ method: "PATCH", url: competitionUrl, headers: { ...headers, origin: "https://evil.test" }, payload: { xpReward: 0 } })).statusCode).toBe(403);
+      expect((await app.inject({ method: "PATCH", url: competitionUrl, headers, payload: { playerId: crypto.randomUUID(), xpReward: 0 } })).statusCode).toBe(400);
       const created = await app.inject({ method: "POST", url: "/api/admin/catalog/" + v.catalogVariantId + "/batches", headers, payload: batch({ status: "DRAFT" }) }); expect(created.statusCode).toBe(201);
       const b = created.json();
       expect((await app.inject({ method: "PATCH", url: "/api/admin/catalog/batches/" + b.manufacturingBatchId, headers, payload: { status: "ACTIVE" } })).statusCode).toBe(200);
@@ -454,6 +460,35 @@ describe("server-authorized catalog APIs", { timeout: 20000 }, () => {
   });
 });
 
+
+describe("canonical competition and rewards editor persistence", () => {
+  it("shares Lion run settings, preserves omitted fields, zero rewards and maximum precision", async () => {
+    const [r2] = await db.select().from(s.manufacturingBatches).where(eq(s.manufacturingBatches.skuPrefix, "CC-29-R2-01"));
+    const [r3] = await db.select().from(s.manufacturingBatches).where(eq(s.manufacturingBatches.skuPrefix, "CC-61-R3-01"));
+    const v = await catalog.detail(r2.catalogVariantId);
+    expect(r2.puzzleId).toBe(r3.puzzleId);
+    await catalog.update(v.catalogVariantId, { maxLeaderboardTimeMs: 300001 });
+    await catalog.saveCompetitionSettings(v.catalogVariantId, { category: "MAIN_LEVEL", active: true, leaderboardEnabled: true, rewardEnabled: true, displayOrder: 2, xpReward: 75, synapseReward: 50 });
+    await expect(catalog.update(v.catalogVariantId, { maxLeaderboardTimeMs: null })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    await expect(catalog.saveCompetitionSettings(v.catalogVariantId, { maxLeaderboardTimeMs: null })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    await catalog.saveCompetitionSettings(v.catalogVariantId, { xpReward: 0, synapseReward: 120 });
+    expect(await catalog.competitionSettings(v.catalogVariantId)).toMatchObject({ maxLeaderboardTimeMs: 300001, xpReward: 0, synapseReward: 120, rewardEnabled: true, leaderboardEnabled: true });
+    await catalog.saveCompetitionSettings(v.catalogVariantId, { maxLeaderboardTimeMs: 150000 });
+    expect(await catalog.competitionSettings(v.catalogVariantId)).toMatchObject({ maxLeaderboardTimeMs: 150000, xpReward: 0, synapseReward: 120, category: "MAIN_LEVEL", displayOrder: 2 });
+    expect((await catalog.detail(v.catalogVariantId)).batches.map(b => b.skuPrefix)).toEqual(["CC-29-R2-01", "CC-61-R3-01"]);
+    await catalog.editBatch(r3.manufacturingBatchId, { status: "ARCHIVED" });
+    expect((await catalog.competitionSettings(v.catalogVariantId))?.synapseReward).toBe(120);
+  });
+  it("rejects incomplete active settings, invalid integers and non-playable entries without writes", async () => {
+    const v = await variant();
+    for (const patch of [{ xpReward: -1 }, { synapseReward: 1.2 }, { xpReward: 2147483648 }, { active: true, leaderboardEnabled: true }, { active: true, rewardEnabled: true }]) await expect(catalog.saveCompetitionSettings(v.catalogVariantId, patch)).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    expect(await catalog.competitionSettings(v.catalogVariantId)).toBeNull();
+    for (const nonplayable of [await variant({ productType: "ACCESSORY", levelId: null, status: "DRAFT" }), await variant({ levelId: null, status: "DRAFT" }), await variant({ status: "ARCHIVED" })]) {
+      await expect(catalog.saveCompetitionSettings(nonplayable.catalogVariantId, { rewardEnabled: true })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+      if (nonplayable.puzzleId) expect(await db.select().from(s.puzzleCompetitionSettings).where(eq(s.puzzleCompetitionSettings.puzzleId, nonplayable.puzzleId))).toHaveLength(0);
+    }
+  });
+});
 
 describe("catalog leaderboard timing storage", () => {
   it("creates timing-only settings safely, reloads/list displays one time for shared runs, and clears to null", async () => {
@@ -477,7 +512,7 @@ describe("catalog leaderboard timing storage", () => {
     expect((await catalog.list({ status: "ACTIVE", search: v.displayName }))[0].maxLeaderboardTimeMs).toBe(300000);
     const [setting] = await db.select().from(s.puzzleCompetitionSettings).where(eq(s.puzzleCompetitionSettings.puzzleId, v.puzzleId!));
     expect(setting).toMatchObject({ category: null, displayOrder: null, leaderboardEnabled: false, rewardEnabled: false, synapseReward: 0, xpReward: 0 });
-    expect(await new DrizzleCompetitionSettingsRepository(db).getByPuzzleId(v.puzzleId!)).toBeNull();
+    expect(await new DrizzleCompetitionSettingsRepository(db).getByPuzzleId(v.puzzleId!)).toMatchObject({ maxLeaderboardTimeMs: 300000, leaderboardEnabled: false, rewardEnabled: false, active: true });
     await catalog.update(v.catalogVariantId, { maxLeaderboardTimeMs: null });
     expect((await catalog.detail(v.catalogVariantId)).maxLeaderboardTimeMs).toBeNull();
   });

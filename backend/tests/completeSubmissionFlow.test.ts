@@ -8,6 +8,8 @@ import * as s from "../src/db/schema.js";
 import type { Database } from "../src/db/client.js";
 import { DrizzleSubmissionRepository, SubmissionService, MAX_VIDEO_SIZE_BYTES } from "../src/domain/submissions.js";
 import { DrizzleSubmissionReviewRepository } from "../src/domain/submissionReviews.js";
+import { DrizzleAdminSubmissionRepository } from "../src/domain/adminSubmissions.js";
+import { CompetitionSettingsService, DrizzleCompetitionSettingsRepository } from "../src/domain/competitionSettings.js";
 import { CloudinaryVideoStorage } from "../src/storage/videoStorage.js";
 import { DrizzleGameStateRepository, temporaryDevelopmentProgressionLevels } from "../src/domain/gameState.js";
 import { cleanupAbandonedVideos } from "../src/operations/cleanupAbandonedVideos.js";
@@ -45,6 +47,8 @@ describe("verified competitive submission workflow", () => {
     await expect(f.service.createSubmission(f.player.playerId, input, "different-key")).rejects.toMatchObject({ code: "VIDEO_UPLOAD_ALREADY_USED" });
     const reviewed = await f.review(result[0].id, "APPROVED", "decision"); expect(reviewed.rewardGrant).toMatchObject({ synapseReward: 50, xpReward: 75 });
     expect((await f.review(result[0].id, "APPROVED", "decision")).idempotent).toBe(true);
+    await new CompetitionSettingsService(new DrizzleCompetitionSettingsRepository(db)).upsert({ puzzleId: f.puzzle.puzzleId, xpReward: 999, synapseReward: 888 });
+    expect((await new DrizzleAdminSubmissionRepository(db).get(result[0].id))?.completionRewards).toMatchObject({ alreadyProcessed: true, xpReward: 999, synapseReward: 888, grantedXpReward: 75, grantedSynapseReward: 50 });
     const next = await f.service.createSubmission(f.player.playerId, await f.input(280000), "next"); await f.review(next.id);
     expect(await db.select().from(s.submissionRewardGrants).where(eq(s.submissionRewardGrants.puzzleId, f.puzzle.puzzleId))).toHaveLength(1);
     expect((await db.select().from(s.leaderboardEntries).where(eq(s.leaderboardEntries.puzzleId, f.puzzle.puzzleId)))[0].bestCompletionTimeMs).toBe(280000);
@@ -60,9 +64,8 @@ describe("verified competitive submission workflow", () => {
     expect(await db.select().from(s.submissions).where(eq(s.submissions.puzzleId, f.puzzle.puzzleId))).toHaveLength(0);
     await expect(f.service.signVideoUpload(f.player.playerId, { filename: "solve.mp4", mimeType: "video/mp4", sizeBytes: 100000001 })).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
   });
-  it.each(["long-video", "long-completion", "missing-limit", "unverified-duration", "oversize", "foreign-asset", "foreign-player"])("blocks %s without pending/audit/reward/leaderboard writes", async mode => {
+  it.each(["long-completion", "missing-limit", "unverified-duration", "oversize", "foreign-asset", "foreign-player"])("blocks %s without pending/audit/reward/leaderboard writes", async mode => {
     const f = await fixture(mode === "missing-limit" ? null : 300000), input = await f.input();
-    if (mode === "long-video") { f.storage.duration = 300001; await db.update(s.videoUploads).set({ durationMs: 300001 }).where(eq(s.videoUploads.videoUploadId, input.videoUploadId)); }
     if (mode === "long-completion") input.completionTimeMs = 300001;
     if (mode === "unverified-duration") await db.update(s.videoUploads).set({ durationMs: null }).where(eq(s.videoUploads.videoUploadId, input.videoUploadId));
     if (mode === "oversize") await db.update(s.videoUploads).set({ verifiedSizeBytes: MAX_VIDEO_SIZE_BYTES + 1 }).where(eq(s.videoUploads.videoUploadId, input.videoUploadId));
@@ -102,16 +105,22 @@ describe("verified competitive submission workflow", () => {
     expect((await f.repo.getVideoUpload(input.videoUploadId))?.status).toBe("COMPLETE");
     expect((await cleanupAbandonedVideos(db, f.storage)).candidates).toBe(0);
   });
-  it("blocks reported solving time longer than verified evidence at creation and approval", async () => {
-    const f = await fixture(), input = await f.input(20000);
-    f.storage.duration = 20063;
-    await db.update(s.videoUploads).set({ durationMs: 20063 }).where(eq(s.videoUploads.videoUploadId, input.videoUploadId));
-    await expect(f.service.createSubmission(f.player.playerId, { ...input, completionTimeMs: 299000 }, "inconsistent")).rejects.toMatchObject({ code: "COMPLETION_EXCEEDS_RECORDING" });
-    const created = await f.service.createSubmission(f.player.playerId, input, "valid");
-    await db.update(s.submissions).set({ completionTimeMs: 299000 }).where(eq(s.submissions.submissionId, created.id));
-    await expect(f.review(created.id)).rejects.toMatchObject({ code: "COMPLETION_EXCEEDS_RECORDING" });
+  it.each([[195000, 210000], [269000, 20000], [269000, 305000], [299000, 310000]])("allows %i completion with %i recording for explicit manual review", async (completion, duration) => {
+    const f = await fixture(); f.storage.duration = duration;
+    const created = await f.service.createSubmission(f.player.playerId, await f.input(completion), "manual");
+    expect(created.status).toBe("PENDING_REVIEW");
     expect(await db.select().from(s.submissionRewardGrants).where(eq(s.submissionRewardGrants.puzzleId, f.puzzle.puzzleId))).toHaveLength(0);
-    expect(await db.select().from(s.leaderboardEntries).where(eq(s.leaderboardEntries.puzzleId, f.puzzle.puzzleId))).toHaveLength(0);
+    const reader = new DrizzleAdminSubmissionRepository(db);
+    expect((await reader.get(created.id))?.completionRewards).toMatchObject({ alreadyProcessed: false, xpReward: 75, synapseReward: 50 });
+    await f.review(created.id);
+    expect((await reader.get(created.id))?.completionRewards).toMatchObject({ alreadyProcessed: true, grantedXpReward: 75, grantedSynapseReward: 50 });
+    const [event] = await db.select().from(s.gameEvents).where(eq(s.gameEvents.sourceId, (await db.select().from(s.submissionReviews).where(eq(s.submissionReviews.submissionId, created.id)))[0].submissionReviewId));
+    expect(event.payload).toMatchObject({ videoDurationPolicy: "MANUAL_REVIEW", durationReviewWarning: true });
+  });
+  it.each([0, 300001])("rejects invalid reported completion %i independent of recording length", async completion => {
+    const f = await fixture(); f.storage.duration = 310000;
+    const input = await f.input(completion);
+    await expect((async () => f.service.createSubmission(f.player.playerId, input, "invalid"))()).rejects.toThrow();
   });
   it("never invents rewards when disabled", async () => { const f = await fixture(300000, false), created = await f.service.createSubmission(f.player.playerId, await f.input(), "disabled"); expect((await f.review(created.id)).rewardGrant).toMatchObject({ rewardEnabledSnapshot: false, xpReward: 0, synapseReward: 0 }); });
   it("retries database finalization without poisoning an uploaded asset and rejects expired/oversized signing", async () => {

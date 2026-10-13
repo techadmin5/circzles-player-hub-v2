@@ -1,7 +1,7 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type * as schema from "../db/schema.js";
-import { players, puzzles, submissions, videoUploads, puzzleCompetitionSettings, submissionReviews, adminUsers, users } from "../db/schema.js";
+import { players, puzzles, submissions, videoUploads, puzzleCompetitionSettings, submissionReviews, submissionRewardGrants, adminUsers, users } from "../db/schema.js";
 import type { VideoStorage } from "../storage/videoStorage.js";
 import { AppError } from "./errors.js";
 
@@ -27,6 +27,7 @@ export interface AdminSubmissionDto {
   player: { publicPlayerId: string; displayName: string };
   playerPuzzleId: string;
   maxLeaderboardTimeMs?: number | null;
+  completionRewards?: { active: boolean; rewardEnabled: boolean; synapseReward: number; xpReward: number; alreadyProcessed: boolean; grantedSynapseReward: number | null; grantedXpReward: number | null };
   reviewHistory?: { decision: string; reviewNote: string | null; reviewerAdminUserId: string; reviewerName?: string; createdAt: Date }[];
   video: {
     videoUploadId: string;
@@ -79,17 +80,20 @@ export class DrizzleAdminSubmissionRepository implements AdminSubmissionReposito
 }
 
 function selectAdminSubmissions(db: Pick<Db, "select">) {
-  return db.select({ submission: submissions, puzzle: puzzles, player: players, video: videoUploads, maximum: puzzleCompetitionSettings.maxLeaderboardTimeMs })
+  return db.select({ submission: submissions, puzzle: puzzles, player: players, video: videoUploads, maximum: puzzleCompetitionSettings.maxLeaderboardTimeMs, setting: puzzleCompetitionSettings, grant: submissionRewardGrants })
     .from(submissions)
     .innerJoin(puzzles, eq(puzzles.puzzleId, submissions.puzzleId))
     .innerJoin(players, eq(players.playerId, submissions.playerId))
     .innerJoin(videoUploads, eq(videoUploads.videoUploadId, submissions.videoUploadId))
-    .leftJoin(puzzleCompetitionSettings, eq(puzzleCompetitionSettings.puzzleId, submissions.puzzleId));
+    .leftJoin(puzzleCompetitionSettings, eq(puzzleCompetitionSettings.puzzleId, submissions.puzzleId))
+    .leftJoin(submissionRewardGrants, and(eq(submissionRewardGrants.playerId, submissions.playerId), eq(submissionRewardGrants.puzzleId, submissions.puzzleId)));
 }
 
-function toAdminSubmissionDto(row: { submission: typeof submissions.$inferSelect; puzzle: typeof puzzles.$inferSelect; player: typeof players.$inferSelect; video: typeof videoUploads.$inferSelect; maximum: number | null }): AdminSubmissionDto {
+function toAdminSubmissionDto(row: { submission: typeof submissions.$inferSelect; puzzle: typeof puzzles.$inferSelect; player: typeof players.$inferSelect; video: typeof videoUploads.$inferSelect; maximum: number | null; setting: typeof puzzleCompetitionSettings.$inferSelect | null; grant: typeof submissionRewardGrants.$inferSelect | null }): AdminSubmissionDto {
   return {
     maxLeaderboardTimeMs: row.maximum,
+    completionRewards: { active: row.setting?.active ?? false, rewardEnabled: row.setting?.rewardEnabled ?? false, synapseReward: row.setting?.synapseReward ?? 0, xpReward: row.setting?.xpReward ?? 0,
+      alreadyProcessed: !!row.grant, grantedSynapseReward: row.grant?.synapseReward ?? null, grantedXpReward: row.grant?.xpReward ?? null },
     submissionId: row.submission.submissionId,
     status: row.submission.status,
     submittedAt: row.submission.submittedAt.toISOString(),

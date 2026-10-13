@@ -408,7 +408,7 @@ No auth endpoint accepts `userId`, `playerId`, `publicPlayerId`, or a free-stand
 
 ### Completed competitive submission flow
 
-See [Complete submission flow](COMPLETE_SUBMISSION_FLOW.md) for current policy and operations. Uploads are authenticated, non-overwriting Cloudinary videos. Signed fields include `type`, `overwrite`, and `allowedFormats`; the browser sends `allowed_formats` and uses direct 6 MiB chunks. Upload verification and both creation/approval require authoritative duration/size. `max_leaderboard_time_ms` must be configured; both completion time and verified recording duration must be within the current maximum. Missing/over-limit/changed media fails before pending/approval side effects.
+See [Complete submission flow](COMPLETE_SUBMISSION_FLOW.md) for current policy and operations. Uploads are authenticated, non-overwriting Cloudinary videos. Signed fields include `type`, `overwrite`, and `allowedFormats`; the browser sends `allowed_formats` and uses direct 6 MiB chunks. Upload verification and both creation/approval require authoritative duration/size. `max_leaderboard_time_ms` must be configured; reported completion time must be within the current maximum. Positive verified recording length can be shorter or longer; discrepancies require manual review. Missing/oversize/changed media fails before pending/approval side effects.
 
 - `GET /api/me/puzzles` includes `maxLeaderboardTimeMs` for owned playable puzzles.
 - `GET /api/admin/submissions/access` requires SUBMISSIONS_REVIEW.
@@ -418,3 +418,10 @@ See [Complete submission flow](COMPLETE_SUBMISSION_FLOW.md) for current policy a
 - `DELETE /api/uploads/videos/:videoUploadId` abandons only the current player's unused upload. Submitted recordings cannot be deleted.
 - Submission/upload/admin-review routes require the website proxy in production; mutations reject foreign Origin/cross-site requests. Responses are no-store.
 - Temporary provider/processing/database finalization failures remain retryable until upload expiration; invalid size/duration is terminal. Finalization uses conditional updates so a delayed failure cannot downgrade a completed upload.
+
+
+### Canonical competition and completion rewards administration
+
+GET/PATCH `/api/admin/catalog/:variantId/competition` requires existing CATALOG_MANAGE authentication, production proxy and same-origin mutation protections. GET returns the canonical saved competition settings or null. PATCH accepts only optional `category` (MAIN_LEVEL/SIDE_QUEST), `displayOrder`, `leaderboardEnabled`, `rewardEnabled`, `synapseReward`, `xpReward`, `active` and `maxLeaderboardTimeMs`; at least one field is required. Order and rewards are nonnegative PostgreSQL integers; maximum is a positive integer or null. Omitted fields preserve stored values transactionally. Active leaderboards/rewards require a configured maximum, including when using legacy catalog timing updates. Accessories, incomplete drafts and archived variants cannot use the competition editor endpoint.
+
+Admin submission JSON additionally includes optional `completionRewards` with current active/enabled flags, configured XP/SP, `alreadyProcessed`, and nullable `grantedXpReward`/`grantedSynapseReward` snapshots. This is advisory confirmation data; approval reads current settings and enforces exactly-once grants in the backend transaction. Existing review timestamps and notes remain readable. See [Submission finalization and admin rewards](SUBMISSION_FINALIZATION_ADMIN_REWARDS.md) for the manual recording-duration policy, warnings and rollout checks.

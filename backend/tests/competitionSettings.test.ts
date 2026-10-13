@@ -12,7 +12,8 @@ class FakeCompetitionSettingsRepository implements CompetitionSettingsRepository
       return categoryOrder[a.category] - categoryOrder[b.category] || a.displayOrder - b.displayOrder || a.puzzleId.localeCompare(b.puzzleId);
     });
   }
-  async upsert(input: Required<CompetitionSettingInput>) {
+  async upsert(patch: CompetitionSettingInput) {
+    const input = { category: "MAIN_LEVEL" as const, displayOrder: 0, leaderboardEnabled: false, rewardEnabled: false, synapseReward: 0, xpReward: 0, active: true, ...this.rows.get(patch.puzzleId), ...patch };
     if (input.puzzleId === "missing") throw new AppError("PUZZLE_NOT_FOUND", "Puzzle was not found.", 404);
     const existing = this.rows.get(input.puzzleId);
     const row: CompetitionSettingDto = { id: existing?.id ?? `setting-${this.rows.size + 1}`, puzzleId: input.puzzleId, puzzleName: `Puzzle ${input.puzzleId}`, levelId: input.puzzleId === "side" ? 3.5 : 1, category: input.category, leaderboardEnabled: input.leaderboardEnabled, displayOrder: input.displayOrder, rewardEnabled: input.rewardEnabled, synapseReward: input.synapseReward, xpReward: input.xpReward, active: input.active };
