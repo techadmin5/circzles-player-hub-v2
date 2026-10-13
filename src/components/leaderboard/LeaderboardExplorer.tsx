@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertCircle, Medal, RefreshCw, Trophy } from "lucide-react";
 import { EmptyState, LoadingState, Surface } from "@/components/ui/kit";
 import type { DataMode } from "@/config/dataMode";
+import { usePlayerUiState } from "@/stores/playerUiState";
 import { ApiClientError } from "@/lib/apiClient";
 import { cn } from "@/lib/utils";
 import { leaderboardService } from "@/services";
@@ -20,6 +21,8 @@ const CATEGORIES: Array<{ id: LeaderboardCategory; label: string }> = [
 
 export function LeaderboardExplorer({ mode }: { mode: DataMode }) {
   const [catalog, setCatalog] = useState<LeaderboardCatalog | null>(null);
+  const player = usePlayerUiState(state => state.player);
+  const [level, setLevel] = useState(1);
   const [category, setCategory] = useState<LeaderboardCategory>("MAIN_LEVEL");
   const [selectedPuzzleId, setSelectedPuzzleId] = useState<string | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(true);
@@ -36,42 +39,35 @@ export function LeaderboardExplorer({ mode }: { mode: DataMode }) {
   useEffect(() => {
     const controller = new AbortController();
     leaderboardService.getLeaderboardCatalog(controller.signal).then((result) => {
+      if (controller.signal.aborted) return;
       setCatalog(result);
-      const initial = result.mainLevels[0] ?? result.sideQuests[0] ?? null;
-      setCategory(result.mainLevels.length > 0 ? "MAIN_LEVEL" : "SIDE_QUEST");
-      setSelectedPuzzleId(initial?.puzzleId ?? null);
-      setBoardLoading(Boolean(initial));
+      setCatalogError(null);
     }).catch((error: unknown) => {
-      if (!isAbortError(error)) setCatalogError(errorMessage(error, "We couldn't load the competition list."));
+      if (!controller.signal.aborted && !isAbortError(error)) setCatalogError(errorMessage(error, "We couldn't load the competition list."));
     }).finally(() => {
       if (!controller.signal.aborted) setCatalogLoading(false);
     });
     return () => controller.abort();
-  }, [catalogAttempt]);
+  }, [catalogAttempt, player]);
 
+  const items = useMemo(() => categoryItems(catalog, category).filter(item => category !== "MAIN_LEVEL" || item.levelId === level), [catalog, category, level]);
+  const activePuzzleId = items.find(item => item.puzzleId === selectedPuzzleId)?.puzzleId ?? items[0]?.puzzleId ?? null;
+  const levels = useMemo(() => [...new Set([...Array.from({ length: 10 }, (_, i) => i + 1), ...(catalog?.mainLevels.map(item => item.levelId) ?? [])])].sort((a, b) => a - b), [catalog]);
   useEffect(() => {
-    if (!selectedPuzzleId) return;
+    if (!activePuzzleId) return;
     const controller = new AbortController();
-    leaderboardService.getLeaderboard(selectedPuzzleId, controller.signal).then(setBoard).catch((error: unknown) => {
-      if (!isAbortError(error)) setBoardError(errorMessage(error, "We couldn't load this leaderboard."));
-    }).finally(() => {
-      if (!controller.signal.aborted) setBoardLoading(false);
-    });
+    leaderboardService.getLeaderboard(activePuzzleId, controller.signal).then(result => { if (!controller.signal.aborted) { setBoard(result); setBoardError(null); } }).catch((error: unknown) => {
+      if (!controller.signal.aborted && !isAbortError(error)) setBoardError(errorMessage(error, "We couldn't load this leaderboard."));
+    }).finally(() => { if (!controller.signal.aborted) setBoardLoading(false); });
     return () => controller.abort();
-  }, [selectedPuzzleId, boardAttempt]);
-
-  const items = useMemo(() => categoryItems(catalog, category), [catalog, category]);
-  const changeCategory = useCallback((nextCategory: LeaderboardCategory) => {
-    setCategory(nextCategory);
-    const nextItems = categoryItems(catalog, nextCategory);
-    const next = nextItems.some((item) => item.puzzleId === selectedPuzzleId) ? selectedPuzzleId : nextItems[0]?.puzzleId ?? null;
-    if (next !== selectedPuzzleId) {
-      setBoard(null);
-      setBoardError(null);
-      setBoardLoading(Boolean(next));
-      setSelectedPuzzleId(next);
-    }
-  }, [catalog, selectedPuzzleId]);
+  }, [activePuzzleId, boardAttempt, player]);
+  useEffect(() => {
+    const refresh = () => { if (document.visibilityState !== "hidden") { setCatalogAttempt(value => value + 1); setBoardAttempt(value => value + 1); } };
+    window.addEventListener("focus", refresh); document.addEventListener("visibilitychange", refresh);
+    return () => { window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", refresh); };
+  }, []);
+  function resetBoard() { setBoard(null); setBoardError(null); setBoardLoading(false); setSelectedProfileId(null); }
+  function changeCategory(next: LeaderboardCategory) { setCategory(next); setSelectedPuzzleId(null); resetBoard(); }
 
   if (catalogLoading) return <LoadingState rows={4} />;
   if (catalogError) return <RequestError message={catalogError} onRetry={() => {
@@ -79,15 +75,19 @@ export function LeaderboardExplorer({ mode }: { mode: DataMode }) {
     setCatalogError(null);
     setCatalogAttempt((value) => value + 1);
   }} />;
-  if (!catalog || (catalog.mainLevels.length === 0 && catalog.sideQuests.length === 0)) {
-    return <EmptyState title="No leaderboard challenges are available yet." body="Competition leaderboards will appear here when they are available." icon={<Trophy size={24} />} />;
-  }
 
   return (
     <div className="grid gap-5" data-data-mode={mode}>
       <div className="flex gap-1.5" role="tablist" aria-label="Competition category">
         {CATEGORIES.map((item) => (
-          <button key={item.id} type="button" role="tab" aria-selected={category === item.id}
+          <button key={item.id} id={`category-${item.id}`} type="button" role="tab" aria-selected={category === item.id} tabIndex={category === item.id ? 0 : -1} aria-controls="leaderboard-category-panel"
+            onKeyDown={event => {
+              const index = CATEGORIES.findIndex(value => value.id === item.id);
+              const next = event.key === "ArrowRight" ? (index + 1) % CATEGORIES.length : event.key === "ArrowLeft" ? (index + CATEGORIES.length - 1) % CATEGORIES.length : event.key === "Home" ? 0 : event.key === "End" ? CATEGORIES.length - 1 : null;
+              if (next === null) return;
+              event.preventDefault(); changeCategory(CATEGORIES[next].id);
+              document.getElementById(`category-${CATEGORIES[next].id}`)?.focus();
+            }}
             data-sound="tab"
             className={cn("cz-btn cz-btn-sm", category === item.id ? "cz-btn-primary" : "cz-btn-ghost")}
             onClick={() => changeCategory(item.id)}>
@@ -96,35 +96,38 @@ export function LeaderboardExplorer({ mode }: { mode: DataMode }) {
         ))}
       </div>
 
+      <section id="leaderboard-category-panel" role="tabpanel" aria-labelledby={`category-${category}`} className="grid gap-5">
+      {category === "MAIN_LEVEL" && <div className="grid grid-cols-2 gap-2 min-[390px]:grid-cols-5 xl:grid-cols-10" role="group" aria-label="Choose a level">{levels.map(value => <button key={value} type="button" aria-pressed={level === value} className={cn("cz-btn cz-btn-sm", level === value ? "cz-btn-primary" : "cz-btn-ghost")} onClick={() => { setLevel(value); setSelectedPuzzleId(null); resetBoard(); }}>Level {value}</button>)}</div>}
+      <h2 className="cz-display text-lg">{category === "MAIN_LEVEL" ? `Level ${level} CircZles` : "Side Quest CircZles"}</h2>
       {items.length === 0 ? (
-        <EmptyState title={category === "MAIN_LEVEL" ? "No Levels available yet." : "No Side Quests available yet."} body="There are no competitions in this category yet." icon={<Trophy size={24} />} />
+        category === "MAIN_LEVEL" ? <DiscoveryEmpty level={level} configured={false} /> : <EmptyState title="No Side Quests available yet." body="There are no enabled competitions in this category yet." icon={<Trophy size={24} />} />
       ) : (
         <>
-          <div className="flex gap-2 overflow-x-auto pb-1" aria-label="Choose a competition">
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3" role="group" aria-label="Choose a CircZles">
             {items.map((item) => (
-              <button key={item.puzzleId} type="button" aria-pressed={selectedPuzzleId === item.puzzleId} data-sound="tab"
+              <button key={item.puzzleId} type="button" aria-pressed={activePuzzleId === item.puzzleId} data-sound="tab"
                 onClick={() => {
-                  if (selectedPuzzleId === item.puzzleId) return;
+                  if (activePuzzleId === item.puzzleId) return;
                   setBoard(null);
                   setBoardError(null);
                   setBoardLoading(true);
                   setSelectedPuzzleId(item.puzzleId);
                 }}
-                className={cn("cz-btn min-w-fit px-3 py-2 text-left", selectedPuzzleId === item.puzzleId ? "cz-btn-primary" : "cz-btn-ghost")}>
-                <span className="block text-xs font-semibold">{competitionLabel(item)}</span>
-                <span className="block text-[0.68rem] opacity-75">{item.puzzleName}{item.runCode ? ` · ${item.runCode}` : ""}</span>
+                className={cn("cz-btn min-w-0 px-3 py-2 text-left", activePuzzleId === item.puzzleId ? "cz-btn-primary" : "cz-btn-ghost")}>
+                <span className="block min-w-0 break-words text-sm font-semibold">{item.puzzleName}</span>
               </button>
             ))}
           </div>
-          {boardLoading && <LoadingState rows={5} />}
+          {(boardLoading || !board || board.puzzle.puzzleId !== activePuzzleId) && !boardError && <LoadingState rows={5} />}
           {boardError && <RequestError message={boardError} onRetry={() => {
             setBoardLoading(true);
             setBoardError(null);
             setBoardAttempt((value) => value + 1);
           }} />}
-          {board && <CompetitionBoard board={board} onOpenProfile={setSelectedProfileId} />}
+          {!boardLoading && !boardError && board?.puzzle.puzzleId === activePuzzleId && <CompetitionBoard board={board} onOpenProfile={setSelectedProfileId} />}
         </>
       )}
+      </section>
       {selectedProfileId && <PublicPlayerProfileModal key={selectedProfileId} publicPlayerId={selectedProfileId} cache={profileCache} onClose={closeProfile} />}
     </div>
   );
@@ -141,10 +144,10 @@ function CompetitionBoard({ board, onOpenProfile }: { board: LeaderboardResponse
           <p className="text-[0.68rem] font-semibold uppercase tracking-wide text-[var(--cz-aqua)]">{board.puzzle.category === "MAIN_LEVEL" ? "Level competition" : "Side quest"}</p>
           <h2 className="cz-display text-lg font-bold">{board.puzzle.puzzleName}</h2>
         </div>
-        <p className="text-xs text-[var(--cz-text-secondary)]">{competitionLabel(board.puzzle)}{board.puzzle.runCode ? ` · ${board.puzzle.runCode}` : ""}</p>
+        <p className="text-xs text-[var(--cz-text-secondary)]">{competitionLabel(board.puzzle)}</p>
       </div>
       {entries.length === 0 ? (
-        <EmptyState title="No ranked solves yet." body="Be the first to set a verified time." icon={<Trophy size={24} />} />
+        <DiscoveryEmpty level={board.puzzle.levelId} configured category={board.puzzle.category} />
       ) : (
         <>
           <div className="grid gap-3 sm:grid-cols-3">{top.map((entry) => <PodiumEntry key={entry.publicPlayerId} entry={entry} onOpenProfile={onOpenProfile} />)}</div>
@@ -226,4 +229,13 @@ function errorMessage(error: unknown, fallback: string) {
   if (error.status === 401) return "Your session has expired. Sign in again to view this leaderboard.";
   if (error.status === 404) return "This competition is not available.";
   return fallback;
+}
+
+export function levelShopUrl(level: number): string | null {
+  if (!Number.isInteger(level) || level < 1 || level > 10) return null;
+  return level <= 5 ? "https://www.circzles.com/buy-circular-wooden-puzzles?By+Levels=Level%25201-5" : "https://www.circzles.com/buy-circular-wooden-puzzles?By+Levels=Level%25206-10";
+}
+function DiscoveryEmpty({ level, configured, category = "MAIN_LEVEL" }: { level: number; configured: boolean; category?: LeaderboardCategory }) {
+  const url = category === "MAIN_LEVEL" ? levelShopUrl(level) : null;
+  return <section className="cz-surface grid justify-items-center gap-3 p-6 text-center"><Trophy size={24} aria-hidden="true" /><h3 className="cz-display text-xl">{configured ? "Be the First to Set a Record!" : `Discover Level ${level} CircZles`}</h3><p className="text-sm text-[var(--cz-text-secondary)]">{configured ? "Take on the challenge, submit your solve, and earn your place on the leaderboard." : "No playable CircZles has an enabled leaderboard at this level yet."}</p>{url && <a href={url} target="_blank" rel="noopener noreferrer" className="cz-btn cz-btn-primary">Explore Level {level} CircZles</a>}</section>;
 }

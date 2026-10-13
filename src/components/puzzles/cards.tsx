@@ -45,12 +45,12 @@ export function PuzzleCard({ puzzle }: { puzzle: PlayerPuzzle }) {
       <div className="grid gap-3 p-4">
         <div>
           <h3 className="cz-display text-lg font-bold">{puzzle.name}</h3>
-          <p className="text-xs text-[var(--cz-text-tertiary)]">puzzleId {puzzle.id} · difficulty levelId {puzzle.levelId}</p>
+          <p className="text-xs text-[var(--cz-text-tertiary)]">{puzzle.latestSubmissionStatus ? `Latest attempt: ${puzzle.latestSubmissionStatus.replaceAll("_", " ").toLowerCase()}` : "Your playable CircZles"}</p>
         </div>
         <div className="grid grid-cols-3 gap-2">
           <Meta icon={<Gauge size={13} />} label="Level" value={String(puzzle.levelId)} />
           <Meta icon={<Clock size={13} />} label="Best" value={puzzle.personalBest ?? "—"} />
-          <Meta icon={<Medal size={13} />} label="Rank" value={puzzle.leaderboardRank ? `#${puzzle.leaderboardRank}` : "—"} />
+          <Meta icon={<Medal size={13} />} label="Rank" value={puzzle.leaderboardEligible === false ? "Inactive" : puzzle.leaderboardRank ? `#${puzzle.leaderboardRank}` : "—"} />
         </div>
       </div>
     </Link>

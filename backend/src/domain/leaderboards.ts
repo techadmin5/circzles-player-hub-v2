@@ -1,6 +1,6 @@
-import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, inArray, gt, lte, or, sql } from "drizzle-orm";
 import type { Database } from "../db/client.js";
-import { leaderboardEntries, players, puzzleCompetitionSettings, puzzles } from "../db/schema.js";
+import { leaderboardEntries, players, puzzleCompetitionSettings, puzzles, submissions } from "../db/schema.js";
 import { AppError } from "./errors.js";
 import type { GameStateTransaction } from "./gameState.js";
 
@@ -68,23 +68,11 @@ export class DrizzleLeaderboardRepository implements LeaderboardRepository {
     )).limit(1);
     if (!visible) throw new AppError("LEADERBOARD_NOT_FOUND", "Leaderboard was not found.", 404);
 
-    const rankingOrder = [
-      asc(leaderboardEntries.bestCompletionTimeMs),
-      asc(leaderboardEntries.bestApprovedAt),
-      asc(leaderboardEntries.bestSubmittedAt),
-      asc(leaderboardEntries.bestSubmissionId),
-    ] as const;
-    const top = await leaderboardEntryQuery(this.db).where(eq(leaderboardEntries.puzzleId, puzzleId)).orderBy(...rankingOrder).limit(10);
-    const entries = top.map((row, index) => leaderboardRow(row, index + 1, currentPlayerId));
-    if (top.some((row) => row.entry.playerId === currentPlayerId)) return { puzzle: puzzleDto(visible), entries, currentPlayerEntry: null };
-
-    const [current] = await leaderboardEntryQuery(this.db).where(and(eq(leaderboardEntries.puzzleId, puzzleId), eq(leaderboardEntries.playerId, currentPlayerId))).limit(1);
-    if (!current) return { puzzle: puzzleDto(visible), entries, currentPlayerEntry: null };
-    const [{ rank }] = await this.db.select({ rank: sql<number>`count(*) + 1`.mapWith(Number) }).from(leaderboardEntries).where(and(
-      eq(leaderboardEntries.puzzleId, puzzleId),
-      betterThanCurrent(current.entry),
-    ));
-    return { puzzle: puzzleDto(visible), entries, currentPlayerEntry: leaderboardRow(current, rank, currentPlayerId) };
+    const ranked = rankedLeaderboardQuery(this.db, [puzzleId]);
+    const rows = await this.db.select().from(ranked).where(or(lte(ranked.rank, 10), eq(ranked.playerId, currentPlayerId))).orderBy(asc(ranked.rank));
+    const entries = rows.filter(row => row.rank <= 10).map(row => rankedRowDto(row, currentPlayerId));
+    const current = rows.find(row => row.playerId === currentPlayerId && row.rank > 10);
+    return { puzzle: puzzleDto(visible), entries, currentPlayerEntry: current ? rankedRowDto(current, currentPlayerId) : null };
   }
 }
 
@@ -126,31 +114,25 @@ export function formatLeaderboardTime(milliseconds: number) {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${String(millis).padStart(3, "0")}`;
 }
 
-function visiblePuzzleConditions() {
-  return and(eq(puzzleCompetitionSettings.active, true), eq(puzzleCompetitionSettings.leaderboardEnabled, true), eq(puzzles.status, "ACTIVE"), isNull(puzzles.deletedAt));
+// Shared by the board page and batched ownership rankings. Filter puzzle IDs
+// before the window, and current player AFTER it so rank includes every player.
+export function rankedLeaderboardQuery(db: Pick<Database, "select">, puzzleIds: string[]) {
+  return db.select({ puzzleId: leaderboardEntries.puzzleId, playerId: leaderboardEntries.playerId,
+    publicPlayerId: players.publicPlayerId, displayName: players.displayName, bestTimeMs: leaderboardEntries.bestCompletionTimeMs,
+    rank: sql<number>`row_number() over (partition by ${leaderboardEntries.puzzleId} order by ${leaderboardEntries.bestCompletionTimeMs}, ${leaderboardEntries.bestApprovedAt}, ${leaderboardEntries.bestSubmittedAt}, ${leaderboardEntries.bestSubmissionId})`.mapWith(Number).as("rank"),
+  }).from(leaderboardEntries).innerJoin(players, eq(players.playerId, leaderboardEntries.playerId))
+    .innerJoin(submissions, and(eq(submissions.submissionId, leaderboardEntries.bestSubmissionId), eq(submissions.playerId, leaderboardEntries.playerId), eq(submissions.puzzleId, leaderboardEntries.puzzleId)))
+    .where(and(inArray(leaderboardEntries.puzzleId, puzzleIds), eq(submissions.status, "APPROVED"))).as("ranked_leaderboard");
 }
-
+function rankedRowDto(row: { rank: number; publicPlayerId: string; displayName: string; bestTimeMs: number; playerId: string }, currentPlayerId: string): LeaderboardRowDto {
+  return { rank: row.rank, publicPlayerId: row.publicPlayerId, displayName: row.displayName, bestTimeMs: row.bestTimeMs, bestTime: formatLeaderboardTime(row.bestTimeMs), isCurrentPlayer: row.playerId === currentPlayerId };
+}
+export function visiblePuzzleConditions() {
+  return and(eq(puzzleCompetitionSettings.active, true), eq(puzzleCompetitionSettings.leaderboardEnabled, true), inArray(puzzleCompetitionSettings.category, ["MAIN_LEVEL", "SIDE_QUEST"]), gt(puzzleCompetitionSettings.maxLeaderboardTimeMs, 0), gt(puzzles.levelId, 0), eq(puzzles.status, "ACTIVE"), isNull(puzzles.deletedAt));
+}
 function visiblePuzzleQuery(db: Pick<Database, "select">) {
   return db.select({ setting: puzzleCompetitionSettings, puzzle: puzzles }).from(puzzleCompetitionSettings).innerJoin(puzzles, eq(puzzles.puzzleId, puzzleCompetitionSettings.puzzleId));
 }
-
-function leaderboardEntryQuery(db: Pick<Database, "select">) {
-  return db.select({ entry: leaderboardEntries, player: players }).from(leaderboardEntries).innerJoin(players, eq(players.playerId, leaderboardEntries.playerId));
-}
-
 function puzzleDto(row: { setting: typeof puzzleCompetitionSettings.$inferSelect; puzzle: typeof puzzles.$inferSelect }): LeaderboardPuzzleDto {
   return { puzzleId: row.puzzle.puzzleId, puzzleName: row.puzzle.name, runCode: row.puzzle.runCode ?? undefined, levelId: Number(row.puzzle.levelId), category: row.setting.category! };
-}
-
-function leaderboardRow(row: { entry: typeof leaderboardEntries.$inferSelect; player: typeof players.$inferSelect }, rank: number, currentPlayerId: string): LeaderboardRowDto {
-  return { rank, publicPlayerId: row.player.publicPlayerId, displayName: row.player.displayName, bestTimeMs: row.entry.bestCompletionTimeMs, bestTime: formatLeaderboardTime(row.entry.bestCompletionTimeMs), isCurrentPlayer: row.entry.playerId === currentPlayerId };
-}
-
-function betterThanCurrent(current: typeof leaderboardEntries.$inferSelect) {
-  return or(
-    sql`${leaderboardEntries.bestCompletionTimeMs} < ${current.bestCompletionTimeMs}`,
-    and(eq(leaderboardEntries.bestCompletionTimeMs, current.bestCompletionTimeMs), sql`${leaderboardEntries.bestApprovedAt} < ${current.bestApprovedAt}`),
-    and(eq(leaderboardEntries.bestCompletionTimeMs, current.bestCompletionTimeMs), eq(leaderboardEntries.bestApprovedAt, current.bestApprovedAt), sql`${leaderboardEntries.bestSubmittedAt} < ${current.bestSubmittedAt}`),
-    and(eq(leaderboardEntries.bestCompletionTimeMs, current.bestCompletionTimeMs), eq(leaderboardEntries.bestApprovedAt, current.bestApprovedAt), eq(leaderboardEntries.bestSubmittedAt, current.bestSubmittedAt), sql`${leaderboardEntries.bestSubmissionId} < ${current.bestSubmissionId}`),
-  );
 }

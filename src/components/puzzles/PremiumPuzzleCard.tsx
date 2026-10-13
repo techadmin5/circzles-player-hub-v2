@@ -17,9 +17,9 @@ export function PremiumPuzzleCard({ puzzle }: { puzzle: PlayerPuzzle }) {
         <p className="text-sm text-[var(--text-secondary)]">{puzzle.description}</p>
       </div>
       <div className="grid grid-cols-3 gap-2 text-sm">
-        <Meta icon={<Gauge className="h-4 w-4" />} label="levelId" value={String(puzzle.levelId)} />
+        <Meta icon={<Gauge className="h-4 w-4" />} label="Level" value={String(puzzle.levelId)} />
         <Meta icon={<Clock className="h-4 w-4" />} label="Best" value={puzzle.personalBest ?? "Unsolved"} />
-        <Meta icon={<Medal className="h-4 w-4" />} label="Rank" value={puzzle.leaderboardRank ? `#${puzzle.leaderboardRank}` : "NA"} />
+        <Meta icon={<Medal className="h-4 w-4" />} label="Rank" value={puzzle.leaderboardEligible === false ? "Inactive" : puzzle.leaderboardRank ? `#${puzzle.leaderboardRank}` : "—"} />
       </div>
     </div>
   </Link>;

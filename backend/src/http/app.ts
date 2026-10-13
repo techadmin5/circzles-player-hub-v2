@@ -292,6 +292,7 @@ export function buildApp({ catalog, env, identity, gameState, puzzles, submissio
   }
 
   app.get("/api/me/puzzles", async (request, reply) => {
+    reply.header("Cache-Control", "private, no-store");
     const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
     return reply.send(await puzzles.getOwnedPuzzles(player.internalId));
   });
@@ -351,6 +352,7 @@ export function buildApp({ catalog, env, identity, gameState, puzzles, submissio
   });
 
   app.get("/api/leaderboards/catalog", async (request, reply) => {
+    reply.header("Cache-Control", "private, no-store");
     await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
     return reply.send(await leaderboards.getCatalog());
   });
@@ -436,6 +438,7 @@ export function buildApp({ catalog, env, identity, gameState, puzzles, submissio
   });
 
   app.get("/api/leaderboards", async (request, reply) => {
+    reply.header("Cache-Control", "private, no-store");
     const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
     const parsed = leaderboardQuerySchema.safeParse(request.query);
     if (!parsed.success) throw validationFailed("Invalid leaderboard query.", parsed.error.flatten());

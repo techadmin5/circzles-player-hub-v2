@@ -13,6 +13,7 @@ import { PuzzleCard } from "./cards";
 export function PuzzleCollectionExplorer({ initial = [] }: { initial?: PlayerPuzzle[] }) {
   const requestVersion = useRef(0);
   const player = usePlayerUiState(state => state.player);
+  const [refresh, setRefresh] = useState(0);
   const [puzzles, setPuzzles] = useState(initial);
   const [loading, setLoading] = useState(dataMode === "api");
   const [error, setError] = useState("");
@@ -23,7 +24,8 @@ export function PuzzleCollectionExplorer({ initial = [] }: { initial?: PlayerPuz
     let cancelled = false;
     puzzleService.getOwnedPuzzles().then(rows => { if (!cancelled && requestVersion.current === version) { setPuzzles(rows); setError(""); } }).catch(() => { if (!cancelled && requestVersion.current === version) setError("Your CircZles could not be loaded."); }).finally(() => { if (!cancelled && requestVersion.current === version) setLoading(false); });
     return () => { cancelled = true; };
-  }, [player]);
+  }, [player, refresh]);
+  useEffect(() => { const update = () => { if (document.visibilityState !== "hidden") setRefresh(value => value + 1); }; window.addEventListener("focus", update); document.addEventListener("visibilitychange", update); return () => { window.removeEventListener("focus", update); document.removeEventListener("visibilitychange", update); }; }, []);
 
   return <div className="grid min-w-0 gap-5">
     <AddPuzzlePanel onClaimed={puzzle => { requestVersion.current++; setPuzzles(rows => [...rows.filter(row => row.id !== puzzle.id), puzzle]); setError(""); setLoading(false); }} />

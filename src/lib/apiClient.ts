@@ -194,7 +194,7 @@ export const apiClient = {
     method: "POST",
     body: JSON.stringify({}),
   })),
-  getOwnedPuzzles: async () => request<PlayerPuzzle[]>("/api/me/puzzles"),
+  getOwnedPuzzles: async () => request<PlayerPuzzle[]>("/api/me/puzzles", { cache: "no-store" }),
   getPuzzle: async (puzzleId: string) => adaptCatalogPuzzle(await request<Puzzle>(`/api/puzzles/${encodeURIComponent(puzzleId)}`)),
   claimPuzzleByCode: async (code: string) => playerMutation<{ success: true; puzzle: PlayerPuzzle }>("/api/puzzles/claim", {
     method: "POST",
@@ -206,8 +206,8 @@ export const apiClient = {
   getSubmissions: async () => request<Submission[]>("/api/submissions"),
   getSubmission: async (submissionId: string) => request<Submission>(`/api/submissions/${encodeURIComponent(submissionId)}`),
   createSubmission: async (input: { playerPuzzleId: string; completionTimeMs: number; videoUploadId: string }, idempotencyKey: string) => playerMutation<Submission>("/api/submissions", { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(input) }),
-  getLeaderboardCatalog: async (signal?: AbortSignal) => request<LeaderboardCatalog>("/api/leaderboards/catalog", { signal }),
-  getLeaderboard: async (puzzleId: string, signal?: AbortSignal) => request<LeaderboardResponse>(`/api/leaderboards?puzzleId=${encodeURIComponent(puzzleId)}`, { signal }),
+  getLeaderboardCatalog: async (signal?: AbortSignal) => request<LeaderboardCatalog>("/api/leaderboards/catalog", { signal, cache: "no-store" }),
+  getLeaderboard: async (puzzleId: string, signal?: AbortSignal) => request<LeaderboardResponse>(`/api/leaderboards?puzzleId=${encodeURIComponent(puzzleId)}`, { signal, cache: "no-store" }),
   getPublicPlayerProfile: async (publicPlayerId: string, signal?: AbortSignal) => request<PublicPlayerProfile>(`/api/players/${encodeURIComponent(publicPlayerId)}/public-profile`, { signal }),
   getMissions: async (signal?: AbortSignal) => (await request<{ missions: ApiMissionDto[] }>("/api/missions", { signal })).missions.map((mission) => adaptApiMission(mission)),
   claimMission: async (missionId: string, idempotencyKey: string) => playerMutation<MissionClaimResult>(`/api/missions/${encodeURIComponent(missionId)}/claim`, {

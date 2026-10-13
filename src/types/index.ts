@@ -52,6 +52,7 @@ export interface PlayerPuzzle extends Puzzle {
   maxLeaderboardTimeMs?: number | null;
   playerPuzzleId?: string;
   status: PuzzleStatus;
+  leaderboardEligible?: boolean;
   personalBest?: string;
   leaderboardRank?: number;
   latestSubmissionStatus?: SubmissionStatus;

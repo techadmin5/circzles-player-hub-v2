@@ -8,7 +8,7 @@ export default async function Page() {
   const player = dataMode === "mock" ? await playerService.getMockCurrentPlayer() : undefined;
   return (
     <GameShell player={player}>
-      <PageHeader kicker="Competitive" title="Leaderboard" subtitle="Verified solve times across the CircZles community" />
+      <PageHeader kicker="Competitive" title="Leaderboard" subtitle="Approved solve times across the CircZles community" />
       <LeaderboardExplorer mode={dataMode} />
     </GameShell>
   );

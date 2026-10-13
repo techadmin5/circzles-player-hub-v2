@@ -1,9 +1,10 @@
 import { and, eq, isNull, lte, gte, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type * as schema from "../db/schema.js";
-import { manufacturingBatches, manufacturingBatchRanges, catalogVariants, playerPuzzles, puzzleClaimPrefixes, puzzleClaims, puzzleDesigns, puzzles } from "../db/schema.js";
+import { manufacturingBatches, manufacturingBatchRanges, catalogVariants, leaderboardEntries, submissions, playerPuzzles, puzzleClaimPrefixes, puzzleClaims, puzzleDesigns, puzzles } from "../db/schema.js";
 import { AppError, validationFailed } from "./errors.js";
 import { puzzleCompetitionSettings } from "../db/schema.js";
+import { rankedLeaderboardQuery, visiblePuzzleConditions, formatLeaderboardTime } from "./leaderboards.js";
 import { assertValidLevelId } from "./competitionSettings.js";
 import { insertGameEventInTransaction } from "./gameEvents.js";
 
@@ -23,6 +24,8 @@ export interface PuzzleDto {
 export interface PlayerPuzzleDto extends PuzzleDto {
   playerPuzzleId: string;
   status: "OWNED" | "READY_TO_SOLVE" | "SUBMISSION_PENDING" | "APPROVED" | "REJECTED" | "COMPLETED";
+  maxLeaderboardTimeMs?: number | null;
+  leaderboardEligible?: boolean;
   personalBest?: string;
   leaderboardRank?: number;
   latestSubmissionStatus?: "DRAFT" | "UPLOADING" | "PENDING_REVIEW" | "APPROVED" | "REJECTED" | "RESUBMISSION_REQUIRED";
@@ -129,12 +132,26 @@ export class DrizzlePuzzleRepository implements PuzzleRepository {
       playerPuzzle: playerPuzzles,
       puzzle: puzzles,
       maximum: puzzleCompetitionSettings.maxLeaderboardTimeMs,
+      eligible: sql<boolean>`coalesce(${visiblePuzzleConditions()}, false)`,
+      best: sql<number | null>`case when ${submissions.status} = 'APPROVED' then ${leaderboardEntries.bestCompletionTimeMs} end`,
+      latestStatus: sql<PlayerPuzzleDto["latestSubmissionStatus"] | null>`(select s.status from submissions s where s.player_id = ${playerPuzzles.playerId} and s.puzzle_id = ${playerPuzzles.puzzleId} order by s.submitted_at desc, s.submission_id desc limit 1)`,
     }).from(playerPuzzles)
       .innerJoin(puzzles, eq(playerPuzzles.puzzleId, puzzles.puzzleId))
       .leftJoin(puzzleCompetitionSettings, eq(puzzleCompetitionSettings.puzzleId, puzzles.puzzleId))
+      .leftJoin(leaderboardEntries, and(eq(leaderboardEntries.puzzleId, puzzles.puzzleId), eq(leaderboardEntries.playerId, playerPuzzles.playerId)))
+      .leftJoin(submissions, and(eq(submissions.submissionId, leaderboardEntries.bestSubmissionId), eq(submissions.playerId, playerPuzzles.playerId), eq(submissions.puzzleId, puzzles.puzzleId)))
       .where(and(eq(playerPuzzles.playerId, playerId), isNull(playerPuzzles.deletedAt), isNull(puzzles.deletedAt)));
 
-    return rows.map(({ playerPuzzle, puzzle, maximum }) => ({ ...toPlayerPuzzleDto(puzzle, playerPuzzle.status, playerPuzzle.playerPuzzleId), maxLeaderboardTimeMs: maximum }));
+    const eligibleIds = rows.filter(row => row.eligible).map(row => row.puzzle.puzzleId);
+    const ranked = eligibleIds.length ? rankedLeaderboardQuery(this.db, eligibleIds) : null;
+    const ranks = ranked ? await this.db.select({ puzzleId: ranked.puzzleId, rank: ranked.rank, bestTimeMs: ranked.bestTimeMs }).from(ranked).where(eq(ranked.playerId, playerId)) : [];
+    const byPuzzle = new Map(ranks.map(row => [row.puzzleId, row]));
+    return rows.map(({ playerPuzzle, puzzle, maximum, eligible, best, latestStatus }) => {
+      const ranking = byPuzzle.get(puzzle.puzzleId), bestMs = ranking?.bestTimeMs ?? best;
+      return { ...toPlayerPuzzleDto(puzzle, playerPuzzle.status, playerPuzzle.playerPuzzleId),
+        maxLeaderboardTimeMs: maximum, leaderboardEligible: eligible, personalBest: bestMs == null ? undefined : formatLeaderboardTime(bestMs),
+        leaderboardRank: eligible ? ranking?.rank : undefined, latestSubmissionStatus: latestStatus ?? undefined };
+    });
   }
 
   async getPuzzle(puzzleId: string): Promise<PuzzleDto | null> {
