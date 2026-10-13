@@ -17,6 +17,7 @@ import { LeaderboardService } from "../src/domain/leaderboards.js";
 import { SubmissionReviewService } from "../src/domain/submissionReviews.js";
 import { PublicProfileService } from "../src/domain/publicProfiles.js";
 import { MissionClaimService, PlayerMissionService } from "../src/domain/missions.js";
+import type { MissionChestService } from "../src/domain/missionChests.js";
 import { RewardCatalogService, type RewardCatalogRepository, type StoreCatalogItemDto } from "../src/domain/rewardCatalog.js";
 import { StorePurchaseService, type StorePurchaseRepository, type StorePurchaseResult } from "../src/domain/storePurchases.js";
 import { InventoryService } from "../src/domain/inventory.js";
@@ -90,7 +91,7 @@ function env(overrides: Partial<Env> = {}): Env {
   };
 }
 
-async function appWithFakes(overrides: Partial<Env> = {}, directAuth?: DirectAuthProvider, native?: { nativeAuth: NativeAuthService; googleAuth: GoogleAuthService }, playerProfile?: PlayerProfileService) {
+async function appWithFakes(overrides: Partial<Env> = {}, directAuth?: DirectAuthProvider, native?: { nativeAuth: NativeAuthService; googleAuth: GoogleAuthService }, playerProfile?: PlayerProfileService, missionChests?: Pick<MissionChestService, "list" | "claim">) {
   const testEnv = env(overrides);
   const gameRepo = new FakeGameStateRepository();
   const gameState = new GameStateService(gameRepo);
@@ -145,7 +146,7 @@ async function appWithFakes(overrides: Partial<Env> = {}, directAuth?: DirectAut
     getStatus: async () => ({ available: true, wheel: { code: "DEV_WHEEL", name: "Development Wheel", cycleSeconds: 86400, cycleStartedAt: null, cycleEndsAt: null, spinsUsed: 0, maxSpinsPerCycle: 4, spinsRemaining: 4, nextSpinNumber: 1, nextSpinCostSynapsePoints: 0, nextSpinIsFree: true, canAffordNextSpin: true, canSpin: true, unavailableReason: null, segments: [{ wheelSegmentIndex: 4, label: "100 SP", rewardType: "SYNAPSE_POINTS", rewardValue: 100, imageUrl: null, rarity: null, displayMetadata: { tone: "aqua" } }] } }),
     spin: async (input) => { wheelSpinCalls.push(input); return { spinId: "60000000-0000-4000-8000-000000000001", rewardId: "20000000-0000-4000-8000-000000000001", rewardDefinitionId: "20000000-0000-4000-8000-000000000001", rewardType: "SYNAPSE_POINTS", rewardLabel: "100 SP", rewardValue: 100, resultingBalance: 1050, wheelSegmentIndex: 4, spunAt: "2026-09-16T12:00:00.000Z", spinNumber: 1, chargedSynapsePoints: 0, cycleStartedAt: "2026-09-16T12:00:00.000Z", cycleEndsAt: "2026-09-17T12:00:00.000Z", idempotent: false }; },
   } satisfies RewardWheelRepository);
-  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, rewardCatalog, storePurchases, inventory, coupons, playerIdentityActions, rewardWheel, directAuth, playerProfile, ...native, checkDb: async () => {} });
+  const app = buildApp({ env: testEnv, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, missionChests, rewardCatalog, storePurchases, inventory, coupons, playerIdentityActions, rewardWheel, directAuth, playerProfile, ...native, checkDb: async () => {} });
   return { app, identity, identityRepo, gameRepo, puzzleRepo, submissionRepo, videoStorage, adminAuthRepo, adminSubmissionRepo, leaderboardRepo, reviewRepo, publicProfileRepo, missionRepo, missionClaimRepo, purchaseCalls, inventoryCalls, couponCalls, renameCalls, wheelSpinCalls, testEnv };
 }
 
@@ -1169,6 +1170,18 @@ describe("leaderboard HTTP API", () => {
 });
 
 describe("missions HTTP API", () => {
+  it("gates actual M1 explicit-period/chest claim routes while retaining authenticated reads", async () => {
+    const claim = vi.fn(async () => { throw new Error("maintenance claim reached mutation"); });
+    const { app, missionClaimRepo } = await appWithFakes({ MISSION_CLAIMS_ENABLED: false }, undefined, undefined, undefined, { list: async () => [], claim });
+    const cookie = await login(app), id = "80000000-0000-4000-8000-000000000001";
+    for (const url of [`/api/missions/${id}/periods/2026-01-01/claim`, `/api/mission-chests/${id}/periods/2026-01-01/claim`]) {
+      const response = await app.inject({ method: "POST", url, headers: { cookie, "idempotency-key": "maintenance" }, payload: {} });
+      expect(response.statusCode).toBe(503); expect(response.json().code).toBe("MISSION_CLAIMS_MAINTENANCE");
+    }
+    expect(claim).not.toHaveBeenCalled(); expect(missionClaimRepo.calls).toHaveLength(0);
+    for (const url of ["/api/missions", "/api/missions/periods", "/api/mission-chests"]) expect((await app.inject({ url, headers: { cookie } })).statusCode).toBe(200);
+    expect((await app.inject("/health")).json()).toMatchObject({ ok: true, missions: { claimsEnabled: false } });
+  });
   it("authenticates period and chest APIs and derives period claim player authority", async () => {
     const { app, missionClaimRepo } = await appWithFakes();
     const missionId = "80000000-0000-4000-8000-000000000001";

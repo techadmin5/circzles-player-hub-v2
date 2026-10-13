@@ -56,7 +56,7 @@ export interface AppDeps {
   publicProfiles: PublicProfileService;
   missions: PlayerMissionService;
   missionClaims: MissionClaimService;
-  missionChests?: MissionChestService;
+  missionChests?: Pick<MissionChestService, "list" | "claim">;
   rewardCatalog: RewardCatalogService;
   storePurchases: StorePurchaseService;
   inventory: InventoryService;
