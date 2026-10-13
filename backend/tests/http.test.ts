@@ -1166,6 +1166,23 @@ describe("leaderboard HTTP API", () => {
 });
 
 describe("missions HTTP API", () => {
+  it("authenticates period and chest APIs and derives period claim player authority", async () => {
+    const { app, missionClaimRepo } = await appWithFakes();
+    const missionId = "80000000-0000-4000-8000-000000000001";
+    const periodUrl = `/api/missions/${missionId}/periods/2026-01-01/claim`;
+    const chestUrl = `/api/mission-chests/${missionId}/periods/2026-01-01/claim`;
+    for (const url of ["/api/missions/periods", "/api/mission-chests"]) expect((await app.inject({ url })).statusCode).toBe(401);
+    for (const url of [periodUrl, chestUrl]) expect((await app.inject({ method: "POST", url })).statusCode).toBe(401);
+    const cookie = await login(app);
+    expect((await app.inject({ url: "/api/missions/periods", headers: { cookie } })).statusCode).toBe(200);
+    for (const url of [periodUrl, chestUrl]) {
+      expect((await app.inject({ method: "POST", url, headers: { cookie } })).statusCode).toBe(400);
+      expect((await app.inject({ method: "POST", url, headers: { cookie, "idempotency-key": "test" }, payload: { playerId: "other", xp: 999 } })).statusCode).toBe(400);
+    }
+    await app.inject({ method: "POST", url: periodUrl, headers: { cookie, "idempotency-key": "period-key" }, payload: {} });
+    expect(missionClaimRepo.calls[0]).toMatchObject({ playerId: "player-1", missionId, periodKey: "2026-01-01", idempotencyKey: "period-key" });
+    expect((await app.inject({ url: "/api/mission-chests", headers: { cookie } })).statusCode).toBe(503);
+  });
   it("requires authentication and returns safe current-player mission DTOs", async () => {
     const { app, missionRepo } = await appWithFakes();
     expect((await app.inject({ method: "GET", url: "/api/missions" })).statusCode).toBe(401);

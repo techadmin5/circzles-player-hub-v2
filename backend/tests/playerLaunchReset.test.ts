@@ -50,10 +50,13 @@ beforeAll(async () => {
   await fixture.insert(s.playerProgression).values({ playerId, progressionLevel: 1, rankName: "Peasant", totalXp: 1 });
   await fixture.insert(s.wallets).values({ playerId, balance: 1 });
   const [event] = await fixture.insert(s.gameEvents).values({ playerId, eventType: "TEST", sourceType: "TEST", sourceId: "TEST", idempotencyKey: "event" }).returning();
-  const [mission] = await fixture.insert(s.missions).values({ title: "Preserved", description: "Test", category: "TEST", periodType: "ONCE" }).returning();
+  // Historical database deliberately predates the M1 lifecycle columns.
+  const mission = { missionId: crypto.randomUUID() };
+  await pg.query("INSERT INTO missions(mission_id,title,description,category,period_type) VALUES($1,'Preserved','Test','TEST','ONCE')", [mission.missionId]);
   await fixture.insert(s.missionRules).values({ missionId: mission.missionId, eventType: "TEST", targetCount: 1, puzzleId: puzzle.puzzleId });
   await fixture.insert(s.missionRewards).values({ missionId: mission.missionId, rewardType: "XP", amount: 1 });
-  const [progress] = await fixture.insert(s.playerMissionProgress).values({ playerId, missionId: mission.missionId, periodKey: "TEST", targetCountSnapshot: 1, lastGameEventId: event.gameEventId }).returning();
+  const progress = { playerMissionProgressId: crypto.randomUUID() };
+  await pg.query("INSERT INTO player_mission_progress(player_mission_progress_id,player_id,mission_id,period_key,target_count_snapshot,last_game_event_id) VALUES($1,$2,$3,'TEST',1,$4)", [progress.playerMissionProgressId, playerId, mission.missionId, event.gameEventId]);
   await fixture.insert(s.missionClaims).values({ playerId, missionId: mission.missionId, playerMissionProgressId: progress.playerMissionProgressId, periodKey: "TEST", idempotencyKey: "claim", pointTransactionId: point.transactionId, xpTransactionId: xp.xpTransactionId });
   const [reward] = await fixture.insert(s.rewardDefinitions).values({ code: "TEST", rewardType: "FRAME", name: "Preserved", description: "Test" }).returning();
   const [listing] = await fixture.insert(s.storeListings).values({ rewardDefinitionId: reward.rewardDefinitionId, priceSynapsePoints: 1 }).returning();

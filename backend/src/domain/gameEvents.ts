@@ -11,6 +11,7 @@ export const implementedGameEventTypes = [
   "xp.earned", "progression.level_up",
   "mission.completed",
   "mission.claimed",
+  "mission.chest_claimed",
   "store.purchase.completed",
   "coupon.issued",
   "coupon.redeemed",

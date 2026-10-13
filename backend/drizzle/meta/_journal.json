@@ -183,6 +183,13 @@
       "when": 1791624596200,
       "tag": "0025_catalog_max_leaderboard_time",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1791885936046,
+      "tag": "0026_missions_lifecycle_chests",
+      "breakpoints": true
     }
   ]
 }

@@ -1,3 +1,4 @@
+import { MissionChestService } from "./domain/missionChests.js";
 import { CatalogService } from "./domain/catalog.js";
 import { PlayerStateEvents } from "./domain/playerStateEvents.js";
 import { PlayerStateListener } from "./db/playerStateListener.js";
@@ -106,6 +107,7 @@ const app = buildApp({
   publicProfiles,
   missions,
   missionClaims,
+  missionChests: new MissionChestService(db),
   rewardCatalog,
   storePurchases,
   inventory,
