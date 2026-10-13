@@ -62,22 +62,7 @@ export class MissionEventProcessor {
   }
 }
 
-export class MissionProcessorRunner {
-  private timer?: NodeJS.Timeout;
-  private running = false;
-  constructor(private processor: MissionEventProcessor, private intervalMs: number, private batchSize: number, private onError: (error: unknown) => void) {}
-  async tick() {
-    if (this.running) return false;
-    this.running = true;
-    try { await this.processor.processBatch(this.batchSize); return true; }
-    catch (error) { this.onError(error); return false; }
-    finally { this.running = false; }
-  }
-  start() {
-    if (!this.timer) this.timer = setInterval(() => void this.tick(), this.intervalMs);
-  }
-  stop() { if (this.timer) clearInterval(this.timer); this.timer = undefined; }
-}
+export { MissionProcessorRunner } from "./missionProcessorRunner.js";
 
 export class DrizzleMissionRepository implements PlayerMissionRepository, MissionEventProcessorRepository {
   constructor(private db: Database) {}

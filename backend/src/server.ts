@@ -1,3 +1,4 @@
+import { createShutdownCoordinator } from "./shutdown.js";
 import { CatalogService } from "./domain/catalog.js";
 import { PlayerStateEvents } from "./domain/playerStateEvents.js";
 import { PlayerStateListener } from "./db/playerStateListener.js";
@@ -91,7 +92,9 @@ const couponRedemptionWebhooks = new ProviderCouponRedemptionWebhookHandler(
   couponRedemptionSync,
 );
 const playerStateEvents = new PlayerStateEvents();
+const missionRunner = new MissionProcessorRunner(missionProcessor, env.MISSION_PROCESSOR_INTERVAL_MS, env.MISSION_PROCESSOR_BATCH_SIZE, () => console.error("Mission processor tick failed"), env.MISSION_PROCESSOR_ENABLED);
 const app = buildApp({
+  missionWorkerState: () => missionRunner.getState(),
   catalog: new CatalogService(db),
   playerStateEvents,
   env,
@@ -122,8 +125,7 @@ const app = buildApp({
   },
 });
 
-const missionRunner = new MissionProcessorRunner(missionProcessor, env.MISSION_PROCESSOR_INTERVAL_MS, env.MISSION_PROCESSOR_BATCH_SIZE, (error) => app.log.error(error, "Mission processor tick failed"));
-app.addHook("onClose", async () => missionRunner.stop());
+app.addHook("onClose", async () => { await missionRunner.stop(); });
 const authCleanup = setInterval(() => {
   nativeRepo.pruneExpired().catch(() => app.log.warn("Expired authentication record cleanup failed"));
 }, 60 * 60_000);
@@ -139,8 +141,17 @@ const address = await app.listen({ port: env.PORT, host: "0.0.0.0" });
 missionRunner.start();
 app.log.info({ address }, "CircZles backend started");
 
-process.on("SIGINT", async () => {
-  await app.close();
-  await pool.end();
-  process.exit(0);
+app.log.info({ worker: missionRunner.getState(), claimsEnabled: env.MISSION_CLAIMS_ENABLED }, "Mission maintenance configuration");
+const shutdown = createShutdownCoordinator({
+  stopWorker: () => missionRunner.stop(), closeHttp: () => app.close(), closeDatabase: () => pool.end(),
+  timeoutMs: env.BACKEND_SHUTDOWN_TIMEOUT_MS,
+  log: (event, code) => { app.log.info({ event, code, worker: missionRunner.getState() }, "Backend lifecycle"); },
 });
+let signalReceived = false;
+const handleSignal = () => {
+  if (signalReceived) return;
+  signalReceived = true;
+  void shutdown().then(() => process.exit(0), () => process.exit(1));
+};
+process.on("SIGTERM", handleSignal);
+process.on("SIGINT", handleSignal);
