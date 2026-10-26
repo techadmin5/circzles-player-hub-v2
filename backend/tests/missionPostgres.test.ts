@@ -1,3 +1,5 @@
+import { MissionCapacityService } from "../src/domain/missionCapacityExceptions.js";
+import { missionCapacityExceptions } from "../src/db/missionAdminSchema.js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
@@ -12,13 +14,12 @@ import { DrizzleMissionRepository, DrizzleMissionClaimRepository } from "../src/
 import { MissionChestService } from "../src/domain/missionChests.js";
 import { freezeRewards } from "../src/domain/missionLifecycle.js";
 import { DrizzleGameStateRepository } from "../src/domain/gameState.js";
+import { localMissionPostgresUrl } from "./helpers/localMissionPostgres.js";
 
 // NEVER falls back to DATABASE_URL or loads production .env credentials.
 const url = process.env.MISSIONS_TEST_DATABASE_URL;
 function guardedUrl() {
-  const parsed = new URL(url!);
-  if (!['127.0.0.1', 'localhost', '[::1]'].includes(parsed.hostname) || parsed.pathname !== '/circzles_m1_test' || parsed.username !== 'circzles_test' || process.env.MISSIONS_POSTGRES_DISPOSABLE !== 'YES_LOCAL_DISPOSABLE') throw new Error('Requires explicitly attested local disposable circzles_m1_test database / circzles_test role');
-  return parsed;
+  return localMissionPostgresUrl(url, process.env.MISSIONS_TEST_DATABASE_NAME, process.env.MISSIONS_POSTGRES_DISPOSABLE);
 }
 describe.skipIf(!url)("isolated PostgreSQL 18 multi-connection mission verification", () => {
   let first: ReturnType<typeof createDb>, second: ReturnType<typeof createDb>, db: Database, playerId: string, migrated = false;
@@ -28,8 +29,10 @@ describe.skipIf(!url)("isolated PostgreSQL 18 multi-connection mission verificat
   beforeAll(async () => {
     const target = guardedUrl(); target.searchParams.set('application_name', 'circzles_m1_test_a'); first = createDb(target.toString(), () => {});
     target.searchParams.set('application_name', 'circzles_m1_test_b'); second = createDb(target.toString(), () => {}); db = first.db;
-    const version = (await first.pool.query("SELECT current_setting('server_version_num')::int AS version")).rows[0].version;
-    if (version < 180000 || version >= 190000) throw new Error('PostgreSQL 18 required');
+    for (const connection of [first, second]) {
+      const identity = (await connection.pool.query("SELECT current_database() AS database, current_user AS role, session_user AS session_role, host(inet_server_addr()) AS address, inet_server_port() AS port, current_setting('server_version_num')::int AS version")).rows[0];
+      if (identity.database !== process.env.MISSIONS_TEST_DATABASE_NAME || identity.role !== 'circzles_test' || identity.session_role !== 'circzles_test' || identity.address !== '127.0.0.1' || identity.port !== 5432 || identity.version !== 180006) throw new Error('Connected identity must match the exact disposable database, role and loopback PostgreSQL 18.6 server before any writes.');
+    }
     if ((await first.pool.query("SELECT count(*)::int AS count FROM information_schema.tables WHERE table_schema IN ('public','drizzle')")).rows[0].count !== 0) throw new Error('Database must be empty; this suite never resets an existing database');
     const a = await first.pool.connect(), b = await second.pool.connect();
     try { expect((await a.query('SELECT pg_backend_pid() AS pid')).rows[0].pid).not.toBe((await b.query('SELECT pg_backend_pid() AS pid')).rows[0].pid); } finally { a.release(); b.release(); }
@@ -69,7 +72,8 @@ describe.skipIf(!url)("isolated PostgreSQL 18 multi-connection mission verificat
     expect((await first.pool.query('SELECT count(*)::int AS count FROM drizzle.__drizzle_migrations')).rows[0].count).toBe(26);
     expect((await first.pool.query("SELECT count(*)::int AS count FROM pg_proc WHERE proname='mission_earned_snapshot_immutable'")).rows[0].count).toBe(0);
     await migrate(db, { migrationsFolder: folder }); migrated = true;
-    expect((await first.pool.query('SELECT count(*)::int AS count FROM drizzle.__drizzle_migrations')).rows[0].count).toBe(27);
+    const expectedMigrationCount = (JSON.parse(await readFile(resolve(folder, 'meta/_journal.json'), 'utf8')) as { entries: unknown[] }).entries.length;
+    expect((await first.pool.query('SELECT count(*)::int AS count FROM drizzle.__drizzle_migrations')).rows[0].count).toBe(expectedMigrationCount);
     await new DrizzleGameStateRepository(db).seedProgressionLevels([{ progressionLevel: 1, rankName: 'Test', xpRequired: 0, rewards: [] }]);
   });
   it('concurrent workers cannot process one event twice', async () => {
@@ -113,11 +117,105 @@ describe.skipIf(!url)("isolated PostgreSQL 18 multi-connection mission verificat
     try {
       const interrupted = engine().processBatch(100); const failure = expect(interrupted).rejects.toMatchObject({ code: 'MISSION_PROCESSOR_RETRY' });
       let pid: number | undefined;
-      for (let i=0;i<100 && !pid;i++) { pid = (await second.pool.query("SELECT pid FROM pg_stat_activity WHERE application_name='circzles_m1_test_a' AND state='active' AND query LIKE 'insert into \"player_mission_progress\"%' LIMIT 1")).rows[0]?.pid; if (!pid) await new Promise(resolve => setTimeout(resolve, 20)); }
+      for (let i=0;i<100 && !pid;i++) { pid = (await second.pool.query("SELECT pid FROM pg_stat_activity WHERE datname=current_database() AND usename=current_user AND application_name='circzles_m1_test_a' AND state='active' AND query LIKE 'insert into \"player_mission_progress\"%' LIMIT 1")).rows[0]?.pid; if (!pid) await new Promise(resolve => setTimeout(resolve, 20)); }
       expect(pid).toBeDefined(); await second.pool.query('SELECT pg_terminate_backend($1)', [pid]); await failure;
     } finally { await second.pool.query('DROP TRIGGER test_worker_delay ON player_mission_progress; DROP FUNCTION test_worker_delay();'); }
     expect(await db.select().from(s.playerMissionProgress).where(eq(s.playerMissionProgress.missionId, m.missionId))).toHaveLength(0);
     await db.update(c.missionEventAttempts).set({ nextAttemptAt: origin }).where(eq(c.missionEventAttempts.gameEventId, event.gameEventId)); await engine(true).processBatch(100);
     expect((await db.select().from(s.playerMissionProgress).where(eq(s.playerMissionProgress.missionId, m.missionId)))[0].currentCount).toBe(1);
   }, 20000);
+
+  // Reward fixtures are earned snapshots on inactive synthetic definitions.
+  // No application server, worker timer, external identity or payout is involved.
+  const spMaximum = 2147483647, xpMaximum = Number.MAX_SAFE_INTEGER;
+  async function balances(sp: number, xp: number) {
+    await db.insert(s.wallets).values({ playerId, balance: sp });
+    await db.insert(s.playerProgression).values({ playerId, totalXp: xp, progressionLevel: 1, rankName: 'Test' });
+  }
+  async function earned(xp: number, sp: number) {
+    const [definition] = await db.insert(s.missions).values({ title: 'Synthetic boundary', description: '', category: 'DAILY', periodType: 'DAILY', active: false }).returning();
+    const snapshot = freezeRewards([...(xp ? [{ rewardType: 'XP', amount: xp }] : []), ...(sp ? [{ rewardType: 'SYNAPSE_POINTS', amount: sp }] : [])]);
+    await db.insert(s.playerMissionProgress).values({ playerId, missionId: definition.missionId, periodKey: '2026-01-01', targetCountSnapshot: 1, currentCount: 1, status: 'CLAIMABLE', rewardSnapshot: snapshot, completedAt: now, claimDeadline: new Date('2026-01-03Z') });
+    return definition;
+  }
+  async function boundaryState() {
+    return Promise.all([
+      first.pool.query('SELECT balance,updated_at FROM wallets WHERE player_id=$1', [playerId]).then(result => result.rows),
+      first.pool.query('SELECT total_xp::text,progression_level,rank_name,updated_at FROM player_progression WHERE player_id=$1', [playerId]).then(result => result.rows),
+      ...[s.pointTransactions, s.xpTransactions, s.gameEvents, s.playerMissionProgress, s.missionClaims].map(table => db.select().from(table).where(eq(table.playerId, playerId))),
+    ]);
+  }
+  // Hold the wallet until both independent claim transactions demonstrably wait
+  // on PostgreSQL locks. Promise.all alone would not establish lock contention.
+  async function contested(a: () => Promise<unknown>, b: () => Promise<unknown>) {
+    const blocker = await first.pool.connect();
+    let outcomes: Promise<PromiseSettledResult<unknown>[]> | undefined, waiting = 0;
+    try {
+      await blocker.query('BEGIN');
+      const blockerPid = (await blocker.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+      await blocker.query('SELECT wallet_id FROM wallets WHERE player_id=$1 FOR UPDATE', [playerId]);
+      outcomes = Promise.allSettled([a(), b()]);
+      for (let attempt = 0; attempt < 150 && waiting < 2; attempt++) {
+        waiting = (await second.pool.query("SELECT count(*)::int AS count FROM pg_stat_activity WHERE datname=current_database() AND usename=current_user AND application_name IN ('circzles_m1_test_a','circzles_m1_test_b') AND pid<>$1 AND wait_event_type='Lock'", [blockerPid])).rows[0].count;
+        if (waiting < 2) await new Promise(resolve => setTimeout(resolve, 20));
+      }
+    } finally { await blocker.query('ROLLBACK'); blocker.release(); }
+    const result = await outcomes!;
+    expect(waiting).toBe(2);
+    return result;
+  }
+  it.each(['SP', 'XP'])('accepts an exact %s boundary snapshot, replays once and rejects one additional unit atomically', async currency => {
+    await balances(currency === 'SP' ? spMaximum - 1 : 0, currency === 'XP' ? xpMaximum - 1 : 0);
+    const definition = await earned(1, 1), key = crypto.randomUUID();
+    const firstClaim = await claim(definition.missionId, key);
+    expect(firstClaim.awarded).toMatchObject({ xp: 1, synapsePoints: 1 });
+    const after = await boundaryState();
+    expect((await claim(definition.missionId, key, true)).missionClaimId).toBe(firstClaim.missionClaimId);
+    expect(await boundaryState()).toEqual(after);
+    const next = await earned(1, 1), before = await boundaryState();
+    await expect(claim(next.missionId, crypto.randomUUID(), true)).rejects.toMatchObject({ code: 'MISSION_CAPACITY_PENDING' });
+    expect(await boundaryState()).toEqual(before); await ledgers(1);
+    const totals = (await first.pool.query('SELECT w.balance,p.total_xp::text AS xp FROM wallets w JOIN player_progression p USING(player_id) WHERE w.player_id=$1', [playerId])).rows[0];
+    expect(currency === 'SP' ? totals.balance : totals.xp).toBe(currency === 'SP' ? spMaximum : String(xpMaximum));
+  });
+  it.each(['SP', 'XP'])('serializes competing %s boundary claims over real locks with no partial or duplicate awards', async currency => {
+    await balances(currency === 'SP' ? spMaximum - 1 : 0, currency === 'XP' ? xpMaximum - 1 : 0);
+    const [one, two] = await Promise.all([earned(1, 1), earned(1, 1)]);
+    const result = await contested(() => claim(one.missionId, crypto.randomUUID()), () => claim(two.missionId, crypto.randomUUID(), true));
+    expect(result.filter(row => row.status === 'fulfilled')).toHaveLength(1);
+    expect(result.find(row => row.status === 'rejected')).toMatchObject({ reason: { code: 'MISSION_CAPACITY_PENDING' } });
+    await ledgers(1);
+    expect(await db.select().from(s.missionClaims).where(eq(s.missionClaims.playerId, playerId))).toHaveLength(1);
+    expect((await db.select().from(s.playerMissionProgress).where(eq(s.playerMissionProgress.playerId, playerId))).map(row => row.status).sort()).toEqual(['CLAIMABLE', 'CLAIMED']);
+  });
+  it('concurrent duplicate frozen claims at both ceilings return one receipt without duplicate idempotency grants', async () => {
+    await balances(spMaximum - 1, xpMaximum - 1);
+    const definition = await earned(1, 1), key = crypto.randomUUID();
+    // Same progress row serializes the second caller before it reaches the wallet.
+    const results = await Promise.all([claim(definition.missionId, key), claim(definition.missionId, key, true)]);
+    expect(results[0].missionClaimId).toBe(results[1].missionClaimId);
+    expect(results.filter(row => row.idempotent)).toHaveLength(1); await ledgers(1);
+  });
+  it('XP failure rolls back preceding SP writes and requires exact SUPER_ADMIN recovery', async () => {
+    await balances(0, xpMaximum);
+    const definition = await earned(1, 1), key = crypto.randomUUID(), before = await boundaryState();
+    await expect(claim(definition.missionId, key, true)).rejects.toMatchObject({ code: 'MISSION_CAPACITY_PENDING' });
+    expect(await boundaryState()).toEqual(before); await ledgers(0);
+    await db.update(s.playerProgression).set({ totalXp: xpMaximum - 1 }).where(eq(s.playerProgression.playerId, playerId)); // Synthetic capacity only.
+    await db.insert(s.missionRewards).values({ missionId: definition.missionId, rewardType: 'XP', amount: 999 });
+    const [user] = await db.insert(s.users).values({verifiedEmail:crypto.randomUUID()+"@test.invalid"}).returning();
+    const [admin] = await db.insert(s.adminUsers).values({userId:user.userId,role:"SUPER_ADMIN"}).returning();
+    const [exception] = await db.select().from(missionCapacityExceptions).where(eq(missionCapacityExceptions.playerId,playerId));
+    const capacity = new MissionCapacityService(db), row = await capacity.detail(exception.exceptionId,admin.adminUserId);
+    await capacity.recover(exception.exceptionId,{expectedEventId:row.revision,digest:row.digest,reason:"Synthetic exact recovery",idempotencyKey:crypto.randomUUID()},admin.adminUserId);
+    expect((await claim(definition.missionId, key, true)).awarded).toMatchObject({ xp: 1, synapsePoints: 1 });
+    await ledgers(1);
+  });
+  it.each(['9007199254740992', '9007199254740993', '9223372036854775807'])('rejects unsafe stored XP %s exactly without rounding, SP leakage or snapshot changes', async total => {
+    await balances(0, 0); await first.pool.query('UPDATE player_progression SET total_xp=$1::bigint WHERE player_id=$2', [total, playerId]);
+    const definition = await earned(1, 1), before = await boundaryState();
+    await expect(claim(definition.missionId, crypto.randomUUID(), true)).rejects.toMatchObject({ code: 'XP_TOTAL_UNSAFE' });
+    expect(await boundaryState()).toEqual(before); await ledgers(0);
+    expect((await first.pool.query('SELECT total_xp::text AS xp FROM player_progression WHERE player_id=$1', [playerId])).rows[0].xp).toBe(total);
+  });
 });

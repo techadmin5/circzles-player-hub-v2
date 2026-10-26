@@ -2,7 +2,7 @@ import "dotenv/config";
 import { defineConfig } from "drizzle-kit";
 
 export default defineConfig({
-  schema: ["./src/db/schema.ts", "./src/db/missionChestSchema.ts"],
+  schema: ["./src/db/schema.ts", "./src/db/missionChestSchema.ts", "./src/db/missionAdminSchema.ts"],
   out: "./drizzle",
   dialect: "postgresql",
   dbCredentials: {

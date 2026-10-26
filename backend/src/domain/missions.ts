@@ -1,13 +1,16 @@
+import { readPlayerMissionHistory, type PlayerMissionHistoryPage } from "./playerMissionHistory.js";
+import { recordMissionCapacityException, findMissionCapacityException, pendingCapacityError } from "./missionCapacityExceptions.js";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import type { Database } from "../db/client.js";
-import { gameEvents, missionClaims, missionRewards, missionRules, missions, playerMissionProgress, xpTransactions } from "../db/schema.js";
+import { gameEvents, missionClaims, missionRewards, missionRules, missions, playerMissionProgress, playerProgression, xpTransactions } from "../db/schema.js";
 import { implementedGameEventTypes, insertGameEventInTransaction } from "./gameEvents.js";
 import { missionEventAttempts, missionProcessingFailures } from "../db/missionChestSchema.js";
 import { recordChestCompletion } from "./missionChests.js";
 import { claimDeadlineFor, freezeRewards, periodBounds, periodKeyFor, snapshotTotals } from "./missionLifecycle.js";
 export { periodKeyFor } from "./missionLifecycle.js";
 import { AppError, validationFailed } from "./errors.js";
-import { creditPointsInTransaction, getPlayerGameStateInTransaction, grantXpInTransaction, type GameStateTransaction } from "./gameState.js";
+import { creditPointsInTransaction, getPlayerGameStateInTransaction, grantXpInTransaction, lockWalletAndGetBalanceInTransaction, type GameStateTransaction } from "./gameState.js";
+import { checkedPointChange, checkedXpGrant } from "./rewardArithmetic.js";
 
 export const missionCategories = ["DAILY", "WEEKLY", "SPRINT", "SEASON", "EVENT", "ACHIEVEMENT"] as const;
 export const missionPeriodTypes = ["DAILY", "WEEKLY", "LIFETIME", "FIXED"] as const;
@@ -31,14 +34,18 @@ export interface MissionDto {
   rewards: Array<{ type: "SYNAPSE_POINTS" | "XP"; amount: number; label: string }>;
 }
 
-export interface PlayerMissionRepository { listForPlayer(playerId: string, now: Date): Promise<MissionDto[]>; listPeriods?(playerId: string, now: Date): Promise<unknown[]> }
+export interface PlayerMissionRepository { history?(playerId: string, query: unknown, now: Date): Promise<PlayerMissionHistoryPage>; listForPlayer(playerId: string, now: Date): Promise<MissionDto[]>; listPeriods?(playerId: string, now: Date): Promise<unknown[]> }
 export class PlayerMissionService {
   constructor(private repo: PlayerMissionRepository) {}
+  history(playerId: string, query: unknown, now = new Date()) {
+    if (!this.repo.history) throw new AppError("MISSION_HISTORY_UNAVAILABLE", "Mission history is temporarily unavailable.", 503);
+    return this.repo.history(playerId, query, now);
+  }
   list(playerId: string, now = new Date()) { return this.repo.listForPlayer(playerId, now); }
   periods(playerId: string, now = new Date()) { return this.repo.listPeriods?.(playerId, now) ?? this.repo.listForPlayer(playerId, now); }
 }
 
-export interface MissionClaimInput { playerId: string; missionId: string; periodKey?: string; idempotencyKey: string; now?: Date }
+export interface MissionClaimInput { playerId: string; missionId: string; periodKey?: string; idempotencyKey: string; now?: Date; arrivedAt?: Date }
 export interface MissionClaimResult {
   missionClaimId: string;
   missionId: string;
@@ -54,7 +61,7 @@ export class MissionClaimService {
   constructor(private repo: MissionClaimRepository) {}
   claim(input: MissionClaimInput) {
     if (!input.playerId || !input.missionId || !input.idempotencyKey?.trim() || input.idempotencyKey.trim().length > 200) throw validationFailed("Player, mission, and a valid Idempotency-Key are required.");
-    return this.repo.claim({ ...input, idempotencyKey: input.idempotencyKey.trim() });
+    return this.repo.claim({ ...input, arrivedAt: new Date((input.arrivedAt ?? input.now ?? new Date()).getTime()), idempotencyKey: input.idempotencyKey.trim() });
   }
 }
 
@@ -70,6 +77,7 @@ export class MissionEventProcessor {
 export { MissionProcessorRunner } from "./missionProcessorRunner.js";
 
 export class DrizzleMissionRepository implements PlayerMissionRepository, MissionEventProcessorRepository {
+  history(playerId: string, query: unknown, now: Date) { return readPlayerMissionHistory(this.db, playerId, query, now); }
   constructor(private db: Database) {}
 
   async processBatch(batchSize: number) {
@@ -181,6 +189,8 @@ export class DrizzleMissionRepository implements PlayerMissionRepository, Missio
 export class DrizzleMissionClaimRepository implements MissionClaimRepository {
   constructor(private db: Database) {}
   async claim(input: MissionClaimInput) {
+    const arrivedAt = new Date((input.arrivedAt ?? input.now ?? new Date()).getTime());
+    if (!Number.isFinite(arrivedAt.getTime())) throw validationFailed("Invalid server claim timestamp.");
     const result = await this.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${input.playerId}:${input.idempotencyKey}`}, 0))`);
       const [replay] = await tx.select().from(missionClaims).where(and(eq(missionClaims.playerId, input.playerId), eq(missionClaims.idempotencyKey, input.idempotencyKey))).limit(1);
@@ -189,7 +199,9 @@ export class DrizzleMissionClaimRepository implements MissionClaimRepository {
         return claimResult(tx, replay, true);
       }
 
-      const now = input.now ?? new Date();
+      const now = arrivedAt;
+      const bound = await findMissionCapacityException(tx, input);
+      if (bound) return bound;
       const [mission] = await tx.select().from(missions).where(eq(missions.missionId, input.missionId)).limit(1);
       if (!mission) throw new AppError("MISSION_NOT_AVAILABLE", "Mission is not available.", 404);
       const periodKey = input.periodKey ?? periodKeyFor(mission.periodType as MissionPeriodType, now, mission.missionId);
@@ -197,30 +209,56 @@ export class DrizzleMissionClaimRepository implements MissionClaimRepository {
       const [progress] = await tx.select().from(playerMissionProgress).where(and(eq(playerMissionProgress.playerId, input.playerId), eq(playerMissionProgress.missionId, mission.missionId), eq(playerMissionProgress.periodKey, periodKey))).limit(1).for("update");
       if (!progress || progress.status === "IN_PROGRESS") throw new AppError("MISSION_NOT_CLAIMABLE", "Mission is not claimable.", 409);
       if (progress.status === "CLAIMED") throw new AppError("MISSION_ALREADY_CLAIMED", "Mission reward was already claimed.", 409);
+      const existingException = await findMissionCapacityException(tx, input, progress);
+      if (existingException) return existingException;
       if (progress.claimDeadline && now >= progress.claimDeadline) {
         await tx.update(playerMissionProgress).set({ expiredAt: progress.expiredAt ?? progress.claimDeadline }).where(eq(playerMissionProgress.playerMissionProgressId, progress.playerMissionProgressId));
         return null;
       }
-      const { synapsePoints: synapseReward, xp: xpReward } = snapshotTotals(progress.rewardSnapshot);
-
-      const [claim] = await tx.insert(missionClaims).values({ playerId: input.playerId, missionId: mission.missionId, playerMissionProgressId: progress.playerMissionProgressId, periodKey, synapseRewardSnapshot: synapseReward, xpRewardSnapshot: xpReward, idempotencyKey: input.idempotencyKey }).returning();
-      if (!claim) throw new AppError("MISSION_CLAIM_FAILED", "Mission claim could not be recorded.", 500);
-      const metadata = { missionId: mission.missionId, periodKey, missionClaimId: claim.missionClaimId };
-      const points = synapseReward > 0 ? await creditPointsInTransaction(tx, { playerId: input.playerId, amount: synapseReward, reason: "Mission reward", sourceType: "MISSION_REWARD", sourceId: claim.missionClaimId, idempotencyKey: `mission.reward.sp:${input.playerId}:${mission.missionId}:${periodKey}`, metadata }) : undefined;
-      const xp = xpReward > 0 ? await grantXpInTransaction(tx, { playerId: input.playerId, amount: xpReward, reason: "Mission reward", sourceType: "MISSION_REWARD", sourceId: claim.missionClaimId, idempotencyKey: `mission.reward.xp:${input.playerId}:${mission.missionId}:${periodKey}`, metadata }) : undefined;
-      await tx.update(missionClaims).set({ pointTransactionId: points?.transactionId, xpTransactionId: xp?.transactionId }).where(eq(missionClaims.missionClaimId, claim.missionClaimId));
-      const claimedAt = claim.createdAt;
-      const [claimedProgress] = await tx.update(playerMissionProgress).set({ status: "CLAIMED", claimedAt, updatedAt: sql`now()` }).where(eq(playerMissionProgress.playerMissionProgressId, progress.playerMissionProgressId)).returning();
-      if (!claimedProgress) throw new AppError("MISSION_CLAIM_FAILED", "Mission progress could not be marked claimed.", 500);
-      await insertGameEventInTransaction(tx, { playerId: input.playerId, eventType: "mission.claimed", sourceType: "MISSION", sourceId: claim.missionClaimId, idempotencyKey: `mission.claimed:${input.playerId}:${mission.missionId}:${periodKey}`, payload: { missionId: mission.missionId, periodKey, synapseReward, xpReward, claimedAt: claimedAt.toISOString() } });
-      return claimResult(tx, { ...claim, pointTransactionId: points?.transactionId ?? null, xpTransactionId: xp?.transactionId ?? null }, false);
+      try { return await tx.transaction(nested => payEarnedMission(nested, progress, input.idempotencyKey)); }
+      catch (error) {
+        if (!(error instanceof AppError) || !["SP_BALANCE_LIMIT_EXCEEDED", "XP_TOTAL_LIMIT_EXCEEDED"].includes(error.code)) throw error;
+        const exceptionId = await recordMissionCapacityException(tx, progress, input.idempotencyKey, arrivedAt, error.code);
+        return { capacityExceptionId: exceptionId };
+      }
     });
     if (!result) throw new AppError("MISSION_CLAIM_EXPIRED", "Mission claim deadline has passed.", 410);
+    if ("capacityExceptionId" in result) throw pendingCapacityError(result.capacityExceptionId);
     return result;
   }
 }
 
-async function claimResult(tx: Parameters<Parameters<Database["transaction"]>[0]>[0], claim: typeof missionClaims.$inferSelect, idempotent: boolean): Promise<MissionClaimResult> {
+export async function payEarnedMission(tx: GameStateTransaction, progress: typeof playerMissionProgress.$inferSelect, key: string): Promise<MissionClaimResult> {
+  const { synapsePoints: synapseReward, xp: xpReward } = snapshotTotals(progress.rewardSnapshot);
+  // Validate BOTH currencies before classifying a failure as solely capacity.
+  // Keep initialization and locks inside the caller's payout savepoint.
+  await lockWalletAndGetBalanceInTransaction(tx, progress.playerId);
+  await tx.select().from(playerProgression).where(eq(playerProgression.playerId, progress.playerId)).for("update");
+  const state = await getPlayerGameStateInTransaction(tx, progress.playerId);
+  let capacityFailure: AppError | undefined;
+  for (const check of [() => { if (synapseReward) checkedPointChange(state.synapsePoints, synapseReward, "CREDIT"); }, () => { if (xpReward) checkedXpGrant(state.totalXp, xpReward); }]) {
+    try { check(); } catch (error) {
+      if (!(error instanceof AppError) || !["SP_BALANCE_LIMIT_EXCEEDED", "XP_TOTAL_LIMIT_EXCEEDED"].includes(error.code)) throw error;
+      capacityFailure ??= error;
+    }
+  }
+  if (capacityFailure) throw capacityFailure;
+
+  const periodKey = progress.periodKey;
+  const [claim] = await tx.insert(missionClaims).values({ playerId: progress.playerId, missionId: progress.missionId, playerMissionProgressId: progress.playerMissionProgressId, periodKey, synapseRewardSnapshot: synapseReward, xpRewardSnapshot: xpReward, idempotencyKey: key }).returning();
+  if (!claim) throw new AppError("MISSION_CLAIM_FAILED", "Mission claim could not be recorded.", 500);
+  const metadata = { missionId: progress.missionId, periodKey, missionClaimId: claim.missionClaimId };
+  const points = synapseReward > 0 ? await creditPointsInTransaction(tx, { playerId: progress.playerId, amount: synapseReward, reason: "Mission reward", sourceType: "MISSION_REWARD", sourceId: claim.missionClaimId, idempotencyKey: `mission.reward.sp:${progress.playerId}:${progress.missionId}:${periodKey}`, metadata }) : undefined;
+  const xp = xpReward > 0 ? await grantXpInTransaction(tx, { playerId: progress.playerId, amount: xpReward, reason: "Mission reward", sourceType: "MISSION_REWARD", sourceId: claim.missionClaimId, idempotencyKey: `mission.reward.xp:${progress.playerId}:${progress.missionId}:${periodKey}`, metadata }) : undefined;
+  await tx.update(missionClaims).set({ pointTransactionId: points?.transactionId, xpTransactionId: xp?.transactionId }).where(eq(missionClaims.missionClaimId, claim.missionClaimId));
+  const claimedAt = claim.createdAt;
+  const [claimedProgress] = await tx.update(playerMissionProgress).set({ status: "CLAIMED", claimedAt, updatedAt: sql`now()` }).where(eq(playerMissionProgress.playerMissionProgressId, progress.playerMissionProgressId)).returning();
+  if (!claimedProgress) throw new AppError("MISSION_CLAIM_FAILED", "Mission progress could not be marked claimed.", 500);
+  await insertGameEventInTransaction(tx, { playerId: progress.playerId, eventType: "mission.claimed", sourceType: "MISSION", sourceId: claim.missionClaimId, idempotencyKey: `mission.claimed:${progress.playerId}:${progress.missionId}:${periodKey}`, payload: { missionId: progress.missionId, periodKey, synapseReward, xpReward, claimedAt: claimedAt.toISOString() } });
+  return claimResult(tx, { ...claim, pointTransactionId: points?.transactionId ?? null, xpTransactionId: xp?.transactionId ?? null }, false);
+}
+
+export async function claimResult(tx: Parameters<Parameters<Database["transaction"]>[0]>[0], claim: typeof missionClaims.$inferSelect, idempotent: boolean): Promise<MissionClaimResult> {
   const state = await getPlayerGameStateInTransaction(tx, claim.playerId);
   return { missionClaimId: claim.missionClaimId, missionId: claim.missionId, periodKey: claim.periodKey, status: "CLAIMED", claimedAt: claim.createdAt.toISOString(), idempotent, awarded: { synapsePoints: claim.synapseRewardSnapshot, xp: claim.xpRewardSnapshot }, playerState: { synapsePoints: state.synapsePoints, xp: state.totalXp, progressionLevel: state.progressionLevel, rankName: state.rankName } };
 }

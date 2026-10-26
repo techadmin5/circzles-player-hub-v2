@@ -1,3 +1,7 @@
+import { registerPlayerMissionHistoryRoutes } from "./playerMissionHistoryRoutes.js";
+import { registerMissionArrival } from "./missionArrival.js";
+import { registerAdminMissionRoutes } from "./adminMissionRoutes.js";
+import type { AdminMissionService } from "../domain/adminMissions.js";
 import { registerMissionClaimMaintenance } from "./missionMaintenance.js";
 import type { MissionWorkerState } from "../domain/missionProcessorRunner.js";
 import { registerCatalogRoutes } from "./catalogRoutes.js";
@@ -43,6 +47,7 @@ import { AuthHandoffVerifier } from "../domain/authHandoff.js";
 import { UnconfiguredDirectAuthProvider, type DirectAuthorizationCallback, type DirectAuthProvider } from "../domain/directAuth.js";
 
 export interface AppDeps {
+  adminMissions?: AdminMissionService;
   catalog?: CatalogService;
   env: Env;
   identity: IdentityService;
@@ -56,7 +61,7 @@ export interface AppDeps {
   publicProfiles: PublicProfileService;
   missions: PlayerMissionService;
   missionClaims: MissionClaimService;
-  missionChests?: Pick<MissionChestService, "list" | "claim">;
+  missionChests?: Pick<MissionChestService, "list" | "claim"> & Partial<Pick<MissionChestService,"history">>;
   rewardCatalog: RewardCatalogService;
   storePurchases: StorePurchaseService;
   inventory: InventoryService;
@@ -141,7 +146,7 @@ const equipmentParamsSchema = z.object({ slot: z.enum(equipmentSlots) }).strict(
 const equipBodySchema = z.object({ slot: z.enum(equipmentSlots) }).strict();
 const renameDisplayNameBodySchema = z.object({ inventoryItemId: z.string().uuid(), displayName: z.string() }).strict();
 
-export function buildApp({ catalog, env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, missionChests, rewardCatalog, storePurchases, inventory, coupons, playerIdentityActions, rewardWheel, couponRedemptionWebhooks, authHandoff, directAuth, nativeAuth, googleAuth, playerProfile, playerStateEvents, missionWorkerState, checkDb }: AppDeps) {
+export function buildApp({ adminMissions, catalog, env, identity, gameState, puzzles, submissions: submissionService, adminAuth, adminSubmissions, leaderboards, submissionReviews, publicProfiles, missions, missionClaims, missionChests, rewardCatalog, storePurchases, inventory, coupons, playerIdentityActions, rewardWheel, couponRedemptionWebhooks, authHandoff, directAuth, nativeAuth, googleAuth, playerProfile, playerStateEvents, missionWorkerState, checkDb }: AppDeps) {
   const handoffVerifier = authHandoff ?? new AuthHandoffVerifier({ circzlesCom: env.AUTH_HANDOFF_CIRCZLES_COM_SECRET, circzlesIn: env.AUTH_HANDOFF_CIRCZLES_IN_SECRET });
   const directAuthProvider = directAuth ?? new UnconfiguredDirectAuthProvider();
   const app = Fastify({
@@ -152,6 +157,8 @@ export function buildApp({ catalog, env, identity, gameState, puzzles, submissio
     },
     genReqId: () => crypto.randomUUID(),
   });
+
+  const missionArrival = registerMissionArrival(app);
 
   app.register(cors, {
     origin: env.FRONTEND_ORIGIN,
@@ -170,6 +177,7 @@ export function buildApp({ catalog, env, identity, gameState, puzzles, submissio
 
   registerMissionClaimMaintenance(app, env.MISSION_CLAIMS_ENABLED ?? true, request => requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]));
 
+  if (adminMissions) registerAdminMissionRoutes(app, { env, adminAuth, adminMissions });
   if (catalog) registerCatalogRoutes(app, { env, adminAuth, catalog });
   app.register(couponWebhookRoutes, { handler: couponRedemptionWebhooks });
 
@@ -370,6 +378,8 @@ export function buildApp({ catalog, env, identity, gameState, puzzles, submissio
     return reply.send({ missions: await missions.list(player.internalId) });
   });
 
+  registerPlayerMissionHistoryRoutes(app, identity, missions);
+
   app.get("/api/missions/periods", async (request, reply) => {
     reply.header("Cache-Control", "private, no-store");
     const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
@@ -380,13 +390,19 @@ export function buildApp({ catalog, env, identity, gameState, puzzles, submissio
     const params = z.object({ missionId: z.string().uuid(), periodKey: z.string().min(1).max(64) }).strict().safeParse(request.params);
     if (!params.success) throw validationFailed("Invalid mission period.");
     const key = emptyClaimKey(request);
-    return reply.send(await missionClaims.claim({ playerId: player.internalId, ...params.data, idempotencyKey: key }));
+    return reply.send(await missionClaims.claim({ playerId: player.internalId, ...params.data, arrivedAt: missionArrival(request), idempotencyKey: key }));
   });
   app.get("/api/mission-chests", async (request, reply) => {
     reply.header("Cache-Control", "private, no-store");
     const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
     if (!missionChests) throw new AppError("MISSION_CHESTS_UNAVAILABLE", "Mission chests are unavailable.", 503);
     return reply.send({ chests: await missionChests.list(player.internalId) });
+  });
+  app.get("/api/mission-chests/history",async(request,reply)=>{
+    reply.header("Cache-Control","private, no-store");
+    const player=await requireCurrentPlayer(identity,request.cookies[SESSION_COOKIE_NAME]);
+    if(!missionChests?.history)throw new AppError("MISSION_CHESTS_UNAVAILABLE","Chest history is unavailable.",503);
+    return missionChests.history(player.internalId,request.query);
   });
   app.post("/api/mission-chests/:chestId/periods/:periodKey/claim", async (request, reply) => {
     const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
@@ -469,7 +485,7 @@ export function buildApp({ catalog, env, identity, gameState, puzzles, submissio
     const header = request.headers["idempotency-key"];
     const idempotencyKey = typeof header === "string" ? header.trim() : "";
     if (!idempotencyKey || idempotencyKey.length > 200) throw validationFailed("A valid Idempotency-Key header is required.");
-    return reply.send(await missionClaims.claim({ playerId: player.internalId, missionId: params.data.missionId, idempotencyKey }));
+    return reply.send(await missionClaims.claim({ playerId: player.internalId, missionId: params.data.missionId, arrivedAt: missionArrival(request), idempotencyKey }));
   });
 
   app.get("/api/leaderboards", async (request, reply) => {
