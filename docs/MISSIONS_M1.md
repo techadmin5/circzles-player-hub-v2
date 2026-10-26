@@ -1,5 +1,7 @@
 # Missions M1: lifecycle, earned rewards and chest foundation
 
+Current release status (2026-10-24): this document describes the original M1 foundation. M2 administration/player/chest features now exist locally. The approved initial-release chest template is **Daily 50 XP / 100 SP; Weekly 200 XP / 250 SP**, with separate recorded per-configuration approvals still required. The older figures below are historical provisional examples, not current defaults. See [the consolidated release review](MISSIONS_RELEASE_CANDIDATE.md) and [M2](MISSIONS_M2.md). No production release is implied.
+
 This branch adds backend infrastructure only. It does not configure or activate missions or chests, seed rewards, build an admin editor, or change the player Missions screen. Planned Daily (five available, any three completed, 25 SP + 20 XP) and Weekly (six available, any four completed, 100 SP + 75 XP) configurations are examples, not seeds or hardcoded eligibility rules.
 
 ## UTC lifecycle

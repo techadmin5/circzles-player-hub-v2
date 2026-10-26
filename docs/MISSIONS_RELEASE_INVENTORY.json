@@ -1,0 +1,683 @@
+{
+  "preparedOn": "2026-10-24",
+  "state": "LOCAL_UNCOMMITTED_REVIEW_ONLY",
+  "branch": "feature/missions-lifecycle-chests",
+  "baseCommit": "ed217f60253614b99eb32545d3b3c922609e3698",
+  "controlsOnlyCommit": "7bad7c8faa2265844a0f1d2af42d93d554c14aeb",
+  "noGitWritesPerformed": true,
+  "policy": {
+    "version": "initial-release-2026-10-24",
+    "daily": {
+      "xp": 50,
+      "synapsePoints": 100,
+      "selectable": 5,
+      "required": 3
+    },
+    "weekly": {
+      "xp": 200,
+      "synapsePoints": 250,
+      "selectable": 6,
+      "required": 4
+    },
+    "requiresSeparateRecordedApprovals": true
+  },
+  "backendLockfileSha256WorkingBytes": "8c1ac172b4c8d93dbd12b1f3f1946f5ff0566ba18fdcfcf948ad2905092e6c3b",
+  "journalEntries": 36,
+  "migrations": [
+    {
+      "index": 26,
+      "path": "backend/drizzle/0026_missions_lifecycle_chests.sql",
+      "sha256WorkingBytes": "ef18031866476ed919498dac9b089b2bc1fe52b550dac837ca41bee0e247e7af",
+      "sha256LfBytes": "ef18031866476ed919498dac9b089b2bc1fe52b550dac837ca41bee0e247e7af",
+      "hasCRLF": false
+    },
+    {
+      "index": 27,
+      "path": "backend/drizzle/0027_mission_admin_history.sql",
+      "sha256WorkingBytes": "04b485f22e0584b8996dc46909ec29bd496f58cfd81d47be6be42d51b87ed0e7",
+      "sha256LfBytes": "04b485f22e0584b8996dc46909ec29bd496f58cfd81d47be6be42d51b87ed0e7",
+      "hasCRLF": false
+    },
+    {
+      "index": 28,
+      "path": "backend/drizzle/0028_mission_admin_rule_history.sql",
+      "sha256WorkingBytes": "2a848be061b5509de7c010f2e5b403190a3cd5ad9ad0ac4707a875224ad34d0c",
+      "sha256LfBytes": "2a848be061b5509de7c010f2e5b403190a3cd5ad9ad0ac4707a875224ad34d0c",
+      "hasCRLF": false
+    },
+    {
+      "index": 29,
+      "path": "backend/drizzle/0029_mission_admin_schedule_history.sql",
+      "sha256WorkingBytes": "be5d3b805ea0528b7cd4a0bff2bfe3d0821754ee10d702b629f6efce505b349a",
+      "sha256LfBytes": "be5d3b805ea0528b7cd4a0bff2bfe3d0821754ee10d702b629f6efce505b349a",
+      "hasCRLF": false
+    },
+    {
+      "index": 30,
+      "path": "backend/drizzle/0030_mission_admin_reward_history.sql",
+      "sha256WorkingBytes": "bd254a3ea7d2d6096619bc8e3d18a21b32b1063f99bfa4487416d26435dd1ecb",
+      "sha256LfBytes": "bd254a3ea7d2d6096619bc8e3d18a21b32b1063f99bfa4487416d26435dd1ecb",
+      "hasCRLF": false
+    },
+    {
+      "index": 31,
+      "path": "backend/drizzle/0031_mission_approvals.sql",
+      "sha256WorkingBytes": "9f68bb115aaf8bc4e2868e387a1b5398ca751eaaf7671e06a75a3a6d6b1a4e03",
+      "sha256LfBytes": "9f68bb115aaf8bc4e2868e387a1b5398ca751eaaf7671e06a75a3a6d6b1a4e03",
+      "hasCRLF": false
+    },
+    {
+      "index": 32,
+      "path": "backend/drizzle/0032_mission_lifecycle_operations.sql",
+      "sha256WorkingBytes": "d2aaf4c991f135de81142832421f008f3a0738e19dc954d956b51de602406954",
+      "sha256LfBytes": "d2aaf4c991f135de81142832421f008f3a0738e19dc954d956b51de602406954",
+      "hasCRLF": false
+    },
+    {
+      "index": 33,
+      "path": "backend/drizzle/0033_mission_capacity_exceptions.sql",
+      "sha256WorkingBytes": "a50c9c4e777a8ae275f4c251416b4795c716e13e8d138a05c69ad9775b675e1a",
+      "sha256LfBytes": "a50c9c4e777a8ae275f4c251416b4795c716e13e8d138a05c69ad9775b675e1a",
+      "hasCRLF": false
+    },
+    {
+      "index": 34,
+      "path": "backend/drizzle/0034_mission_chest_administration.sql",
+      "sha256WorkingBytes": "aafcb20a36ebf1b46620b50dea36ec4894e6b8d147ea5035cde7cb970386dd3a",
+      "sha256LfBytes": "aafcb20a36ebf1b46620b50dea36ec4894e6b8d147ea5035cde7cb970386dd3a",
+      "hasCRLF": false
+    },
+    {
+      "index": 35,
+      "path": "backend/drizzle/0035_chest_capacity_recovery.sql",
+      "sha256WorkingBytes": "58dae063ee980273b1dd15f083b54fabc0e34f3d5d5245d3e91bbb21c0c2a947",
+      "sha256LfBytes": "58dae063ee980273b1dd15f083b54fabc0e34f3d5d5245d3e91bbb21c0c2a947",
+      "hasCRLF": false
+    }
+  ],
+  "proposedCommitGroups": {
+    "backend_and_api_contracts": [
+      {
+        "path": "backend/drizzle.config.ts",
+        "gitStatus": " M",
+        "sha256WorkingBytes": "f4552339c28b50b46d498b3f1e76c655c4769fc1670e6bb9266aeb5e51f3ecf9"
+      },
+      {
+        "path": "backend/drizzle/meta/_journal.json",
+        "gitStatus": " M",
+        "sha256WorkingBytes": "67f1418077415f35a44f581f0aedb196c62b26b47d4e36a327066a705e8b3ba8"
+      },
+      {
+        "path": "backend/src/db/missionChestSchema.ts",
+        "gitStatus": " M",
+        "sha256WorkingBytes": "93220525e494582040b07f8f07a124ffe43b9806bbee223be53eaf71fa257782"
+      },
+      {
+        "path": "backend/src/domain/adminAuth.ts",
+        "gitStatus": " M",
+        "sha256WorkingBytes": "ff803d34d216f6adbbd2b26d08db77f77491e9d73e948b84422353e75e374ae3"
+      },
+      {
+        "path": "backend/src/domain/gameState.ts",
+        "gitStatus": " M",
+        "sha256WorkingBytes": "ce5dd3d25a53b747f8a166388c2891f6aaba7ef1ecb3845760890de2cad1fbb3"
+      },
+      {
+        "path": "backend/src/domain/missionChests.ts",
+        "gitStatus": " M",
+        "sha256WorkingBytes": "1d341bff1350674ca72f58a21179c102ee1968cde017741224b499a2d258ad16"
+      },
+      {
+        "path": "backend/src/domain/missions.ts",
+        "gitStatus": " M",
+        "sha256WorkingBytes": "82c75ed34dd3945aa5abeb1e88b32b55e76ce71e47cd9230cb21f701bc379e3c"
+      },
+      {
+        "path": "backend/src/http/app.ts",
+        "gitStatus": " M",
+        "sha256WorkingBytes": "c6de8883f4c4de652ea37479a8227a4b62d60c489deac0e7db62ef2558093064"
+      },
+      {
+        "path": "backend/src/server.ts",
+        "gitStatus": " M",
+        "sha256WorkingBytes": "9b9ff0f7fd10433ae84f02f84083dc592354618c4c2732d80ee0fdf38fcfd04c"
+      },
+      {
+        "path": "backend/tests/missionPostgres.test.ts",
+        "gitStatus": " M",
+        "sha256WorkingBytes": "720966f510169347e4475b4472ad06a1f08a6a69c6be37fa187b1e2aab6ab13a"
+      },
+      {
+        "path": "backend/tests/nativeAuth.test.ts",
+        "gitStatus": " M",
+        "sha256WorkingBytes": "c0e601dbd6e2fa5b3be063d0db4c5dc099ceaccfa7c99a314d8ff1170b2dbedb"
+      },
+      {
+        "path": "backend/drizzle/0027_mission_admin_history.sql",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "04b485f22e0584b8996dc46909ec29bd496f58cfd81d47be6be42d51b87ed0e7"
+      },
+      {
+        "path": "backend/drizzle/0028_mission_admin_rule_history.sql",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "2a848be061b5509de7c010f2e5b403190a3cd5ad9ad0ac4707a875224ad34d0c"
+      },
+      {
+        "path": "backend/drizzle/0029_mission_admin_schedule_history.sql",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "be5d3b805ea0528b7cd4a0bff2bfe3d0821754ee10d702b629f6efce505b349a"
+      },
+      {
+        "path": "backend/drizzle/0030_mission_admin_reward_history.sql",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "bd254a3ea7d2d6096619bc8e3d18a21b32b1063f99bfa4487416d26435dd1ecb"
+      },
+      {
+        "path": "backend/drizzle/0031_mission_approvals.sql",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "9f68bb115aaf8bc4e2868e387a1b5398ca751eaaf7671e06a75a3a6d6b1a4e03"
+      },
+      {
+        "path": "backend/drizzle/0032_mission_lifecycle_operations.sql",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "d2aaf4c991f135de81142832421f008f3a0738e19dc954d956b51de602406954"
+      },
+      {
+        "path": "backend/drizzle/0033_mission_capacity_exceptions.sql",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "a50c9c4e777a8ae275f4c251416b4795c716e13e8d138a05c69ad9775b675e1a"
+      },
+      {
+        "path": "backend/drizzle/0034_mission_chest_administration.sql",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "aafcb20a36ebf1b46620b50dea36ec4894e6b8d147ea5035cde7cb970386dd3a"
+      },
+      {
+        "path": "backend/drizzle/0035_chest_capacity_recovery.sql",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "58dae063ee980273b1dd15f083b54fabc0e34f3d5d5245d3e91bbb21c0c2a947"
+      },
+      {
+        "path": "backend/drizzle/meta/0027_snapshot.json",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "302cb886aa20cd1a77aa81c6e93d87a0977e316e7c2099fac248b93a705ddc65"
+      },
+      {
+        "path": "backend/drizzle/meta/0028_snapshot.json",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "dd7add054a0e1ca8044751aa1ba39e68fd997ed5e1d42e7e12ba592d9296c136"
+      },
+      {
+        "path": "backend/drizzle/meta/0029_snapshot.json",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "f2387e37b7da85bcab7a506674e23335a3cae0c4eddf8202bcbee814877274ce"
+      },
+      {
+        "path": "backend/drizzle/meta/0030_snapshot.json",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "a1eaa78f7510b1a6e363baf29a7e79ff7c1cf81840d57b3df8af21a7f019f4d1"
+      },
+      {
+        "path": "backend/drizzle/meta/0031_snapshot.json",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "53802df93671aaa3cffe87c7ba1e1c93ce21591080605a00a3a6c561a20b4d5f"
+      },
+      {
+        "path": "backend/drizzle/meta/0032_snapshot.json",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "5bf15630fd4571c160ae9ecb93acdd9d2f4f8dc2fc1d047cd5292be5289821b8"
+      },
+      {
+        "path": "backend/drizzle/meta/0033_snapshot.json",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "e348e51a60224217015c837c5dfddd2e03fb23f5386c921112e5576ec58758c3"
+      },
+      {
+        "path": "backend/drizzle/meta/0034_snapshot.json",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "336882b622ad72e5d132a34c77714e9a4f6c39aee8c4f5be663742cf590710be"
+      },
+      {
+        "path": "backend/drizzle/meta/0035_snapshot.json",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "3d6e34bcfeb25f189c7d45c9ab89e13f7611c16a393bb50d03c93796fa596cd2"
+      },
+      {
+        "path": "backend/src/config/missionChestProduct.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "a50602b9a4e941a9b8da2c10cba222bf50028ab12445051ff4091c6ecb92f438"
+      },
+      {
+        "path": "backend/src/db/missionAdminSchema.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "a69fc14ba35d5bd85c394b2deabcd0f7fc3774b4fa67163bbcee727c9cb53cfe"
+      },
+      {
+        "path": "backend/src/domain/adminMissionChests.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "167292751dd35e9e6ebc0a3a7221ef5164354e79610ea90fea843d5e686fffcb"
+      },
+      {
+        "path": "backend/src/domain/adminMissionLifecycle.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "cdf5ae64c6a2f9601b150aee9a3f85a7ca20bbff3919b9ffc0e0ec700cce0658"
+      },
+      {
+        "path": "backend/src/domain/adminMissionReadiness.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "9eb05174256f7c9b49e7f07fc1a7c97ae70c7140fecffe61cbe8dec25fa155ab"
+      },
+      {
+        "path": "backend/src/domain/adminMissionRewards.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "b906502beec83848b2cae845de127b69516a4937aafde3bdae0cdba2f86bedd5"
+      },
+      {
+        "path": "backend/src/domain/adminMissionRules.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "04c15a08c35423e27bf562f5e5247f13d343d8c908932f29561ce70d5a55e909"
+      },
+      {
+        "path": "backend/src/domain/adminMissionScheduling.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "87ee53dba2a9c6e736626cc83d159672463b819e0e6af00ebf48b091f6a4a535"
+      },
+      {
+        "path": "backend/src/domain/adminMissions.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "eafa1b65f43246bc2ee1859a19b05fb3db0e0b7d8262c4bb471d4637d7459812"
+      },
+      {
+        "path": "backend/src/domain/chestCapacityExceptions.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "444fdcbbb0396e2952b9764219ca5852d73b0c5d631ab3f34914757074258c1d"
+      },
+      {
+        "path": "backend/src/domain/missionActivationPolicy.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "99d79cc72f6b7c9862c4cae3dc6c8b0a59b20414834b9a4016605434b120d21d"
+      },
+      {
+        "path": "backend/src/domain/missionApprovalContract.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "dc7a4da5c6351e36b7f18c5a95d31b8df667b97aac54c22cce697cb452f4fa3d"
+      },
+      {
+        "path": "backend/src/domain/missionApprovals.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "049b36c2a156f50977de825d0db209e6fdac0b8e381282cdff6371dfcfe2f0ee"
+      },
+      {
+        "path": "backend/src/domain/missionCapacityExceptions.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "f885fdb0c59dd0426e03e9da1cf7f30e28eb55b735c8b4f356f27c51ba01d62a"
+      },
+      {
+        "path": "backend/src/domain/playerMissionHistory.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "e4cd2d4639f98f6038659846c0395f9594d8600ebe7ea1a47f3c41cfef708fa1"
+      },
+      {
+        "path": "backend/src/domain/rewardArithmetic.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "2924d8a16c0625e1e74935ab93b2da93e2d62dfdbefdd5414773b3289f7982fa"
+      },
+      {
+        "path": "backend/src/http/adminMissionRoutes.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "ad72560633e8fc9ee2f71a5a069898be83406bdf10a321535b439111d95d5e8a"
+      },
+      {
+        "path": "backend/src/http/missionArrival.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "c2b30a883d650f5aa0f1569c28346670da47feb48754f28a1b56f47498499702"
+      },
+      {
+        "path": "backend/src/http/playerMissionHistoryRoutes.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "1a39ddcfda5bff900f705b431f6950805f8011a1064f21b80d1fab1ce68543d2"
+      },
+      {
+        "path": "backend/tests/adminMissionDrafts.test.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "0502460415e271d512b34ffaa8e994dfdbdf2494cef78ee9432616734fe11929"
+      },
+      {
+        "path": "backend/tests/adminMissionLifecycle.test.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "a7ff00551e7d6a7a7c228adc2750d3560c8de653174ca169da37db6913acb987"
+      },
+      {
+        "path": "backend/tests/adminMissionReadiness.test.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "d29254390dcd86881209052896379bcbe76513a925d7398fa98a9450016cd8b9"
+      },
+      {
+        "path": "backend/tests/adminMissionRewards.test.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "10e30bea134bf06e427679b30f5a958e27e63cc69e673d6a9abc479c5ad3c35d"
+      },
+      {
+        "path": "backend/tests/adminMissionRules.test.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "b86a870093e422f8f13405fa6a8d9b3869959c9148b62455059eebdddd32e980"
+      },
+      {
+        "path": "backend/tests/adminMissionScheduling.test.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "56799e0f3f35a102c7650733a972fcf4539852ebb130dcd75f1c3cac9adde09b"
+      },
+      {
+        "path": "backend/tests/adminMissions.test.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "7e1bdb274893eaea9c1a2c08c129d925a73e7226553c32840379bb33433123ca"
+      },
+      {
+        "path": "backend/tests/helpers/chestCases.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "73c6360315262227519f78e4e7e428e1dde21b5692f3c6e4f985a6052735db30"
+      },
+      {
+        "path": "backend/tests/helpers/localMissionPostgres.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "3b43b077584028f374f7a5d1702ae9687acbcadf44a323b76889d263b616736d"
+      },
+      {
+        "path": "backend/tests/helpers/missionBrowserServer.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "c32c68afc1255b67c1419c00e3a14c644271a960f373fc3dbcb7343cb4c46b43"
+      },
+      {
+        "path": "backend/tests/helpers/missionCapacityCases.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "e96b613366f761d6133a9ca21d7b21ef5fd15ce26e5050dd6d9061bffd04d33d"
+      },
+      {
+        "path": "backend/tests/helpers/missionsReleaseUpgrade.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "ac904df90b2409cfc514864568616928198b1e370e308fa0c0cffa0f38799add"
+      },
+      {
+        "path": "backend/tests/helpers/syntheticPglite.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "80dbbc8f3c9ac5987e8a4184babada78bb01f6fbbdef6b0c99a95d9287ad483c"
+      },
+      {
+        "path": "backend/tests/localMissionPostgres.test.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "44b49c23325599cd852135911ffe3b789d447c26eca5cda8586286614c3f6a0a"
+      },
+      {
+        "path": "backend/tests/missionApprovalContract.test.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "faeac7a93c44197162e9fbe6d2b7a70d3542574e644e8be94f12eb0090e0c466"
+      },
+      {
+        "path": "backend/tests/missionApprovals.test.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "a1e1fee9c3ac0babc7b878cc14e9288f81d01e8e283e005696f0a699bdcc12cd"
+      },
+      {
+        "path": "backend/tests/missionApprovalsPostgres.test.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "53e0c4346f4b8d4a6d4721b988ab385331e838384538af527bb66a194097e778"
+      },
+      {
+        "path": "backend/tests/missionArrival.test.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "ed90ce853f227aebb3c70a09958466570db107e3b195f38be05a5f015803ff14"
+      },
+      {
+        "path": "backend/tests/missionCapacity.test.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "79b8e98d443631b852fc4a69050bb1fcfc9b95b06f579cf35798fefad915a204"
+      },
+      {
+        "path": "backend/tests/missionCapacityPostgres.test.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "225b68f5eafb4129cdf462f1f2a207afa977611df8a7796d40bc4f0a93f16cd5"
+      },
+      {
+        "path": "backend/tests/missionChestAdmin.test.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "ca8aeee72e176c9c0c81864de5df12f774861cc380d1ffebfba0060eb9e43c16"
+      },
+      {
+        "path": "backend/tests/missionChestProduct.test.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "339622ea56ee67491b0b3534844e0613171ac21229138deb358b9e6f3c8b2f2a"
+      },
+      {
+        "path": "backend/tests/missionChestsPostgres.test.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "3c68fa5433d2b7e70e567a3506282acc08a33092cbf30ef10c1b0e37b6f1dca7"
+      },
+      {
+        "path": "backend/tests/missionE2ePostgres.test.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "8835cbe3911b4081103964c120df95a407f4c3f40ffe6c328237dc4d7b6aed63"
+      },
+      {
+        "path": "backend/tests/missionLifecyclePostgres.test.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "4f3ca3f5179b1dc12f2358c9a42d3d0fc588544dbcd4e9b63fa6195d02fc427c"
+      },
+      {
+        "path": "backend/tests/playerMissionHistory.test.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "22c78e9eee10725d49133b26a037ddf6d4de7f002b3d6d1b24f4d27ab2f452b2"
+      },
+      {
+        "path": "backend/tests/rewardArithmeticDb.test.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "f5b8403b075072dad81c50d0d7787e32300b65f560a4b9e25aa4a3a456b1a340"
+      },
+      {
+        "path": "backend/tests/syntheticPglite.test.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "504618e67976c65c4cebc6aae60d9c076012932ff9081661f61ea52fd39806b3"
+      },
+      {
+        "path": "src/types/adminMissions.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "b208fd52a22ea2375808c74e2744f26a933da2f10a7fbb7e8a22dd290fcdf59c"
+      },
+      {
+        "path": "src/types/missionChests.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "f661cb9b52bf5e8db807eee904457061a5a56cf044209a5a3e3f7f3509e38ee2"
+      },
+      {
+        "path": "src/types/missionHistory.ts",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "dd4d08e25dc4a97a6fc07b3e287f93843c165b246058d1b5d46fcfe1c52c669d"
+      }
+    ],
+    "frontend_integration": [
+      {
+        "path": "package.json",
+        "gitStatus": " M",
+        "sha256WorkingBytes": "d78c8c8e2fedf7ac583b9e49ee7246ed210e3bf3d835d5ce7aaf8aa75b6eae37"
+      },
+      {
+        "path": "src/app/admin/missions/page.tsx",
+        "gitStatus": " M",
+        "sha256WorkingBytes": "a458dac0b3fd6c213fe8566ea09cb1ed993f15d105dec07de155dce829db98ea"
+      },
+      {
+        "path": "src/app/missions/page.tsx",
+        "gitStatus": " M",
+        "sha256WorkingBytes": "0a82dec3f5fc9c11bf89cd2a3013ae1e5a0d5dde08530067a8bcae0d15aaf067"
+      },
+      {
+        "path": "src/components/admin/CatalogAdminBoundary.tsx",
+        "gitStatus": " M",
+        "sha256WorkingBytes": "84076af3e802c8400757319a926e4a1e2a88113da06073b7c4186a4c0cd8ad5b"
+      },
+      {
+        "path": "src/components/missions/MissionExplorer.tsx",
+        "gitStatus": " M",
+        "sha256WorkingBytes": "00b1799b90105ff20221113506a04ba1832dd32b95d8fa572427a00d3aec6404"
+      },
+      {
+        "path": "src/components/missions/missions.tsx",
+        "gitStatus": " M",
+        "sha256WorkingBytes": "f059306683c8bd2eb32fb79d3f10abeea1eca19d10488071119bcc92c4a4714a"
+      },
+      {
+        "path": "src/lib/apiClient.ts",
+        "gitStatus": " M",
+        "sha256WorkingBytes": "284bbe2a541461930b3d7e48f4394d0bad768ae0bd0cd32dc4b58a443b9b46e9"
+      },
+      {
+        "path": "src/services/index.ts",
+        "gitStatus": " M",
+        "sha256WorkingBytes": "b4b524a06d3a590df1df15de7f87fbec1f2b79c9f8da3a9a9bffacf0d1918aef"
+      },
+      {
+        "path": "src/types/index.ts",
+        "gitStatus": " M",
+        "sha256WorkingBytes": "0974d441a02f45f5a4019b17f21c6140424a9e465e33f8ecb98ff76578de6925"
+      },
+      {
+        "path": "src/components/admin/ChestAdmin.tsx",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "aea77d0abe148255cddbf8e29ccb23444924ea8f8c5b444df83b0b000921ac93"
+      },
+      {
+        "path": "src/components/admin/ChestCapacityPanel.tsx",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "132b63851acdf7b6f23cf9b50c39b8fead86a6110ac38462622128714b6e617f"
+      },
+      {
+        "path": "src/components/admin/MissionAdmin.tsx",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "7ba9a37256ad296c83344dcf250439af9523b015a3da1e0d1afb6a375e21fc3f"
+      },
+      {
+        "path": "src/components/admin/MissionApprovalContract.tsx",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "ea7e37eeca1cfe26a50a897d1b4fd555269575dd8ca9e454e240e856d2f7c1d9"
+      },
+      {
+        "path": "src/components/admin/MissionCapacityPanel.tsx",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "e17b38a671c9e496962e07271ae22b634042db7b71e79906448bc095fe9d9777"
+      },
+      {
+        "path": "src/components/admin/MissionHistory.tsx",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "3836ba79f9818fa708ed31c9cac150d38374a5e4b8adbb4c27f52d3c621ae81f"
+      },
+      {
+        "path": "src/components/admin/MissionLifecycleControls.tsx",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "1f35a3d877af4fb0f452a19c42f30e2de012810f3bc99e98ef809ff31f3e7364"
+      },
+      {
+        "path": "src/components/admin/MissionReadiness.tsx",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "965b671165ee0857af8c391d32d8c0f296328d5369b0379f50ff75aea6b8752b"
+      },
+      {
+        "path": "src/components/admin/MissionRewardEditor.tsx",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "fac5bfa6f3da25687d94814049b586c2334aafd90f382f34749bb50d56ccb063"
+      },
+      {
+        "path": "src/components/admin/MissionRuleEditor.tsx",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "1503315d98b56e953b5aec999f817d447dd1730684a03f9d447b6d82075dfd2c"
+      },
+      {
+        "path": "src/components/admin/MissionScheduleEditor.tsx",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "036d3aff487492f9bcc0332492ff1ceb88b760e5ae5cc3cd23f58adc9a5d73b6"
+      },
+      {
+        "path": "src/components/admin/missionAdmin.test.mjs",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "ce24ed9658568cf1fe6a083ac0ee491e62dc7fdb64f42b4b491ab6b0c54b4c96"
+      },
+      {
+        "path": "src/components/missions/MissionChests.tsx",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "11f79b119c83a6cd9e691ae16ffcff018bebe2e8cfd05526970792efb5c89b3e"
+      },
+      {
+        "path": "src/components/missions/MissionHistory.tsx",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "30a2d3d042b21871ef223b10df0277fe10a842b08a6d9a441fd8d3ab983b2cfe"
+      },
+      {
+        "path": "src/components/missions/missionChests.test.mjs",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "a49560661b67c96fcafa33121677a30cbf74c00c84f8ff3f320c2497223a28cb"
+      },
+      {
+        "path": "src/components/missions/missionHistory.test.mjs",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "b1afd05a80e8f9c3da96a732461cab1477456d981e9ea0cedca9425cf4fd34b7"
+      },
+      {
+        "path": "src/components/missions/missions.test.mjs",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "9cdbd59520abbc1a32c1194094418785e7691a69abe592f8cf8cb6174c21ca61"
+      }
+    ],
+    "documentation": [
+      {
+        "path": "docs/MISSIONS_DEPLOYMENT_CONTROLS.md",
+        "gitStatus": " M",
+        "sha256WorkingBytes": "2ea8c1aa189909ff9d2884794782ff099aecd6f9a1701ed27c26e13e553cdce2"
+      },
+      {
+        "path": "docs/MISSIONS_M1.md",
+        "gitStatus": " M",
+        "sha256WorkingBytes": "ae0a8a9316a1adcf80c2c731fc6ed1196bcd03d014253b6ea12a7e5f66d341c6"
+      },
+      {
+        "path": "docs/MISSIONS_POSTGRES_VERIFICATION.md",
+        "gitStatus": " M",
+        "sha256WorkingBytes": "7ca2e0a061a004ff63768ec7aeccfe3cdae1a54a2b8833004d097d5fd655b1fd"
+      },
+      {
+        "path": "docs/MISSIONS_BROWSER_REHEARSAL.md",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "407512d1062082dc22263c976204b0b0bdb021775c6f530011550be7d47049dd"
+      },
+      {
+        "path": "docs/MISSIONS_M2.md",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "52808671033000ed0bcbc0510ca5dd6f3c1bd32759c27162cac39f950531eca1"
+      },
+      {
+        "path": "docs/MISSIONS_RELEASE_CANDIDATE.md",
+        "gitStatus": "??",
+        "sha256WorkingBytes": "d059aedaa94af46d712c84380ca5e714ee96428ec0013e88bdbe14afa04f1217"
+      }
+    ]
+  },
+  "preservedExcludedPaths": [
+    "next-env.d.ts",
+    "docs/circzles-catalog/audits/2026-10-13-read-only/audit-summary.json",
+    "docs/circzles-catalog/audits/2026-10-13-read-only/canonical-playable.csv",
+    "docs/circzles-catalog/audits/2026-10-13-read-only/catalog-snapshot.json",
+    "docs/circzles-catalog/audits/2026-10-13-read-only/manufacturing-comparison.csv",
+    "docs/circzles-catalog/audits/2026-10-13-read-only/report.md",
+    "docs/circzles-catalog/audits/2026-10-13-read-only/source-text-deviations.csv"
+  ],
+  "notes": [
+    "Inventory itself belongs to the documentation commit and is intentionally not self-hashed.",
+    "Hashes describe current working bytes, not future committed artifact bytes. Verify actual immutable release artifact and migration journal hashes after line-ending normalization.",
+    "Existing untracked catalog audits and next-env.d.ts must not be staged with Missions.",
+    "This is a file inventory and proposed commit boundary, not authorization to commit or publish."
+  ],
+  "migrationArtifactNotes": {
+    "committedSqlFilesCompared": 27,
+    "substantiveChanges": 0,
+    "unchangedWorkingCrlfIndices": "0001-0025",
+    "pendingMigrationsUseLf": true,
+    "requireActualReleaseArtifactJournalHashVerification": true
+  }
+}
