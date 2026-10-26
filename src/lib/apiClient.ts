@@ -1,3 +1,4 @@
+import type { PlayerMissionHistoryPage } from "@/types/missionHistory";
 import { MAX_VIDEO_SIZE_BYTES } from "./submissionVideo";
 import type { ApiMissionDto, ApiStoreCatalogItem, AuthenticatedPlayerIdentity, EquipmentSlot, InventoryResponse, LeaderboardCatalog, LeaderboardResponse, Mission, MissionClaimResult, PlayerProfile, PlayerPuzzle, PublicPlayerProfile, Puzzle, RenameDisplayNameResult, RewardWheelResult, RewardWheelStatus, SignedVideoUpload, StorePurchaseResult, Submission } from "@/types";
 import { apiBaseUrl } from "@/config/dataMode";
@@ -126,7 +127,8 @@ export function adaptApiMission(mission: ApiMissionDto, now = new Date()): Missi
     claimable: mission.claimable,
     startAt: mission.startsAt,
     endAt: mission.endsAt,
-    timeRemaining: missionTimeRemaining(mission.endsAt, now),
+    claimDeadline: mission.claimDeadline,
+    timeRemaining: missionTimeRemaining(mission.claimable ? mission.claimDeadline ?? mission.endsAt : mission.endsAt, now),
     rewards: mission.rewards.map((reward) => ({
       type: reward.type === "SYNAPSE_POINTS" ? "Synapse Points" : "XP",
       label: reward.label,
@@ -210,7 +212,10 @@ export const apiClient = {
   getLeaderboard: async (puzzleId: string, signal?: AbortSignal) => request<LeaderboardResponse>(`/api/leaderboards?puzzleId=${encodeURIComponent(puzzleId)}`, { signal, cache: "no-store" }),
   getPublicPlayerProfile: async (publicPlayerId: string, signal?: AbortSignal) => request<PublicPlayerProfile>(`/api/players/${encodeURIComponent(publicPlayerId)}/public-profile`, { signal }),
   getMissions: async (signal?: AbortSignal) => (await request<{ missions: ApiMissionDto[] }>("/api/missions", { signal })).missions.map((mission) => adaptApiMission(mission)),
-  claimMission: async (missionId: string, idempotencyKey: string) => playerMutation<MissionClaimResult>(`/api/missions/${encodeURIComponent(missionId)}/claim`, {
+  getMissionHistory: (cursor?: string, signal?: AbortSignal) => request<PlayerMissionHistoryPage>(`/api/missions/history?limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`, { signal, cache: "no-store" }),
+  getMissionPeriods: async (signal?: AbortSignal) => (await request<{ missions: ApiMissionDto[] }>("/api/missions/periods", { signal, cache: "no-store" })).missions.map((mission) => adaptApiMission(mission)),
+  claimChest: (chestId:string,periodKey:string,key:string) => playerMutation(`/api/mission-chests/${encodeURIComponent(chestId)}/periods/${encodeURIComponent(periodKey)}/claim`,{method:"POST",headers:{"Idempotency-Key":key},body:JSON.stringify({})}),
+  claimMission: async (missionId: string, idempotencyKey: string, periodKey?: string) => playerMutation<MissionClaimResult>(`/api/missions/${encodeURIComponent(missionId)}${periodKey === undefined ? "" : `/periods/${encodeURIComponent(periodKey)}`}/claim`, {
     method: "POST",
     headers: { "Idempotency-Key": idempotencyKey },
     body: JSON.stringify({}),

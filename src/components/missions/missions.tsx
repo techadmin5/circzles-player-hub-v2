@@ -7,6 +7,8 @@ import type { Mission, MissionCategory, MissionClaimResult } from "@/types";
 import { Chip } from "@/components/ui/kit";
 import { cn } from "@/lib/utils";
 
+export function missionKey(mission: Pick<Mission, "missionId" | "periodKey">) { return `${mission.missionId}:${mission.periodKey ?? "mock"}`; }
+
 const CATEGORY_ICON: Record<MissionCategory, React.ReactNode> = {
   DAILY: <Sparkles size={16} />, WEEKLY: <CalendarClock size={16} />, SPRINT: <Flame size={16} />,
   SEASON: <Trophy size={16} />, EVENT: <Star size={16} />, ACHIEVEMENT: <Swords size={16} />,
@@ -14,7 +16,7 @@ const CATEGORY_ICON: Record<MissionCategory, React.ReactNode> = {
 
 const FILTERS: ("All" | MissionCategory)[] = ["All", "DAILY", "WEEKLY", "SPRINT", "SEASON", "EVENT", "ACHIEVEMENT"];
 
-export function MissionCard({ mission, busy = false, error, claimResult, onClaim }: { mission: Mission; busy?: boolean; error?: string; claimResult?: MissionClaimResult; onClaim?: (missionId: string) => void }) {
+export function MissionCard({ mission, busy = false, error, claimResult, onClaim }: { mission: Mission; busy?: boolean; error?: string; claimResult?: MissionClaimResult; onClaim?: (mission: Mission) => void }) {
   const claimed = mission.status === "CLAIMED";
   const pct = Math.min(100, Math.round((mission.progress.current / Math.max(1, mission.progress.target)) * 100));
   const locked = mission.status === "LOCKED";
@@ -22,7 +24,7 @@ export function MissionCard({ mission, busy = false, error, claimResult, onClaim
   const Icon = locked ? <Lock size={16} /> : claimable ? <Gift size={16} /> : CATEGORY_ICON[mission.category];
 
   return (
-    <motion.article layout className={cn("cz-surface relative overflow-hidden p-4", claimable && "cz-ring-gold")} data-testid={`mission-${mission.missionId}`}>
+    <motion.article layout className={cn("cz-surface relative overflow-hidden p-4", claimable && "cz-ring-gold")} data-testid={`mission-${mission.missionId}`} data-period-key={mission.periodKey}>
       {claimable && <div className="pointer-events-none absolute -right-16 -top-16 h-40 w-40 rounded-full blur-3xl" style={{ background: "radial-gradient(circle, rgba(232,180,80,0.16), transparent 70%)" }} />}
       <div className="relative flex items-start justify-between gap-3">
         <div className="flex gap-3">
@@ -35,6 +37,8 @@ export function MissionCard({ mission, busy = false, error, claimResult, onClaim
         <Chip tone={claimed ? "emerald" : claimable ? "gold" : locked ? "default" : "aqua"}>{claimed ? "Claimed" : mission.status}</Chip>
       </div>
 
+      {mission.periodKey && <p className="relative mt-3 text-xs text-[var(--cz-text-tertiary)]">Period: {mission.periodKey}</p>}
+      {mission.claimDeadline && <p className="relative mt-1 text-xs text-[var(--cz-text-tertiary)]">Claim before {mission.claimDeadline} (UTC)</p>}
       <div className="relative mt-4">
         <div className="mb-1 flex justify-between text-[0.68rem] text-[var(--cz-text-tertiary)]"><span className="cz-num">{mission.progress.current} / {mission.progress.target}</span><span className="inline-flex items-center gap-1"><CalendarClock size={11} />{mission.timeRemaining}</span></div>
         <div className="cz-track"><div className={cn("cz-track-fill", claimable && "cz-track-fill-gold")} style={{ width: `${pct}%` }} /></div>
@@ -47,7 +51,7 @@ export function MissionCard({ mission, busy = false, error, claimResult, onClaim
         {claimed
           ? <span className="inline-flex items-center gap-1.5 text-sm text-[var(--cz-emerald)]"><CheckCircle2 size={15} />Claimed</span>
           : claimable
-            ? <button type="button" className="cz-btn cz-btn-gold cz-btn-sm" onClick={() => onClaim?.(mission.missionId)} disabled={busy || !onClaim} data-testid={`claim-${mission.missionId}`}>{busy ? "Claiming..." : "Claim Reward"}</button>
+            ? <button type="button" className="cz-btn cz-btn-gold cz-btn-sm" onClick={() => onClaim?.(mission)} disabled={busy || !onClaim} data-testid={`claim-${mission.missionId}`}>{busy ? "Claiming..." : "Claim Reward"}</button>
             : null}
       </div>
       {claimResult && <p className="relative mt-3 text-xs text-[var(--cz-emerald)]" role="status">Awarded {formatAward(claimResult)}</p>}
@@ -56,7 +60,7 @@ export function MissionCard({ mission, busy = false, error, claimResult, onClaim
   );
 }
 
-export function MissionBoard({ missions, busyMissionIds, claimErrors, claimResults, onClaim }: { missions: Mission[]; busyMissionIds?: ReadonlySet<string>; claimErrors?: Readonly<Record<string, string>>; claimResults?: Readonly<Record<string, MissionClaimResult>>; onClaim?: (missionId: string) => void }) {
+export function MissionBoard({ missions, busyMissionIds, claimErrors, claimResults, onClaim }: { missions: Mission[]; busyMissionIds?: ReadonlySet<string>; claimErrors?: Readonly<Record<string, string>>; claimResults?: Readonly<Record<string, MissionClaimResult>>; onClaim?: (mission: Mission) => void }) {
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>("All");
   const list = filter === "All" ? missions : missions.filter((mission) => mission.category === filter);
   const claimableCount = missions.filter((mission) => mission.claimable).length;
@@ -72,7 +76,7 @@ export function MissionBoard({ missions, busyMissionIds, claimErrors, claimResul
       </div>
       {list.length === 0
         ? <p className="cz-surface p-8 text-center text-sm text-[var(--cz-text-tertiary)]">{filter === "All" ? "No active missions right now." : `No ${filter.toLowerCase()} missions right now.`}</p>
-        : <div className="grid gap-3 md:grid-cols-2">{list.map((mission) => <MissionCard key={mission.missionId} mission={mission} busy={busyMissionIds?.has(mission.missionId)} error={claimErrors?.[mission.missionId]} claimResult={claimResults?.[mission.missionId]} onClaim={onClaim} />)}</div>}
+        : <div className="grid gap-3 md:grid-cols-2">{list.map((mission) => <MissionCard key={missionKey(mission)} mission={mission} busy={busyMissionIds?.has(missionKey(mission))} error={claimErrors?.[missionKey(mission)]} claimResult={claimResults?.[missionKey(mission)]} onClaim={onClaim} />)}</div>}
     </div>
   );
 }

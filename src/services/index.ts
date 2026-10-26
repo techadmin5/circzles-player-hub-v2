@@ -106,8 +106,13 @@ export const missionService = {
     await mockDelay();
     return missions;
   },
-  async claimMission(missionId: string, idempotencyKey: string): Promise<MissionClaimResult> {
-    if (shouldUseBrowserApi()) return apiClient.claimMission(missionId, idempotencyKey);
+  async getMissionPeriods(signal?: AbortSignal) {
+    if (shouldUseBrowserApi()) return apiClient.getMissionPeriods(signal);
+    await mockDelay();
+    return missions;
+  },
+  async claimMission(missionId: string, idempotencyKey: string, periodKey?: string): Promise<MissionClaimResult> {
+    if (shouldUseBrowserApi()) return apiClient.claimMission(missionId, idempotencyKey, periodKey);
     await mockDelay();
     const mission = missions.find((item) => item.missionId === missionId);
     const synapsePoints = mission?.rewards.filter((reward) => reward.type === "Synapse Points").reduce((total, reward) => total + (reward.value ?? 0), 0) ?? 0;
@@ -115,7 +120,7 @@ export const missionService = {
     return {
       missionClaimId: `mock-${missionId}`,
       missionId,
-      periodKey: mission?.periodKey ?? "mock",
+      periodKey: periodKey ?? mission?.periodKey ?? "mock",
       status: "CLAIMED",
       claimedAt: new Date().toISOString(),
       idempotent: false,

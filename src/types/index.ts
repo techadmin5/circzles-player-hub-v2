@@ -174,6 +174,7 @@ export interface Mission {
   periodKey?: string;
   startAt: string | null;
   endAt: string | null;
+  claimDeadline?: string | null;
   timeRemaining: string;
   claimable: boolean;
 }
@@ -189,6 +190,7 @@ export interface ApiMissionDto {
   claimable: boolean;
   startsAt: string | null;
   endsAt: string | null;
+  claimDeadline?: string | null;
   rewards: Array<{ type: ApiMissionRewardType; amount: number; label: string }>;
 }
 export interface MissionClaimResult {
