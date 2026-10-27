@@ -183,6 +183,76 @@
       "when": 1791624596200,
       "tag": "0025_catalog_max_leaderboard_time",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1791885936046,
+      "tag": "0026_missions_lifecycle_chests",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1792556847658,
+      "tag": "0027_mission_admin_history",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1792558928784,
+      "tag": "0028_mission_admin_rule_history",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1792560989813,
+      "tag": "0029_mission_admin_schedule_history",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1792564822839,
+      "tag": "0030_mission_admin_reward_history",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1792648429569,
+      "tag": "0031_mission_approvals",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1792653441863,
+      "tag": "0032_mission_lifecycle_operations",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1792657541661,
+      "tag": "0033_mission_capacity_exceptions",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1792752567099,
+      "tag": "0034_mission_chest_administration",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1792758984344,
+      "tag": "0035_chest_capacity_recovery",
+      "breakpoints": true
     }
   ]
 }
