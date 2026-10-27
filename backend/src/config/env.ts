@@ -50,6 +50,9 @@ const envSchema = z.object({
   CLOUDINARY_API_SECRET: z.string().optional(),
   MISSION_PROCESSOR_INTERVAL_MS: z.coerce.number().int().min(100).default(5000),
   MISSION_PROCESSOR_BATCH_SIZE: z.coerce.number().int().min(1).max(1000).default(50),
+  MISSION_PROCESSOR_ENABLED: z.enum(["true", "false"]).default("true").transform(value => value === "true"),
+  MISSION_CLAIMS_ENABLED: z.enum(["true", "false"]).default("true").transform(value => value === "true"),
+  BACKEND_SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().min(1000).max(300000).default(25000),
 }).superRefine((env, context) => {
   if (env.SESSION_COOKIE_SAME_SITE === "none" && !env.COOKIE_SECURE) {
     context.addIssue({ code: "custom", path: ["COOKIE_SECURE"], message: "COOKIE_SECURE must be true when SESSION_COOKIE_SAME_SITE is none." });
