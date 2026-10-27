@@ -1,5 +1,7 @@
 # Mission deployment controls (compatible with schema 0025)
 
+For the complete 2026-10-24 Missions candidate, follow [the consolidated non-executing release sequence](MISSIONS_RELEASE_CANDIDATE.md). This document preserves the independent controls-only patch scope. The complete M1/M2 artifact requires pending migrations **0026-0035**, not only 0026. No deployment or configuration change is authorized by these instructions.
+
 This patch is independently deployable on production main through migration 0025. It adds no migration, reward changes, objective types, M1 schema imports or seeds. The same runner, maintenance middleware and shutdown coordinator are reused by M1.
 
 ## Configuration

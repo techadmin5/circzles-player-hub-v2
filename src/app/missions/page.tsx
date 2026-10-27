@@ -1,6 +1,8 @@
+import { MissionChests } from "@/components/missions/MissionChests";
 import { GameShell } from "@/components/game-shell/GameShell";
 import { PageHeader } from "@/components/ui/kit";
 import { MissionExplorer } from "@/components/missions/MissionExplorer";
+import { MissionHistory } from "@/components/missions/MissionHistory";
 import { dataMode } from "@/config/dataMode";
 import { playerService } from "@/services";
 
@@ -10,6 +12,8 @@ export default async function Page() {
     <GameShell player={player}>
       <PageHeader kicker="Objectives" title="Missions" subtitle="Daily, weekly, sprint, season, event & achievement goals" />
       <MissionExplorer mode={dataMode} />
+      <MissionChests mode={dataMode} />
+      <MissionHistory mode={dataMode} />
     </GameShell>
   );
 }

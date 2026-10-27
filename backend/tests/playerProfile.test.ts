@@ -52,6 +52,7 @@ beforeAll(async () => {
   await pg.exec(await readFile(new URL("../drizzle/0022_player_profile_avatar.sql", import.meta.url), "utf8"));
   expect((await pg.query("SELECT player_id,user_id,player_number,public_player_id,display_name,created_at,updated_at FROM players")).rows).toEqual(preserved);
   await pg.exec(await readFile(new URL("../drizzle/0025_catalog_max_leaderboard_time.sql", import.meta.url), "utf8"));
+  await pg.exec(await readFile(new URL("../drizzle/0026_missions_lifecycle_chests.sql", import.meta.url), "utf8"));
   db = fixture as unknown as Database;
   await new DrizzleGameStateRepository(db).seedProgressionLevels([
     { progressionLevel: 1, rankName: "Peasant", xpRequired: 0, rewards: [] },
@@ -130,7 +131,7 @@ describe("persisted authoritative Player Hub profile", () => {
     const [mission] = await db.insert(s.missions).values({ title: "Fixture", description: "Test", category: "ACHIEVEMENT", periodType: "LIFETIME" }).returning();
     await db.insert(s.missionRules).values({ missionId: mission.missionId, eventType: "xp.earned", targetCount: 1 });
     await db.insert(s.missionRewards).values([{ missionId: mission.missionId, rewardType: "XP", amount: 12 }, { missionId: mission.missionId, rewardType: "SYNAPSE_POINTS", amount: 100 }]);
-    await db.insert(s.playerMissionProgress).values({ playerId: id, missionId: mission.missionId, periodKey: periodKeyFor("LIFETIME", now, mission.missionId), currentCount: 1, targetCountSnapshot: 1, status: "CLAIMABLE", completedAt: now });
+    await db.insert(s.playerMissionProgress).values({ playerId: id, missionId: mission.missionId, periodKey: periodKeyFor("LIFETIME", now, mission.missionId), currentCount: 1, targetCountSnapshot: 1, status: "CLAIMABLE", completedAt: now, rewardSnapshot: { version: 1, rewards: [{ type: "XP", amount: 12 }, { type: "SYNAPSE_POINTS", amount: 100 }] } });
     const result = await new DrizzleMissionClaimRepository(db).claim({ playerId: id, missionId: mission.missionId, idempotencyKey: crypto.randomUUID(), now });
     expect(result.playerState).toMatchObject({ xp: 12, synapsePoints: 100, progressionLevel: 5, rankName: "Farmer" });
     expect(await profiles.read(id)).toMatchObject({ xp: 12, xpNeeded: 40, synapsePoints: 100, progressionLevel: 5, rank: "Farmer" });

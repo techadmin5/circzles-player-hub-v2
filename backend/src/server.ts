@@ -1,3 +1,5 @@
+import { AdminMissionService } from "./domain/adminMissions.js";
+import { MissionChestService } from "./domain/missionChests.js";
 import { createShutdownCoordinator } from "./shutdown.js";
 import { CatalogService } from "./domain/catalog.js";
 import { PlayerStateEvents } from "./domain/playerStateEvents.js";
@@ -94,6 +96,7 @@ const couponRedemptionWebhooks = new ProviderCouponRedemptionWebhookHandler(
 const playerStateEvents = new PlayerStateEvents();
 const missionRunner = new MissionProcessorRunner(missionProcessor, env.MISSION_PROCESSOR_INTERVAL_MS, env.MISSION_PROCESSOR_BATCH_SIZE, () => console.error("Mission processor tick failed"), env.MISSION_PROCESSOR_ENABLED);
 const app = buildApp({
+  adminMissions: new AdminMissionService(db),
   missionWorkerState: () => missionRunner.getState(),
   catalog: new CatalogService(db),
   playerStateEvents,
@@ -109,6 +112,7 @@ const app = buildApp({
   publicProfiles,
   missions,
   missionClaims,
+  missionChests: new MissionChestService(db),
   rewardCatalog,
   storePurchases,
   inventory,

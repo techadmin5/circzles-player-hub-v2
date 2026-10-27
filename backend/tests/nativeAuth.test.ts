@@ -1,5 +1,6 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { PGlite } from "@electric-sql/pglite";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { PGlite } from "@electric-sql/pglite";
+import { createSyntheticPgliteTemplate } from "./helpers/syntheticPglite.js";
 import { drizzle } from "drizzle-orm/pglite";
 import { readFile, readdir } from "node:fs/promises";
 import { generateKeyPair, SignJWT } from "jose";
@@ -18,6 +19,7 @@ const newPassword = "a different strong password";
 const email = "player@example.test";
 const config = { clientId: "google-client", clientSecret: "google-secret", callbackUrl: "https://hub.example.test/api/auth/google/callback" };
 let pg: PGlite, db: Database, repo: DrizzleNativeAuthRepository, service: NativeAuthService, mailer: DevelopmentAuthMailer, identity: IdentityService;
+let freshDatabase: Awaited<ReturnType<typeof createSyntheticPgliteTemplate>>;
 const lastToken = () => mailer.messages.at(-1)!.token;
 async function verifiedAccount() {
   await service.signup({ email, password, displayName: "Player" });
@@ -34,31 +36,35 @@ async function google(claims: Record<string, unknown> = {}, transport?: typeof f
 }
 
 beforeAll(async () => {
-  pg = new PGlite();
-  // Apply the actual historical migrations, then the native migration, to a fresh PostgreSQL database.
-  const files = (await readdir(new URL("../drizzle/", import.meta.url))).filter((file) => file.endsWith(".sql")).sort();
-  for (const file of files) {
-    const sql = (await readFile(new URL(`../drizzle/${file}`, import.meta.url), "utf8")).replace("CREATE EXTENSION IF NOT EXISTS pgcrypto;", "");
-    if (file.startsWith("0020_")) {
-      await pg.exec("INSERT INTO users(user_id) VALUES ('10000000-0000-4000-8000-000000000001')");
-      await expect(pg.exec(sql)).rejects.toThrow(/active legacy users lack verified email/);
-      await pg.exec("UPDATE users SET verified_email='legacy-migration@example.test', email_verified_at=now(); INSERT INTO players(user_id, public_player_id, display_name) VALUES ('10000000-0000-4000-8000-000000000001', 'CZ-AAAAAA', 'Migration Player')");
-      const usersBefore = (await pg.query("SELECT * FROM users")).rows;
-      const playersBefore = (await pg.query("SELECT * FROM players")).rows;
-      await pg.exec(sql);
-      expect((await pg.query("SELECT * FROM users")).rows).toEqual(usersBefore);
-      expect((await pg.query("SELECT * FROM players")).rows).toEqual(playersBefore);
-    } else await pg.exec(sql);
-  }
+  freshDatabase = await createSyntheticPgliteTemplate(async pg => {
+    // Apply the actual historical migrations, then the native migration, to a fresh PostgreSQL database.
+    const files = (await readdir(new URL("../drizzle/", import.meta.url))).filter((file) => file.endsWith(".sql")).sort();
+    for (const file of files) {
+      const sql = (await readFile(new URL(`../drizzle/${file}`, import.meta.url), "utf8")).replace("CREATE EXTENSION IF NOT EXISTS pgcrypto;", "");
+      if (file.startsWith("0020_")) {
+        await pg.exec("INSERT INTO users(user_id) VALUES ('10000000-0000-4000-8000-000000000001')");
+        await expect(pg.exec(sql)).rejects.toThrow(/active legacy users lack verified email/);
+        await pg.exec("UPDATE users SET verified_email='legacy-migration@example.test', email_verified_at=now(); INSERT INTO players(user_id, public_player_id, display_name) VALUES ('10000000-0000-4000-8000-000000000001', 'CZ-AAAAAA', 'Migration Player')");
+        const usersBefore = (await pg.query("SELECT * FROM users")).rows;
+        const playersBefore = (await pg.query("SELECT * FROM players")).rows;
+        await pg.exec(sql);
+        expect((await pg.query("SELECT * FROM users")).rows).toEqual(usersBefore);
+        expect((await pg.query("SELECT * FROM players")).rows).toEqual(playersBefore);
+        // Remove only this migration's synthetic fixture before later migrations
+        // establish audit history; the reusable template must contain no players.
+        await pg.exec("DELETE FROM players; DELETE FROM users");
+      } else await pg.exec(sql);
+    }
+  });
+}, 60_000);
+beforeEach(async () => {
+  pg = await freshDatabase();
   db = drizzle(pg, { schema }) as unknown as Database;
   repo = new DrizzleNativeAuthRepository(db);
   identity = new IdentityService(new DrizzleIdentityRepository(db), "test-secret-of-at-least-32-characters");
-}, 60_000);
-beforeEach(async () => {
-  await pg.exec("TRUNCATE users, auth_challenges, auth_rate_limits, google_auth_states CASCADE");
   mailer = new DevelopmentAuthMailer(); service = new NativeAuthService(repo, mailer);
-});
-afterAll(async () => { await pg?.close(); });
+}, 30_000);
+afterEach(async () => { if (pg && !pg.closed) await pg.close(); });
 
 describe("native email credentials on PostgreSQL", () => {
   it("passes the unchanged challenge lifetimes to email presentation", async () => {

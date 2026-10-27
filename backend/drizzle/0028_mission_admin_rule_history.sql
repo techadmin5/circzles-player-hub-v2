@@ -1,0 +1,4 @@
+ALTER TABLE "mission_admin_history" DROP CONSTRAINT "mission_admin_history_action_check";--> statement-breakpoint
+ALTER TABLE "mission_admin_history" DROP CONSTRAINT "mission_admin_history_snapshot_check";--> statement-breakpoint
+ALTER TABLE "mission_admin_history" ADD CONSTRAINT "mission_admin_history_action_check" CHECK ("mission_admin_history"."action" IN ('DRAFT_CREATED', 'METADATA_UPDATED', 'RULE_CONFIGURED'));--> statement-breakpoint
+ALTER TABLE "mission_admin_history" ADD CONSTRAINT "mission_admin_history_snapshot_check" CHECK (jsonb_typeof("mission_admin_history"."after") = 'object' AND (("mission_admin_history"."action" = 'DRAFT_CREATED' AND "mission_admin_history"."before" IS NULL) OR ("mission_admin_history"."action" IN ('METADATA_UPDATED', 'RULE_CONFIGURED') AND "mission_admin_history"."before" IS NOT NULL AND jsonb_typeof("mission_admin_history"."before") = 'object')));

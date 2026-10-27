@@ -39,7 +39,7 @@ const rule = (overrides: Partial<Rule> = {}): Rule => ({ eventType: "submission.
 const event = (id: string, at: string, overrides: Partial<Event> = {}): Event => ({ id, playerId: "player-1", eventType: "submission.approved", sourceType: "SUBMISSION_REVIEW", payload: { puzzleId: "puzzle-1", levelId: 3.5, decision: "APPROVED" }, createdAt: new Date(at), processed: false, ...overrides });
 
 describe("mission configuration and period keys", () => {
-  it.each(["DAILY", "WEEKLY", "LIFETIME", "FIXED"] as const)("accepts %s period type", (periodType) => expect(() => validateMissionDefinition(mission({ periodType }))).not.toThrow());
+  it.each(["DAILY", "WEEKLY", "LIFETIME", "FIXED"] as const)("accepts %s period type with matching category", (periodType) => expect(() => validateMissionDefinition(mission({ periodType, category: periodType === "LIFETIME" ? "ACHIEVEMENT" : periodType === "FIXED" ? "EVENT" : periodType, ...(periodType === "FIXED" ? { startsAt: new Date("2026-01-01Z"), endsAt: new Date("2026-02-01Z") } : {}) }))).not.toThrow());
   it("rejects unsupported categories and periods", () => {
     expect(() => validateMissionDefinition({ ...mission(), category: "NOPE" })).toThrow();
     expect(() => validateMissionDefinition({ ...mission(), periodType: "NOPE" as MissionPeriodType })).toThrow();
