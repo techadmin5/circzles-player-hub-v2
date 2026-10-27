@@ -83,6 +83,9 @@ function env(overrides: Partial<Env> = {}): Env {
     AUTH_SESSION_DIAGNOSTICS: false,
     MISSION_PROCESSOR_INTERVAL_MS: 5000,
     MISSION_PROCESSOR_BATCH_SIZE: 50,
+    MISSION_PROCESSOR_ENABLED: true,
+    MISSION_CLAIMS_ENABLED: true,
+    BACKEND_SHUTDOWN_TIMEOUT_MS: 25000,
     ...overrides,
   };
 }
@@ -1166,6 +1169,14 @@ describe("leaderboard HTTP API", () => {
 });
 
 describe("missions HTTP API", () => {
+  it("keeps authenticated mission reads available but disables legacy claims", async () => {
+    const { app, missionClaimRepo } = await appWithFakes({ MISSION_CLAIMS_ENABLED: false }); const cookie = await login(app);
+    const url = "/api/missions/80000000-0000-4000-8000-000000000001/claim";
+    expect((await app.inject({ method: "POST", url })).statusCode).toBe(401);
+    const denied = await app.inject({ method: "POST", url, headers: { cookie, "idempotency-key": "disabled" }, payload: {} });
+    expect(denied.statusCode).toBe(503); expect(denied.json().code).toBe("MISSION_CLAIMS_MAINTENANCE"); expect(missionClaimRepo.calls).toHaveLength(0);
+    expect((await app.inject({ url: "/api/missions", headers: { cookie } })).statusCode).toBe(200);
+  });
   it("requires authentication and returns safe current-player mission DTOs", async () => {
     const { app, missionRepo } = await appWithFakes();
     expect((await app.inject({ method: "GET", url: "/api/missions" })).statusCode).toBe(401);
