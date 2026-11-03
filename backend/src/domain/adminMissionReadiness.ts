@@ -1,3 +1,4 @@
+import { readTracking, validateTracking } from "./missionTracking.js";
 import { missionActivationPolicyBlocker } from "./missionActivationPolicy.js";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { readMissionApprovalContractInTransaction } from "./missionApprovalContract.js";
@@ -37,6 +38,8 @@ export async function evaluateMissionReadiness(tx: GameStateTransaction, id: str
     const [row] = await tx.select().from(missions).where(eq(missions.missionId, id));
     if (!row) throw new AppError("MISSION_NOT_FOUND", "Mission was not found.", 404);
     const [rule] = await tx.select().from(missionRules).where(eq(missionRules.missionId, id));
+    const trackingRow = await readTracking(tx, id);
+    const tracking = trackingRow ? { mode: trackingRow.mode, firstEver: trackingRow.firstEver, eligibleMissionIds: trackingRow.eligibleMissionIds, collectibleId: trackingRow.collectibleId } : null;
     const rewards = await tx.select().from(missionRewards).where(eq(missionRewards.missionId, id));
     const links = await tx.select({ id: missionChests.chestId }).from(missionChestEligibility)
       .innerJoin(missionChests, eq(missionChests.chestId, missionChestEligibility.chestId))
@@ -72,9 +75,9 @@ export async function evaluateMissionReadiness(tx: GameStateTransaction, id: str
     if (!rule) add("RULE_MISSING", "BLOCKED", "CONFIGURATION", "rule", "Configure an enabled supported event rule; this draft has no rule.");
     else {
       add("RULE_ENABLED", rule.active ? "PASS" : "BLOCKED", "CONFIGURATION", "rule.active", rule.active ? "The rule is enabled; the mission is still inactive." : "Enable the configured rule while leaving the mission inactive.");
-      validate("RULE_M1_VALID", "rule", "M1 event, count and level validation passes.", () => validateMissionRule(rule));
-      const supported = adminMissionRuleOptions.some(option => option.eventType === rule.eventType);
-      add("RULE_EVENT_SUPPORTED", supported ? "PASS" : "BLOCKED", "CONFIGURATION", "rule.eventType", supported ? "This event is one of the six verified builder event types." : "This event is outside the six verified builder types. Review supported event semantics before activation; M1 recognition alone is not approval.");
+      validate("RULE_M1_VALID", "rule", "M1 event, count and level validation passes.", () => validateMissionRule(rule, tracking?.mode === "DISTINCT_MISSIONS"));
+      const supported = adminMissionRuleOptions.some(option => option.eventType === rule.eventType) && (rule.eventType !== "mission.completed" || tracking?.mode === "DISTINCT_MISSIONS");
+      add("RULE_EVENT_SUPPORTED", supported ? "PASS" : "BLOCKED", "CONFIGURATION", "rule.eventType", supported ? "This event is a verified builder event type." : "This event is outside the verified builder types. Review supported event semantics before activation; M1 recognition alone is not approval.");
       const emptyConditions = typeof rule.conditions === "object" && rule.conditions !== null && !Array.isArray(rule.conditions) && Object.keys(rule.conditions).length === 0;
       add("ADVANCED_CONDITIONS_UNSUPPORTED", emptyConditions ? "PASS" : "BLOCKED", "CONFIGURATION", "rule.conditions", emptyConditions ? "No unsupported advanced conditions are configured." : "Advanced conditions are not approved by this builder; M1 also has a known short-circuit validation gap. Review them separately, without silently discarding conditions.");
       if (supported) validate("RULE_PARAMETERS_VALID", "rule.sourceType,rule.targetCount,rule.puzzleId,rule.levelId", "Rule parameters satisfy the existing strict builder contract.", () => parseAdminMissionRule({ eventType: rule.eventType, targetCount: rule.targetCount, sourceType: rule.sourceType, puzzleId: rule.puzzleId, levelId: rule.levelId, conditions: rule.conditions, active: rule.active, expectedUpdatedAt: revision }));
@@ -86,6 +89,8 @@ export async function evaluateMissionReadiness(tx: GameStateTransaction, id: str
         add("RULE_FILTER_RESOLVES", match ? "PASS" : "BLOCKED", "CONFIGURATION", "rule.puzzleId,rule.levelId", match ? "The filters resolve to a currently active canonical CircZles and design." : "The filters match no currently active canonical CircZles/design. Check the ID, level and catalog availability.");
       }
     }
+    try { if (rule) await validateTracking(tx, row, rule, tracking); add("TRACKING_VALID", "PASS", "CONFIGURATION", "tracking", "Tracking and collectible configuration are valid."); }
+    catch (error) { if (!(error instanceof AppError)) throw error; add("TRACKING_VALID", "BLOCKED", "CONFIGURATION", "tracking", error.message); }
     let rewardTotals: { xp: number; synapsePoints: number } | null = null;
     try {
       rewardTotals = snapshotTotals(freezeRewards(rewards.filter(reward => reward.active)));

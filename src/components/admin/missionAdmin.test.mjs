@@ -145,7 +145,7 @@ test("reload aborts pending contract reads and ignores late results", async t =>
   await click("Reload details"); assert.equal(signal.aborted, true); await act(async () => resolve());
   const section = document.querySelector('[aria-label="Mission approval contract"]'); assert.match(section.textContent, /No contract inspected/); assert.doesNotMatch(section.textContent, /Configuration SHA-256/);
 });
-function mockFetch(t, handler) { return t.mock.method(globalThis, "fetch", async (url, init) => new URL(url).pathname.endsWith("/history") ? Response.json({ entries: [], limit: 25, offset: 0, hasMore: false }) : handler(url, init)); }
+function mockFetch(t, handler) { return t.mock.method(globalThis, "fetch", async (url, init) => new URL(url).pathname.endsWith("/tracking") ? Response.json(null) : new URL(url).pathname.endsWith("/history") ? Response.json({ entries: [], limit: 25, offset: 0, hasMore: false }) : handler(url, init)); }
 async function setup(t) {
   const dom = new JSDOM('<div id="root"></div>', { url: "https://hub.example.test/admin/missions" });
   const keys = ["window", "self", "document", "HTMLElement", "Element", "SVGElement", "FormData", "IS_REACT_ACT_ENVIRONMENT"];

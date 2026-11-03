@@ -378,6 +378,14 @@ export function buildApp({ adminMissions, catalog, env, identity, gameState, puz
     return reply.send({ missions: await missions.list(player.internalId) });
   });
 
+  app.post("/api/missions/check-in", async (request, reply) => {
+    reply.header("Cache-Control", "private, no-store");
+    const player = await requireCurrentPlayer(identity, request.cookies[SESSION_COOKIE_NAME]);
+    if (request.query && Object.keys(request.query as object).length) throw validationFailed("Check-in accepts no query fields.");
+    if (request.body !== undefined && (request.body === null || typeof request.body !== "object" || Array.isArray(request.body) || Object.keys(request.body).length)) throw validationFailed("Check-in accepts no client fields.");
+    if ((request.headers.origin && request.headers.origin !== new URL(env.FRONTEND_ORIGIN).origin) || request.headers["sec-fetch-site"] === "cross-site") throw forbidden("Invalid check-in origin.");
+    return missions.checkIn(player.internalId);
+  });
   registerPlayerMissionHistoryRoutes(app, identity, missions);
 
   app.get("/api/missions/periods", async (request, reply) => {

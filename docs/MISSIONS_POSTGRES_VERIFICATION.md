@@ -190,3 +190,10 @@ Future authorized execution requires another new empty uniquely named database, 
     node node_modules/vitest/vitest.mjs run tests/missionChestsPostgres.test.ts --maxWorkers=1
 
 No production access, database deletion, roles/authentication changes, real player activity, external integration, Git publication or deployment occurred.
+
+
+## Starter Missions final verification - 2026-11-03
+
+Opt-in suite: `backend/tests/missionStarterPostgres.test.ts`. Final retained local database: `circzles_m1_verify_20261103_5e07008cb65e`, PostgreSQL 18.6, literal 127.0.0.1:5432, role circzles_test; independent backend PIDs 769/770. Migrations 0000-0036 succeeded, with 37 journal entries and existing synthetic earned data preserved. **16 real PostgreSQL tests + 17 connection guards passed; 0 failed, 0 skipped.** Seven races observed two lock waiters each. Batch creation, first-ever event production, distinct days/missions, currency/collectible claim idempotency, ownership/equipment isolation, atomic delivery rollback and capacity recovery passed. No runtime source change, production access or existing-database reset occurred.
+
+See [starter verification](missions-starter/VERIFICATION.md) for exact tests, private evidence, initial import-copy correction, execution guard requirements, product blockers and retained database details. The full 466/99 suites were not repeated. This completes the new tracking/collectible PostgreSQL gate, not product approval or live activation.

@@ -1,4 +1,5 @@
 "use client";
+import { DailyCheckIn } from "./DailyCheckIn";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, RefreshCw } from "lucide-react";
@@ -88,6 +89,7 @@ export function MissionExplorer({ mode }: { mode: DataMode }) {
 
   return (
     <div data-data-mode={mode}>
+      {mode === "api" && <DailyCheckIn onRecorded={() => setAttempt(value => value + 1)} />}
       <button type="button" className="cz-btn cz-btn-ghost cz-btn-sm mb-4" disabled={loading || busyMissionIds.size > 0} onClick={() => setAttempt(value => value + 1)}><RefreshCw size={14} aria-hidden="true" /> Refresh missions</button>
       {loading
         ? <LoadingState rows={4} />

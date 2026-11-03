@@ -39,7 +39,7 @@ afterAll(async () => { await pg.close(); });
 
 it("keeps frontend request/options contracts aligned with strict backend parsing", () => {
   expect(inputMatches && optionsMatch).toBe(true);
-  expect(adminMissionRuleOptions).toHaveLength(6);
+  expect(adminMissionRuleOptions).toHaveLength(9);
 });
 it("migration 0028 preserves existing 0027 audit records and append-only guards", async () => {
   const isolated = new PGlite();
@@ -60,7 +60,7 @@ it("migration 0028 preserves existing 0027 audit records and append-only guards"
     await expect(isolated.exec("TRUNCATE mission_admin_history")).rejects.toThrow(/append-only/);
   } finally { await isolated.close(); }
 }, 30000);
-it.each(adminMissionRuleOptions)("configures and audits existing $eventType matching semantics", async option => {
+it.each(adminMissionRuleOptions.filter(option => !["player.checked_in", "reward_wheel.spun", "mission.completed"].includes(option.eventType)))("configures and audits existing $eventType matching semantics", async option => {
   expect(implementedGameEventTypes).toContain(option.eventType);
   const created = await draft();
   const saved = await service.updateRule(created.missionId, input(created.updatedAt, { eventType: option.eventType, sourceType: option.sourceType, levelId: 0.5 }), actorId, now);
@@ -78,7 +78,7 @@ it.each(adminMissionRuleOptions)("configures and audits existing $eventType matc
   expect(await service.history(created.missionId, historyFilter)).toEqual(history);
 });
 it.each([
-  { eventType: "invented.event" }, { eventType: "mission.completed" }, { eventType: "mission.claimed" }, { eventType: "mission.chest_claimed" },
+  { eventType: "invented.event" }, { eventType: "mission.claimed" }, { eventType: "mission.chest_claimed" },
   { eventType: "xp.earned" }, { targetCount: 0 }, { targetCount: -1 }, { targetCount: 1.5 }, { targetCount: 2147483648 }, { targetCount: "2" },
   { sourceType: "SUBMISSION" }, { sourceType: "" }, { puzzleId: "bad-id" }, { levelId: 0 }, { levelId: -1 }, { levelId: 1.23 }, { levelId: 1000 },
   { conditions: { levelId: 1 } }, { conditions: { first: 1, nested: { unsupported: true } } }, { conditions: [] },

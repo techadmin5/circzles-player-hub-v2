@@ -1,3 +1,9 @@
+import { createHash } from "node:crypto";
+import { sql } from "drizzle-orm";
+import { missionTrackingConfigs, missionStarterBatchItems } from "../db/missionStarterSchema.js";
+import { rewardDefinitions } from "../db/schema.js";
+import { trackingInput, readTracking, validateTracking } from "./missionTracking.js";
+import { starterBatchKey, starterMissionManifest, starterCollectibles } from "./missionStarterManifest.js";
 import { AdminMissionChestService } from "./adminMissionChests.js";
 import { ChestCapacityService } from "./chestCapacityExceptions.js";
 import { MissionCapacityService } from "./missionCapacityExceptions.js";
@@ -54,6 +60,67 @@ const draft = metadata.omit({ expectedUpdatedAt: true }).extend({ category: z.en
 export class AdminMissionService {
   constructor(private db: Database) {}
 
+  async tracking(id: string) { return readTracking(this.db, id); }
+  async updateTracking(id: string, input: unknown, actor: string, now = new Date()) {
+    const parsed = trackingInput.extend({ expectedUpdatedAt: z.string().datetime({ offset: true }) }).safeParse(input);
+    if (!parsed.success) throw validationFailed("Provide valid tracking and the loaded revision.");
+    const { expectedUpdatedAt, ...values } = parsed.data;
+    await this.db.transaction(async tx => {
+      const [row] = await tx.select().from(missions).where(eq(missions.missionId, id)).for("update");
+      if (!row) throw new AppError("MISSION_NOT_FOUND", "Mission was not found.", 404);
+      if (row.active) throw new AppError("MISSION_RULE_LOCKED", "Only inactive missions can be configured.", 409);
+      if (row.updatedAt.toISOString() !== expectedUpdatedAt) throw new AppError("MISSION_REVISION_CONFLICT", "Reload the changed mission.", 409);
+      const [rule] = await tx.select().from(missionRules).where(eq(missionRules.missionId, id));
+      if (!rule) throw validationFailed("Configure a supported rule first.");
+      await validateTracking(tx, row, rule, values);
+      const old = await readTracking(tx, id);
+      const before = old ? { mode: old.mode, firstEver: old.firstEver, eligibleMissionIds: old.eligibleMissionIds, collectibleId: old.collectibleId } : null;
+      if (JSON.stringify(before) === JSON.stringify(values)) return;
+      await tx.insert(missionTrackingConfigs).values({ missionId: id, ...values }).onConflictDoUpdate({ target: missionTrackingConfigs.missionId, set: values });
+      const [updated] = await tx.update(missions).set({ updatedAt: new Date(Math.max(now.getTime(), row.updatedAt.getTime() + 1)) }).where(eq(missions.missionId, id)).returning();
+      await tx.insert(missionAdminHistory).values({ missionId: id, actorAdminUserId: actor, action: "RULE_CONFIGURED", occurredAt: now, before: { ...snapshot(row), tracking: before }, after: { ...snapshot(updated), tracking: values } });
+    });
+    return this.detail(id, now);
+  }
+  async createStarterBatch(input: unknown, actor: string, now = new Date()) {
+    const parsed = z.object({ batchKey: z.literal(starterBatchKey), manifestDigest: z.string().regex(/^[a-f0-9]{64}$/) }).strict().safeParse(input);
+    const digest = starterManifestDigest();
+    if (!parsed.success || parsed.data.manifestDigest !== digest) throw validationFailed("Review the current starter manifest before creating drafts.");
+    return this.db.transaction(async tx => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${starterBatchKey}, 0))`);
+      const admin = new AdminMissionService(tx as unknown as Database);
+      const ids = new Map<string, string>();
+      const results: { key: string; missionId: string; created: boolean; active: boolean }[] = [];
+      // Catalog definitions are real persisted assets, never inventory grants or budget approvals.
+      const collectibleIds = new Map<string, string>();
+      for (const asset of starterCollectibles) {
+        const [existing] = await tx.select().from(rewardDefinitions).where(eq(rewardDefinitions.code, asset.code));
+        if (existing && (existing.rewardType !== asset.rewardType || existing.imageUrl !== asset.imageUrl)) throw new AppError("STARTER_CATALOG_CONFLICT", "Existing collectible code has different content; review manually.", 409);
+        const reward = existing ?? (await tx.insert(rewardDefinitions).values({ ...asset, active: true, rarity: "ACHIEVEMENT", metadata: { batchKey: starterBatchKey } }).returning())[0];
+        collectibleIds.set(asset.code, reward.rewardDefinitionId);
+      }
+      for (const definition of starterMissionManifest) {
+        const [existing] = await tx.select().from(missionStarterBatchItems).where(and(eq(missionStarterBatchItems.batchKey, starterBatchKey), eq(missionStarterBatchItems.definitionKey, definition.key)));
+        if (existing) {
+          if (existing.requestDigest !== digest) throw new AppError("STARTER_BATCH_CONFLICT", "Batch content changed; review instead of overwriting drafts.", 409);
+          const [current] = await tx.select().from(missions).where(eq(missions.missionId, existing.missionId));
+          ids.set(definition.key, existing.missionId); results.push({ key: definition.key, missionId: existing.missionId, created: false, active: current.active }); continue;
+        }
+        let row = await admin.createDraft({ title: definition.title, description: definition.description, category: definition.category, displayOrder: results.length + 100 }, actor, now);
+        row = await admin.updateRule(row.missionId, { eventType: definition.eventType, targetCount: definition.target, sourceType: null, puzzleId: null, levelId: null, conditions: {}, active: true, expectedUpdatedAt: row.updatedAt }, actor, now);
+        const unresolved = definition.eligibleKeys.filter(key => !ids.has(key));
+        if (unresolved.some(key => !definition.externalMissionReferences.some(reference => reference.key === key))) throw validationFailed("Missing eligible batch definition.");
+        // An unresolved existing mission is never guessed or recreated. Leave aggregation
+        // unconfigured and activation-blocked until its exact ID is supplied through
+        // the existing audited tracking editor. Keep the requested target unchanged.
+        if (!unresolved.length) row = await admin.updateTracking(row.missionId, { mode: definition.mode, firstEver: definition.firstEver, eligibleMissionIds: definition.eligibleKeys.map(key => ids.get(key)!), collectibleId: definition.collectible ? collectibleIds.get(definition.collectible) : null, expectedUpdatedAt: row.updatedAt }, actor, now);
+        if (definition.xp !== null && definition.sp !== null) row = await admin.updateRewards(row.missionId, { xp: definition.xp, synapsePoints: definition.sp, expectedUpdatedAt: row.updatedAt }, actor, now);
+        await tx.insert(missionStarterBatchItems).values({ batchKey: starterBatchKey, definitionKey: definition.key, missionId: row.missionId, requestDigest: digest });
+        ids.set(definition.key, row.missionId); results.push({ key: definition.key, missionId: row.missionId, created: true, active: false });
+      }
+      return { batchKey: starterBatchKey, manifestDigest: digest, missions: results, allInactive: results.every(row => !row.active), activationPerformed: false, approvalsGranted: false };
+    });
+  }
   changeLifecycle(id: string, action: "ACTIVATE" | "DEACTIVATE", input: unknown, actor: string, clock?: () => Date) { return changeMissionLifecycle(this.db, id, action, input, actor, clock); }
 
   chests() { return new AdminMissionChestService(this.db); }
@@ -226,7 +293,7 @@ function missionDto(row: typeof missions.$inferSelect, rule: typeof missionRules
   const check = (validate: () => unknown) => { try { validate(); } catch (error) { if (!(error instanceof AppError)) throw error; issues.push(error.message); } };
   check(() => validateMissionDefinition(row));
   if (!rule?.active) issues.push("An active mission rule is required.");
-  else check(() => validateMissionRule(rule));
+  else check(() => validateMissionRule(rule, rule.eventType === "mission.completed"));
   check(() => freezeRewards(rewards.filter(reward => reward.active)));
   const lifecycle = !row.active ? "INACTIVE" : row.endsAt && now >= row.endsAt ? "ENDED" : (row.startsAt && now < row.startsAt) || now < row.activationEffectiveAt ? "SCHEDULED" : "ACTIVE";
   return {
@@ -239,3 +306,5 @@ function missionDto(row: typeof missions.$inferSelect, rule: typeof missionRules
     rewards: rewards.map(reward => ({ rewardType: reward.rewardType, amount: reward.amount, active: reward.active })),
   };
 }
+
+export function starterManifestDigest() { return createHash("sha256").update(JSON.stringify({ missions: starterMissionManifest, collectibles: starterCollectibles })).digest("hex"); }

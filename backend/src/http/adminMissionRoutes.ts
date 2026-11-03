@@ -1,8 +1,9 @@
+import { starterBatchKey, starterMissionManifest, starterCollectibles } from "../domain/missionStarterManifest.js";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { Env } from "../config/env.js";
 import type { AdminAuthorizationService } from "../domain/adminAuth.js";
-import { AdminMissionService, adminMissionFilters, adminMissionHistoryFilters } from "../domain/adminMissions.js";
+import { AdminMissionService, starterManifestDigest, adminMissionFilters, adminMissionHistoryFilters } from "../domain/adminMissions.js";
 import { adminMissionRuleOptions } from "../domain/adminMissionRules.js";
 import { AppError, forbidden, validationFailed } from "../domain/errors.js";
 import { constantTimeEqual, SESSION_COOKIE_NAME } from "../domain/sessions.js";
@@ -89,6 +90,10 @@ export function registerAdminMissionRoutes(app: FastifyInstance, deps: { env: En
       if (!z.object({}).strict().safeParse(request.query).success) throw validationFailed("Approval contract inspection accepts no client approval or actor assertions.");
       return deps.adminMissions.approvalContract(missionId(request.params));
     });
+    scope.get("/api/admin/missions/starter-manifest", async () => ({ batchKey: starterBatchKey, manifestDigest: starterManifestDigest(), missions: starterMissionManifest, collectibles: starterCollectibles }));
+    scope.post("/api/admin/missions/starter-batch", async request => deps.adminMissions.createStarterBatch(request.body, actorId(request)));
+    scope.get("/api/admin/missions/:missionId/tracking", async request => deps.adminMissions.tracking(missionId(request.params)));
+    scope.patch("/api/admin/missions/:missionId/tracking", async request => deps.adminMissions.updateTracking(missionId(request.params), request.body, actorId(request)));
     scope.post("/api/admin/missions", async (request, reply) => reply.code(201).send(await deps.adminMissions.createDraft(request.body, actorId(request))));
     for (const revoke of [false, true]) scope.post(`/api/admin/missions/:missionId/approvals/:category${revoke ? "/revoke" : ""}`, async request => {
       const params = z.object({ missionId: z.string().uuid(), category: z.enum(["PRODUCT", "REWARD_BUDGET"]) }).strict().safeParse(request.params);
