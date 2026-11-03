@@ -16,6 +16,7 @@ export interface AdminMissionSnapshot {
   rule?: AdminMissionDto["rule"];
   schedule?: Pick<AdminMissionDto, "startsAt" | "endsAt" | "claimDeadline" | "activationEffectiveAt">;
   rewards?: AdminMissionDto["rewards"];
+  tracking?: { mode: "EVENT_COUNT" | "DISTINCT_UTC_DAYS" | "DISTINCT_MISSIONS"; firstEver: boolean; eligibleMissionIds: string[]; collectibleId: string | null } | null;
   lifecycleOperation?: MissionLifecycleResult;
   approval?: { category: "PRODUCT" | "REWARD_BUDGET"; status: "MISSING" | "APPROVED" | "REVOKED" | "INVALIDATED"; approvalId: string | null; revocationId: string | null; revision: string; digest: string; xp: number | null; synapsePoints: number | null };
 }

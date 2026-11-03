@@ -17,7 +17,7 @@ export const implementedGameEventTypes = [
   "coupon.redeemed",
   "inventory.item.granted", "inventory.item.equipped", "inventory.item.unequipped", "inventory.item.consumed",
   "player.display_name.changed",
-  "reward_wheel.spun",
+  "reward_wheel.spun", "player.checked_in",
 ] as const;
 
 export type GameEventType = typeof implementedGameEventTypes[number];
@@ -53,9 +53,9 @@ export class DrizzleGameEventRepository implements GameEventRepository {
   }
 }
 
-export async function insertGameEventInTransaction(tx: GameStateTransaction, input: GameEventInput) {
+export async function insertGameEventInTransaction(tx: GameStateTransaction, input: GameEventInput, occurredAt?: Date) {
   validateGameEvent(input);
-  const [created] = await tx.insert(gameEvents).values(input).onConflictDoNothing({
+  const [created] = await tx.insert(gameEvents).values({ ...input, ...(occurredAt ? { createdAt: occurredAt } : {}) }).onConflictDoNothing({
     target: [gameEvents.playerId, gameEvents.idempotencyKey],
   }).returning();
   if (created) {

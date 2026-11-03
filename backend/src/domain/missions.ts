@@ -1,3 +1,4 @@
+import { readTracking, validateTracking, recordContribution, freezeCollectible, deliverCollectible } from "./missionTracking.js";
 import { readPlayerMissionHistory, type PlayerMissionHistoryPage } from "./playerMissionHistory.js";
 import { recordMissionCapacityException, findMissionCapacityException, pendingCapacityError } from "./missionCapacityExceptions.js";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
@@ -34,12 +35,16 @@ export interface MissionDto {
   rewards: Array<{ type: "SYNAPSE_POINTS" | "XP"; amount: number; label: string }>;
 }
 
-export interface PlayerMissionRepository { history?(playerId: string, query: unknown, now: Date): Promise<PlayerMissionHistoryPage>; listForPlayer(playerId: string, now: Date): Promise<MissionDto[]>; listPeriods?(playerId: string, now: Date): Promise<unknown[]> }
+export interface PlayerMissionRepository { history?(playerId: string, query: unknown, now: Date): Promise<PlayerMissionHistoryPage>; listForPlayer(playerId: string, now: Date): Promise<MissionDto[]>; checkIn?(playerId: string): Promise<{ utcDate: string; idempotent: boolean }>; listPeriods?(playerId: string, now: Date): Promise<unknown[]> }
 export class PlayerMissionService {
   constructor(private repo: PlayerMissionRepository) {}
   history(playerId: string, query: unknown, now = new Date()) {
     if (!this.repo.history) throw new AppError("MISSION_HISTORY_UNAVAILABLE", "Mission history is temporarily unavailable.", 503);
     return this.repo.history(playerId, query, now);
+  }
+  checkIn(playerId: string) {
+    if (!this.repo.checkIn) throw new AppError("CHECK_IN_UNAVAILABLE", "Check-in is unavailable.", 503);
+    return this.repo.checkIn(playerId);
   }
   list(playerId: string, now = new Date()) { return this.repo.listForPlayer(playerId, now); }
   periods(playerId: string, now = new Date()) { return this.repo.listPeriods?.(playerId, now) ?? this.repo.listForPlayer(playerId, now); }
@@ -80,6 +85,14 @@ export class DrizzleMissionRepository implements PlayerMissionRepository, Missio
   history(playerId: string, query: unknown, now: Date) { return readPlayerMissionHistory(this.db, playerId, query, now); }
   constructor(private db: Database) {}
 
+  async checkIn(playerId: string) {
+    return this.db.transaction(async tx => {
+      const result = await tx.execute(sql`SELECT to_char(current_timestamp AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day`);
+      const utcDate = String(result.rows[0].day);
+      const recorded = await insertGameEventInTransaction(tx, { playerId, eventType: "player.checked_in", sourceType: "PLAYER_CHECK_IN", sourceId: utcDate, idempotencyKey: `player.checked_in:${utcDate}`, payload: { utcDate } });
+      return { utcDate, idempotent: recorded.idempotent };
+    });
+  }
   async processBatch(batchSize: number) {
     let processed = 0;
     while (processed < batchSize && await this.processNext()) processed += 1;
@@ -104,13 +117,17 @@ export class DrizzleMissionRepository implements PlayerMissionRepository, Missio
                 const [lockedRule] = await nested.select().from(missionRules).where(eq(missionRules.missionId, candidate.mission.missionId)).for("share");
                 if (!lockedMission?.active || !lockedRule?.active) return;
                 candidate.mission = lockedMission; candidate.rule = lockedRule;
-                validateMissionDefinition(candidate.mission); validateMissionRule(candidate.rule);
+                const trackingRow = await readTracking(nested, candidate.mission.missionId);
+                const tracking = trackingRow ? { mode: trackingRow.mode, firstEver: trackingRow.firstEver, eligibleMissionIds: trackingRow.eligibleMissionIds, collectibleId: trackingRow.collectibleId } : null;
+                validateMissionDefinition(candidate.mission); validateMissionRule(candidate.rule, tracking?.mode === "DISTINCT_MISSIONS");
+                await validateTracking(nested, candidate.mission, candidate.rule, tracking);
                 if (event.createdAt < candidate.mission.activationEffectiveAt || !missionMatchesEvent(event, candidate.mission, candidate.rule)) return;
                 const periodType = candidate.mission.periodType as MissionPeriodType;
                 const periodKey = periodKeyFor(periodType, event.createdAt, candidate.mission.missionId);
                 await nested.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${event.playerId}:${candidate.mission.missionId}:${periodKey}`}, 0))`);
                 const [existing] = await nested.select().from(playerMissionProgress).where(and(eq(playerMissionProgress.playerId, event.playerId), eq(playerMissionProgress.missionId, candidate.mission.missionId), eq(playerMissionProgress.periodKey, periodKey))).limit(1).for("update");
                 if (existing?.status !== undefined && existing.status !== "IN_PROGRESS") return;
+                if (tracking && !await recordContribution(nested, tracking, event, candidate.mission.missionId, periodKey)) return;
                 const target = existing?.targetCountSnapshot ?? candidate.rule.targetCount;
                 const current = Math.min(target, (existing?.currentCount ?? 0) + 1);
                 const becameClaimable = current === target;
@@ -119,7 +136,8 @@ export class DrizzleMissionRepository implements PlayerMissionRepository, Missio
                 const values = { currentCount: current, status: becameClaimable ? "CLAIMABLE" : "IN_PROGRESS", lastGameEventId: event.gameEventId, ...(becameClaimable ? { completedAt: event.createdAt, rewardSnapshot: rewards, periodStartsAt: bounds.start, periodEndsAt: bounds.end, claimDeadline: claimDeadlineFor(periodType, bounds.end, candidate.mission.claimDeadline) } : {}) };
                 const [progress] = existing ? await nested.update(playerMissionProgress).set(values).where(eq(playerMissionProgress.playerMissionProgressId, existing.playerMissionProgressId)).returning() : await nested.insert(playerMissionProgress).values({ ...values, playerId: event.playerId, missionId: candidate.mission.missionId, periodKey, targetCountSnapshot: target }).returning();
                 if (becameClaimable) {
-                  await insertGameEventInTransaction(nested, { playerId: event.playerId, eventType: "mission.completed", sourceType: "MISSION", sourceId: progress.playerMissionProgressId, idempotencyKey: `mission.completed:${event.playerId}:${candidate.mission.missionId}:${periodKey}`, payload: { missionId: candidate.mission.missionId, periodKey, completedAt: event.createdAt.toISOString() } });
+                  await freezeCollectible(nested, progress.playerMissionProgressId, tracking);
+                  await insertGameEventInTransaction(nested, { playerId: event.playerId, eventType: "mission.completed", sourceType: "MISSION", sourceId: progress.playerMissionProgressId, idempotencyKey: `mission.completed:${event.playerId}:${candidate.mission.missionId}:${periodKey}`, payload: { missionId: candidate.mission.missionId, periodKey, completedAt: event.createdAt.toISOString() } }, event.createdAt);
                   await recordChestCompletion(nested, progress, candidate.mission, event.gameEventId);
                 }
               });
@@ -160,7 +178,7 @@ export class DrizzleMissionRepository implements PlayerMissionRepository, Missio
     const result: MissionDto[] = [];
     for (const group of grouped.values()) {
       const { mission, rule } = group[0];
-      validateMissionDefinition(mission); validateMissionRule(rule);
+      validateMissionDefinition(mission); validateMissionRule(rule, (await readTracking(this.db, mission.missionId))?.mode === "DISTINCT_MISSIONS");
       const periodKey = periodKeyFor(mission.periodType as MissionPeriodType, now, mission.missionId);
       const [progress] = await this.db.select().from(playerMissionProgress).where(and(eq(playerMissionProgress.playerId, playerId), eq(playerMissionProgress.missionId, mission.missionId), eq(playerMissionProgress.periodKey, periodKey))).limit(1);
       const rewards = group.flatMap(({ reward }) => {
@@ -251,6 +269,7 @@ export async function payEarnedMission(tx: GameStateTransaction, progress: typeo
   const points = synapseReward > 0 ? await creditPointsInTransaction(tx, { playerId: progress.playerId, amount: synapseReward, reason: "Mission reward", sourceType: "MISSION_REWARD", sourceId: claim.missionClaimId, idempotencyKey: `mission.reward.sp:${progress.playerId}:${progress.missionId}:${periodKey}`, metadata }) : undefined;
   const xp = xpReward > 0 ? await grantXpInTransaction(tx, { playerId: progress.playerId, amount: xpReward, reason: "Mission reward", sourceType: "MISSION_REWARD", sourceId: claim.missionClaimId, idempotencyKey: `mission.reward.xp:${progress.playerId}:${progress.missionId}:${periodKey}`, metadata }) : undefined;
   await tx.update(missionClaims).set({ pointTransactionId: points?.transactionId, xpTransactionId: xp?.transactionId }).where(eq(missionClaims.missionClaimId, claim.missionClaimId));
+  await deliverCollectible(tx, progress.playerMissionProgressId, progress.playerId);
   const claimedAt = claim.createdAt;
   const [claimedProgress] = await tx.update(playerMissionProgress).set({ status: "CLAIMED", claimedAt, updatedAt: sql`now()` }).where(eq(playerMissionProgress.playerMissionProgressId, progress.playerMissionProgressId)).returning();
   if (!claimedProgress) throw new AppError("MISSION_CLAIM_FAILED", "Mission progress could not be marked claimed.", 500);
@@ -283,9 +302,9 @@ export function validateMissionDefinition(input: { category: string; periodType:
   if (input.startsAt && input.endsAt && input.endsAt <= input.startsAt) throw validationFailed("Mission end must be after its start.");
 }
 
-export function validateMissionRule(input: { eventType: string; targetCount: number; conditions: unknown; levelId?: number | null }) {
+export function validateMissionRule(input: { eventType: string; targetCount: number; conditions: unknown; levelId?: number | null }, allowMissionCompletion = false) {
   if (!input.eventType.trim() || !Number.isInteger(input.targetCount) || input.targetCount <= 0) throw validationFailed("Mission rule requires an event type and positive target.");
-  if (!(implementedGameEventTypes as readonly string[]).includes(input.eventType) || input.eventType.startsWith("mission.")) throw validationFailed("Unsupported or recursive mission event type.");
+  if (!(implementedGameEventTypes as readonly string[]).includes(input.eventType) || (input.eventType.startsWith("mission.") && !(allowMissionCompletion && input.eventType === "mission.completed"))) throw validationFailed("Unsupported or recursive mission event type.");
   if (input.levelId != null && (!Number.isFinite(input.levelId) || input.levelId <= 0 || Math.abs(input.levelId * 10 - Math.round(input.levelId * 10)) > Number.EPSILON * 10)) throw validationFailed("Mission rule levelId must be positive with at most one decimal place.");
   conditionsMatch(input.conditions, {});
 }
@@ -304,7 +323,7 @@ function isScalar(value: unknown): value is Scalar { return value === null || ["
 function isPlainObject(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype; }
 
 async function isRewardGeneratedEvent(tx: GameStateTransaction, event: typeof gameEvents.$inferSelect) {
-  if (event.eventType.startsWith("mission.") || ["MISSION_REWARD", "MISSION_CHEST_REWARD"].includes(String(event.payload.source))) return true;
+  if ((event.eventType.startsWith("mission.") && event.eventType !== "mission.completed") || ["MISSION_REWARD", "MISSION_CHEST_REWARD"].includes(String(event.payload.source)) || ["MISSION_REWARD", "MISSION_CHEST_REWARD"].includes(event.sourceType)) return true;
   if (event.sourceType === "XP_TRANSACTION") {
     const [ledger] = await tx.select({ source: xpTransactions.sourceType }).from(xpTransactions).where(eq(xpTransactions.xpTransactionId, event.sourceId));
     return !!ledger && ["MISSION_REWARD", "MISSION_CHEST_REWARD"].includes(ledger.source);

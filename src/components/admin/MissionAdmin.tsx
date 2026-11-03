@@ -1,4 +1,5 @@
 "use client";
+import { MissionTrackingEditor } from "./MissionTrackingEditor";
 import { MissionCapacityPanel } from "./MissionCapacityPanel";
 import { useEffect, useRef, useState } from "react";
 import { request } from "@/lib/apiClient";
@@ -102,6 +103,11 @@ export function MissionAdmin() {
         const saved = await request<AdminMissionDto>(`/api/admin/missions/${detail.missionId}/rule`, { method: "PATCH", body: JSON.stringify(input) });
         if (!mounted.current) return;
         setDetail(saved); setNotice("Mission rule configuration saved. Mission remains inactive."); reload();
+      })} />
+      <MissionTrackingEditor key={`tracking:${detail.missionId}:${detail.updatedAt}:${editorRevision}`} mission={detail} busy={busy} onSave={input => void run(async () => {
+        const saved = await request<AdminMissionDto>(`/api/admin/missions/${detail.missionId}/tracking`, { method: "PATCH", body: JSON.stringify(input) });
+        if (!mounted.current) return;
+        setDetail(saved); setNotice("Tracking saved. Approvals require the new revision."); reload();
       })} />
       <MissionScheduleEditor key={`schedule:${detail.missionId}:${detail.updatedAt}:${editorRevision}`} mission={detail} busy={busy} onSave={input => void run(async () => {
         const saved = await request<AdminMissionDto>(`/api/admin/missions/${detail.missionId}/schedule`, { method: "PATCH", body: JSON.stringify(input) });

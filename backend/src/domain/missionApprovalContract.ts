@@ -1,3 +1,4 @@
+import { readTracking } from "./missionTracking.js";
 import { createHash } from "node:crypto";
 import { and, asc, desc, eq } from "drizzle-orm";
 import type { Database } from "../db/client.js";
@@ -44,7 +45,9 @@ export async function readMissionApprovalContractInTransaction(tx: GameStateTran
     // Invalid legacy schedule values must remain inspectable and fail the
     // readiness validator, rather than crashing approval inspection first.
     const stamp = (date: Date | null) => date === null ? null : Number.isFinite(date.getTime()) ? date.toISOString() : "INVALID_TIMESTAMP";
+    const tracking = await readTracking(tx, id);
     const configuration = {
+      ...(tracking ? { tracking: { mode: tracking.mode, firstEver: tracking.firstEver, eligibleMissionIds: tracking.eligibleMissionIds, collectibleId: tracking.collectibleId } } : {}),
       missionId: id, revision, title: row.title, description: row.description, category: row.category, periodType: row.periodType, active: row.active, displayOrder: row.displayOrder,
       startsAt: stamp(row.startsAt), endsAt: stamp(row.endsAt), claimDeadline: stamp(row.claimDeadline), activationEffectiveAt: stamp(row.activationEffectiveAt),
       rule: rule ? { eventType: rule.eventType, targetCount: rule.targetCount, sourceType: rule.sourceType, puzzleId: rule.puzzleId, levelId: rule.levelId, conditions: rule.conditions, active: rule.active } : null,

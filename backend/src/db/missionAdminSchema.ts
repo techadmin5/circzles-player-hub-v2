@@ -10,6 +10,7 @@ export type MissionAdminSnapshot = {
   rule?: { eventType: string; targetCount: number; sourceType: string | null; puzzleId: string | null; levelId: number | null; conditions: Record<string, string | number | boolean | null>; active: boolean } | null;
   schedule?: { startsAt: string | null; endsAt: string | null; claimDeadline: string | null; activationEffectiveAt: string };
   rewards?: { rewardType: string; amount: number; active: boolean }[];
+  tracking?: import("../domain/missionTracking.js").MissionTracking | null;
   lifecycleOperation?: MissionLifecycleResult;
   approval?: { category: "PRODUCT" | "REWARD_BUDGET"; status: "MISSING" | "APPROVED" | "REVOKED" | "INVALIDATED"; approvalId: string | null; revocationId: string | null; revision: string; digest: string; xp: number | null; synapsePoints: number | null };
 };

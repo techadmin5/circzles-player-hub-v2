@@ -1170,6 +1170,31 @@ describe("leaderboard HTTP API", () => {
 });
 
 describe("missions HTTP API", () => {
+  it("records explicit check-in only for the authenticated player without client timestamps", async () => {
+    const { app, missionRepo } = await appWithFakes();
+    const checkIn = vi.fn(async () => ({ utcDate: "2030-02-10", idempotent: false }));
+    Object.assign(missionRepo, { checkIn });
+    try {
+      expect((await app.inject({ method: "POST", url: "/api/missions/check-in", payload: {} })).statusCode).toBe(401);
+      const cookie = await login(app);
+      for (const payload of [{ playerId: "other-player" }, { utcDate: "2000-01-01" }, { xp: 999 }, []]) {
+        expect((await app.inject({ method: "POST", url: "/api/missions/check-in", headers: { cookie }, payload })).statusCode).toBe(400);
+      }
+      expect(checkIn).not.toHaveBeenCalled();
+      const response = await app.inject({ method: "POST", url: "/api/missions/check-in", headers: { cookie }, payload: {} });
+      expect(response.statusCode).toBe(200); expect(response.json()).toEqual({ utcDate: "2030-02-10", idempotent: false });
+      expect(checkIn).toHaveBeenCalledExactlyOnceWith("player-1");
+    } finally { await app.close(); }
+  });
+  it("rejects cross-site check-in before recording events", async () => {
+    const { app, missionRepo } = await appWithFakes();
+    const checkIn = vi.fn(async () => ({ utcDate: "2030-02-10", idempotent: false })); Object.assign(missionRepo, { checkIn });
+    try {
+      const cookie = await login(app);
+      const response = await app.inject({ method: "POST", url: "/api/missions/check-in", headers: { cookie, origin: "https://untrusted.test", "sec-fetch-site": "cross-site" }, payload: {} });
+      expect(response.statusCode).toBe(403); expect(checkIn).not.toHaveBeenCalled();
+    } finally { await app.close(); }
+  });
   it("gates actual M1 explicit-period/chest claim routes while retaining authenticated reads", async () => {
     const claim = vi.fn(async () => { throw new Error("maintenance claim reached mutation"); });
     const { app, missionClaimRepo } = await appWithFakes({ MISSION_CLAIMS_ENABLED: false }, undefined, undefined, undefined, { list: async () => [], claim });
