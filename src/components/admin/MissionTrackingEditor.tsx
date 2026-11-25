@@ -1,40 +1,37 @@
 "use client";
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import { request } from "@/lib/apiClient";
 import type { AdminMissionDto } from "@/types/adminMissions";
-
-type Tracking = { mode: "EVENT_COUNT" | "DISTINCT_UTC_DAYS" | "DISTINCT_MISSIONS"; firstEver: boolean; eligibleMissionIds: string[]; collectibleId: string | null };
-export function MissionTrackingEditor({ mission, busy, onSave }: { mission: AdminMissionDto; busy: boolean; onSave: (input: Tracking & { expectedUpdatedAt: string }) => void }) {
-  const [tracking, setTracking] = useState<Tracking | null>(null), [error, setError] = useState("");
-  const [open, setOpen] = useState(false);
-  const [loaded, setLoaded] = useState(false);
+import { trackingLabels, type MissionCollectible, type MissionTrackingDto } from "./missionManagerModel";
+export function MissionTrackingEditor({ mission, missions = [], catalog = [], busy, onSave }: { mission: AdminMissionDto; missions?: AdminMissionDto[]; catalog?: MissionCollectible[]; busy: boolean; onSave: (input: MissionTrackingDto & { expectedUpdatedAt: string }) => void }) {
+  const [tracking, setTracking] = useState<MissionTrackingDto | null>(null), [selected, setSelected] = useState<string[]>([]), [error, setError] = useState("");
+  const [open, setOpen] = useState(false), [loaded, setLoaded] = useState(false), [mode, setMode] = useState<MissionTrackingDto["mode"]>("EVENT_COUNT");
   useEffect(() => {
     if (!open) return;
-    const controller = new AbortController();
-    request<Tracking | null>(`/api/admin/missions/${mission.missionId}/tracking`, { signal: controller.signal })
-      .then(row => { if (!controller.signal.aborted) { setTracking(row); setLoaded(true); } })
-      .catch(error => { if (!controller.signal.aborted) setError(error instanceof Error ? error.message : "Tracking could not be loaded."); });
-    return () => controller.abort();
+    const c = new AbortController();
+    request<MissionTrackingDto | null>("/api/admin/missions/" + mission.missionId + "/tracking", { signal: c.signal, cache: "no-store" }).then(row => { if (!c.signal.aborted) { setTracking(row); setMode(row?.mode ?? "EVENT_COUNT"); setSelected(row?.eligibleMissionIds ?? []); setLoaded(true); } }).catch(e => { if (!c.signal.aborted) setError(e instanceof Error ? e.message : "Tracking could not be loaded."); });
+    return () => c.abort();
   }, [mission.missionId, mission.updatedAt, open]);
-  return <section className="cz-inset space-y-3 p-4" aria-label="Mission tracking">
-    <h3 className="cz-display text-lg">Tracking and collectible</h3>
-    <button type="button" className="cz-btn" disabled={busy} onClick={() => setOpen(value => !value)}>{open ? "Close tracking" : "Inspect tracking"}</button>
-    <p>Distinct dates use UTC. Eligible mission IDs must reference different, nonaggregate Daily or Weekly missions. First-ever actions exclude prior ownership, submissions and approvals.</p>
-    {error && <p role="alert">{error}</p>}
-    {open && loaded && <form key={JSON.stringify(tracking)} className="space-y-3" onSubmit={event => {
-      event.preventDefault(); if (busy || mission.active || !mission.rule) return; const form = new FormData(event.currentTarget);
-      const mode = String(form.get("mode")) as Tracking["mode"];
-      const ids = String(form.get("eligible") ?? "").split(/[\s,]+/).filter(Boolean);
-      const collectibleId = String(form.get("collectible") ?? "").trim() || null;
-      const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      if (ids.some(id => !uuid.test(id)) || (collectibleId && !uuid.test(collectibleId))) { setError("Use valid catalog and mission UUIDs."); return; }
-      setError(""); onSave({ mode, firstEver: form.get("firstEver") === "on", eligibleMissionIds: ids, collectibleId, expectedUpdatedAt: mission.updatedAt });
-    }}><fieldset disabled={busy || mission.active || !mission.rule} className="space-y-3">
-      <label className="block">Counting method <select className="cz-input" name="mode" defaultValue={tracking?.mode ?? "EVENT_COUNT"}><option value="EVENT_COUNT">Unique recorded events</option><option value="DISTINCT_UTC_DAYS">Distinct UTC dates</option><option value="DISTINCT_MISSIONS">Distinct eligible mission definitions</option></select></label>
-      <label className="block"><input type="checkbox" name="firstEver" defaultChecked={tracking?.firstEver ?? false} /> First-ever action (lifetime, target 1 only)</label>
-      <label className="block">Eligible mission IDs <textarea className="cz-input" name="eligible" defaultValue={tracking?.eligibleMissionIds.join("\n") ?? ""} /></label>
-      <label className="block">Collectible catalog ID (optional lifetime badge/frame) <input className="cz-input" name="collectible" defaultValue={tracking?.collectibleId ?? ""} /></label>
-      <button className="cz-btn" type="submit">Save inactive tracking</button>
+  const eligible = missions.filter(m => m.missionId !== mission.missionId && ["DAILY", "WEEKLY"].includes(m.periodType) && m.rule && !m.rule.eventType.startsWith("mission."));
+  const unavailableIds = selected.filter(id => !eligible.some(m => m.missionId === id));
+  const selectedCollectibleMissing = !!tracking?.collectibleId && !catalog.some(c => c.rewardDefinitionId === tracking.collectibleId);
+  return <section className="cz-inset space-y-3 p-4" aria-label="Mission tracking"><h3>Counting and collectible reward</h3><button type="button" disabled={busy} onClick={() => setOpen(v => !v)}>{open ? "Close tracking editor" : mission.active ? "Inspect tracking" : "Edit tracking & collectible"}</button>
+    <p>Choose how qualifying activities count. Only supported counting methods and existing collectible definitions can be saved.</p>{error && <p role="alert">{error}</p>}
+    {open && !loaded && !error && <p role="status">Loading tracking?</p>}
+    {open && loaded && <form key={JSON.stringify(tracking)} aria-label="Configure mission tracking" onSubmit={e => {
+      e.preventDefault(); if (busy || mission.active || !mission.rule) return;
+      if (unavailableIds.length || selectedCollectibleMissing) { setError("Some saved references are unavailable. Refresh the library and collectible catalog before editing; existing references have been preserved."); return; }
+      const data = new FormData(e.currentTarget);
+      onSave({ mode, firstEver: data.get("firstEver") === "on", eligibleMissionIds: mode === "DISTINCT_MISSIONS" ? selected : [], collectibleId: String(data.get("collectible") ?? "") || null, expectedUpdatedAt: mission.updatedAt });
+    }}><fieldset disabled={busy || mission.active || !mission.rule}>
+      <label>How progress is counted<select name="mode" value={mode} onChange={e => setMode(e.target.value as MissionTrackingDto["mode"])}>{Object.entries(trackingLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+      <label className="mm-confirm"><input type="checkbox" name="firstEver" defaultChecked={tracking?.firstEver ?? false} />Only the player&apos;s first qualifying action counts (supported lifetime achievements only)</label>
+      {mode === "DISTINCT_MISSIONS" && <fieldset><legend>Eligible missions</legend><p>Select enough different missions for the required completion count. Claims do not count as completions.</p><div className="mm-choice-list">{eligible.map(m => <label key={m.missionId}><input type="checkbox" checked={selected.includes(m.missionId)} onChange={e => setSelected(ids => e.target.checked ? [...ids, m.missionId] : ids.filter(id => id !== m.missionId))} />{m.title} <span className="mm-muted">({m.active ? "active" : "inactive"})</span></label>)}</div>{unavailableIds.length > 0 && <p role="alert">Saved eligible missions are unavailable in the current library. They will not be silently removed.</p>}</fieldset>}
+      <label>Collectible reward<select name="collectible" defaultValue={tracking?.collectibleId ?? ""} disabled={mission.periodType !== "LIFETIME"}><option value="">No collectible reward</option>{selectedCollectibleMissing && <option value={tracking!.collectibleId!}>Current collectible ? catalog unavailable</option>}{catalog.map(c => <option key={c.rewardDefinitionId} value={c.rewardDefinitionId} disabled={!c.active}>{c.name} ? {c.rewardType === "FRAME" ? "Profile frame" : "Badge"}{!c.active && " (unavailable)"}</option>)}</select></label>
+      {mission.periodType==="LIFETIME"&&<div className="mm-asset-grid" aria-label="Available collectibles">{catalog.filter(c=>c.active).map(c=><figure key={c.rewardDefinitionId}>{c.imageUrl&&/^\/(?!\/)/.test(c.imageUrl)&&<Image unoptimized src={c.imageUrl} width={48} height={48} alt={c.name}/>}<figcaption>{c.name}<br/>{c.rewardType==="FRAME"?"Profile frame":"Badge"}</figcaption></figure>)}</div>}
+      {selectedCollectibleMissing && <p role="alert">The saved collectible is unavailable in this catalog response. Refresh before editing; its existing association is preserved.</p>}
+      <p>Badge and frame rewards are available for lifetime achievements. This links a catalog reward; it does not grant an item.</p><button className="mm-primary" type="submit" disabled={!!unavailableIds.length || selectedCollectibleMissing}>Save inactive tracking</button>
     </fieldset></form>}
   </section>;
 }

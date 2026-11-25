@@ -8,7 +8,7 @@ import { beforeAll, afterAll, expect, it } from "vitest";
 import type { Database } from "../src/db/client.js";
 import * as s from "../src/db/schema.js";
 import { AdminMissionService, type AdminMissionDto, type AdminMissionPage } from "../src/domain/adminMissions.js";
-import type { AdminMissionDto as FrontendDto, AdminMissionPage as FrontendPage } from "../../src/types/adminMissions.js";
+import type { AdminMissionCollectiblePage as FrontendCollectiblePage, AdminMissionDto as FrontendDto, AdminMissionPage as FrontendPage } from "../../src/types/adminMissions.js";
 import { AdminAuthorizationService, DrizzleAdminAuthorizationRepository, hasAdminPermission } from "../src/domain/adminAuth.js";
 import { hashSessionToken, SESSION_COOKIE_NAME } from "../src/domain/sessions.js";
 import { AppError } from "../src/domain/errors.js";
@@ -17,6 +17,8 @@ import { registerAdminMissionRoutes } from "../src/http/adminMissionRoutes.js";
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
 const contractsMatch: [Equal<AdminMissionDto, FrontendDto>, Equal<AdminMissionPage, FrontendPage>] = [true, true];
+const collectibleContractMatches: Equal<Awaited<ReturnType<AdminMissionService["collectibles"]>>, FrontendCollectiblePage> = true;
+it("keeps the read-only collectible response synchronized with the isolated frontend type", () => expect(collectibleContractMatches).toBe(true));
 let pg: PGlite, db: Database, service: AdminMissionService, actorId: string;
 const now = new Date("2030-02-10T12:00:00Z"), secret = "admin-missions-isolated-session-secret-at-least-32";
 beforeAll(async () => {
@@ -112,7 +114,7 @@ async function http(role?: "SUPER_ADMIN" | "REVIEWER", active = true, expired = 
 }
 it.each([[undefined, true, false, 403], ["REVIEWER", true, false, 403], ["SUPER_ADMIN", false, false, 403], ["SUPER_ADMIN", true, true, 401]] as const)("denies non-admin, reviewer, inactive and expired sessions %#", async (role, active, expired, code) => {
   const { app, headers } = await http(role, active, expired);
-  try { for (const url of ["/api/admin/missions/access", "/api/admin/missions", "/api/admin/missions/" + crypto.randomUUID(), "/api/admin/missions/" + crypto.randomUUID() + "/history"]) expect((await app.inject({ url, headers })).statusCode).toBe(code);
+  try { for (const url of ["/api/admin/missions/collectibles", "/api/admin/missions/access", "/api/admin/missions", "/api/admin/missions/" + crypto.randomUUID(), "/api/admin/missions/" + crypto.randomUUID() + "/history"]) expect((await app.inject({ url, headers })).statusCode).toBe(code);
     expect((await app.inject({ method: "POST", url: "/api/admin/missions", headers, payload: {} })).statusCode).toBe(code);
     expect((await app.inject({ method: "PATCH", url: "/api/admin/missions/" + crypto.randomUUID(), headers, payload: {} })).statusCode).toBe(code);
   } finally { await app.close(); }
@@ -129,5 +131,34 @@ it("requires authentication, proxy, same-origin writes and strict query/identifi
     for (const badUrl of ["/api/admin/missions/not-a-uuid", "/api/admin/missions?unknown=true", "/api/admin/missions?limit=101", "/api/admin/missions?offset=-1"]) expect((await app.inject({ url: badUrl, headers: trusted })).statusCode).toBe(400);
     for (const extra of [{ origin: "https://evil.test" }, { "sec-fetch-site": "cross-site" }]) expect((await app.inject({ method: "PATCH", url, headers: { ...trusted, ...extra }, payload: edit(row) })).statusCode).toBe(403);
     expect((await app.inject({ method: "PATCH", url, headers: { ...trusted, origin: "https://hub.example.test" }, payload: edit(row) })).statusCode).toBe(200);
+  } finally { await app.close(); }
+});
+
+it("collectible catalog is read-only, restricted to badges/frames and does not expose metadata", async () => {
+  const prefix = "UI collectible " + crypto.randomUUID();
+  await db.insert(s.rewardDefinitions).values([
+    { description: "Synthetic catalog fixture", rarity: "ACHIEVEMENT", code: crypto.randomUUID(), name: prefix + " badge", rewardType: "BADGE", active: true, imageUrl: "/rewards/missions/first-steps.svg", metadata: { internal: "must-not-expose" } },
+    { description: "Synthetic catalog fixture", rarity: "ACHIEVEMENT", code: crypto.randomUUID(), name: prefix + " frame", rewardType: "FRAME", active: false },
+    { description: "Synthetic catalog fixture", rarity: "ACHIEVEMENT", code: crypto.randomUUID(), name: prefix + " coupon", rewardType: "COUPON", active: true },
+  ]);
+  const before = await pg.query("SELECT * FROM reward_definitions ORDER BY reward_definition_id");
+  const result = await service.collectibles({ limit: 100, offset: 0 });
+  const own = result.collectibles.filter(c => c.name.startsWith(prefix));
+  expect(own.map(c => c.rewardType)).toEqual(["BADGE", "FRAME"]);
+  expect(own[1].active).toBe(false);
+  expect(own.every(c => Object.keys(c).sort().join(",") === "active,code,imageUrl,name,rewardDefinitionId,rewardType")).toBe(true);
+  expect(await pg.query("SELECT * FROM reward_definitions ORDER BY reward_definition_id")).toEqual(before);
+  const first = await service.collectibles({ limit: 1, offset: 0 }), second = await service.collectibles({ limit: 1, offset: 1 });
+  expect(first.hasMore).toBe(true); expect(second.collectibles[0].rewardDefinitionId).not.toBe(first.collectibles[0].rewardDefinitionId);
+});
+it("collectible endpoint uses SUPER_ADMIN, production proxy and strict read-only query validation", async () => {
+  const { app, headers } = await http("SUPER_ADMIN", true, false, true);
+  try {
+    expect((await app.inject({ url: "/api/admin/missions/collectibles", headers })).statusCode).toBe(403);
+    const trusted = { ...headers, "x-player-hub-proxy-secret": "synthetic-proxy-secret" };
+    const response = await app.inject({ url: "/api/admin/missions/collectibles?limit=1&offset=0", headers: trusted });
+    expect(response.statusCode).toBe(200); expect(response.json().collectibles).toHaveLength(1);
+    expect(response.headers["cache-control"]).toBe("private, no-store");
+    for (const query of ["limit=101", "offset=-1", "playerId=forged"]) expect((await app.inject({ url: "/api/admin/missions/collectibles?" + query, headers: trusted })).statusCode).toBe(400);
   } finally { await app.close(); }
 });

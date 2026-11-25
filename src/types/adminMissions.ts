@@ -70,3 +70,9 @@ export interface MissionCapacityDto {
   digest: string; status: "PENDING" | "RECOVERED"; revision: string;
   history: { eventId: string; action: "OPENED" | "RECOVERY_BLOCKED" | "RECOVERED"; actorAdminUserId: string | null; occurredAt: string; reason: string; errorCode: string | null; claimId: string | null }[];
 }
+
+// Read-only SUPER_ADMIN catalog contract. No inventory ownership or grants are exposed.
+export interface AdminMissionCollectibleDto {
+  rewardDefinitionId: string; code: string; name: string; rewardType: "BADGE" | "FRAME"; imageUrl: string | null; active: boolean;
+}
+export interface AdminMissionCollectiblePage { collectibles: AdminMissionCollectibleDto[]; hasMore: boolean; limit: number; offset: number }

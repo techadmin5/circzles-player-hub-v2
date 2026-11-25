@@ -2,54 +2,44 @@
 import { useEffect, useRef, useState } from "react";
 import { request } from "@/lib/apiClient";
 import type { MissionApprovalContractDto } from "@/types/adminMissions";
-
-export function MissionApprovalContract({ missionId, revision, busy, onChanged, onBusy }: { missionId: string; revision: string; busy: boolean; onChanged?: () => void; onBusy?: (value: boolean) => void }) {
-  const [report, setReport] = useState<MissionApprovalContractDto | null>(null), [error, setError] = useState(""), [loading, setLoading] = useState(false);
+import { errorMessage, utc } from "./missionManagerModel";
+export function MissionApprovalContract({ missionId, revision, initialReport, busy, onChanged, onBusy }: { missionId: string; revision: string; initialReport?: MissionApprovalContractDto; busy: boolean; onChanged?: (saved?: boolean) => void; onBusy?: (value: boolean) => void }) {
+  const [report, setReport] = useState<MissionApprovalContractDto | null>(initialReport ?? null), [error, setError] = useState<ReturnType<typeof errorMessage> | null>(null), [loading, setLoading] = useState(false);
   const [confirmed, setConfirmed] = useState<Record<string, boolean>>({});
   const pending = useRef<AbortController | null>(null);
   useEffect(() => () => pending.current?.abort(), []);
   async function inspect() {
     if (pending.current || busy) return;
-    const controller = new AbortController(); pending.current = controller; setLoading(true); setReport(null); setError(""); setConfirmed({});
-    try {
-      const result = await request<MissionApprovalContractDto>(`/api/admin/missions/${missionId}/approval-contract`, { signal: controller.signal });
-      if (!controller.signal.aborted) setReport(result);
-    } catch (error) { if (!controller.signal.aborted) setError(error instanceof Error ? error.message : "Approval contract could not be loaded."); }
-    finally { if (!controller.signal.aborted) setLoading(false); if (pending.current === controller) pending.current = null; }
+    const c = new AbortController(); pending.current = c; setLoading(true); setReport(null); setError(null); setConfirmed({});
+    try { const r = await request<MissionApprovalContractDto>("/api/admin/missions/" + missionId + "/approval-contract", { signal: c.signal, cache: "no-store" }); if (!c.signal.aborted) setReport(r); }
+    catch (e) { if (!c.signal.aborted) setError(errorMessage(e)); }
+    finally { if (!c.signal.aborted) setLoading(false); pending.current = null; }
   }
   const stale = report && (report.binding.missionId !== missionId || report.binding.approvedConfigurationRevision !== revision);
   async function mutate(category: MissionApprovalContractDto["categories"][number], revoke: boolean) {
     if (!report || stale || pending.current || busy || !confirmed[category.category]) return;
-    const controller = new AbortController(); pending.current = controller; setLoading(true); setError(""); onBusy?.(true);
+    const c = new AbortController(); pending.current = c; setLoading(true); setError(null); onBusy?.(true);
     try {
-      const result = await request<MissionApprovalContractDto>(`/api/admin/missions/${missionId}/approvals/${category.category}${revoke ? "/revoke" : ""}`, {
-        method: "POST", signal: controller.signal, body: JSON.stringify({ expectedUpdatedAt: report.binding.approvedConfigurationRevision, configurationDigest: report.binding.configurationDigest, expectedApprovalId: category.recordedApproval?.approvalId ?? null, expectedRevocationId: category.recordedApproval?.revocationId ?? null }),
-      });
-      if (!controller.signal.aborted) { setReport(result); setConfirmed({}); onChanged?.(); }
-    } catch (error) { if (!controller.signal.aborted) { setReport(null); setConfirmed({}); setError(error instanceof Error ? error.message : "Approval change failed. Reload and inspect again."); onChanged?.(); } }
-    finally { onBusy?.(false); if (!controller.signal.aborted) setLoading(false); if (pending.current === controller) pending.current = null; }
+      const r = await request<MissionApprovalContractDto>("/api/admin/missions/" + missionId + "/approvals/" + category.category + (revoke ? "/revoke" : ""), { method: "POST", signal: c.signal, body: JSON.stringify({ expectedUpdatedAt: report.binding.approvedConfigurationRevision, configurationDigest: report.binding.configurationDigest, expectedApprovalId: category.recordedApproval?.approvalId ?? null, expectedRevocationId: category.recordedApproval?.revocationId ?? null }) });
+      if (!c.signal.aborted) { setReport(r); setConfirmed({}); onChanged?.(true); }
+    } catch (e) { if (!c.signal.aborted) { setReport(null); setConfirmed({}); setError(errorMessage(e)); onChanged?.(false); } }
+    finally { onBusy?.(false); if (!c.signal.aborted) setLoading(false); pending.current = null; }
   }
-  return <section className="cz-inset space-y-3 p-4" aria-label="Mission approval contract">
-    <h3 className="cz-display text-lg">Mission approvals</h3>
-    <p>SUPER_ADMIN product and reward-budget approvals are independent. Both are required for future activation. Approval never activates a mission or awards rewards.</p>
-    <button className="cz-btn" type="button" disabled={busy || loading} onClick={() => void inspect()}>{loading ? "Loading approval contract..." : "Inspect approval contract"}</button>
-    {loading ? <p role="status">Reading or saving approval configuration...</p> : busy ? <p role="status">Reinspect the contract after the pending mission request.</p> : error ? <p role="alert">{error}</p> : !report ? <p>No contract inspected. Inspect persisted approvals before continuing.</p> : stale ? <p role="alert">Contract revision differs from displayed details. Reload details and inspect again.</p> : <>
-      <p>Approval actions do not activate missions. {report.missionInactive ? "The mission remains inactive." : "This mission is active; inspection and revocation do not change it."}</p>
-      <p>Configuration revision: {report.binding.approvedConfigurationRevision}. Inspected {report.evaluatedAt} (UTC).</p>
-      <p className="break-all">Configuration SHA-256: {report.binding.configurationDigest}</p>
-      <p>Configured reward: {report.rewards.xp ?? "Incomplete"} XP / {report.rewards.synapsePoints ?? "Incomplete"} SP. Budget approval covers these exact amounts; no global cap is implied.</p>
-      {report.categories.map(category => {
-        const label = category.category === "PRODUCT" ? "product" : "reward-budget", record = category.recordedApproval;
-        const revoke = !!record && !record.revocationId;
+  return <section className="mm-approval-center" aria-label="Mission approval contract">
+    <div className="mm-toolbar"><div><h3>Two independent approvals</h3><p>Review the product and exact reward amounts separately. Neither action publishes the mission.</p></div><button type="button" disabled={busy || loading} onClick={() => void inspect()}>Refresh approvals</button></div>
+    {error && <div role="alert" className="mm-error">{error.message}<details><summary>Technical details</summary>{error.code}</details></div>}
+    {loading ? <p role="status">Checking or saving this approval?</p> : !report ? <p>Load the current approval report to continue.</p> : stale ? <p role="alert">This mission has changed since review. Reload details before approving.</p> : <>
+      <div className="mm-approval-grid">{report.categories.map(category => {
+        const record = category.recordedApproval, revoke = !!record && !record.revocationId;
         const actionable = revoke || (report.recordingEnabled && category.status !== "APPROVED");
-        return <article className="space-y-2" key={category.category}>
-          <h4>{label === "product" ? "Product approval" : "Reward-budget approval"}: {category.status}</h4>
-          {record ? <><p>Approval #{record.approvalId} by administrator {record.approverAdminUserId} at {record.approvedAt} (UTC). Approved amounts: {record.xp} XP / {record.synapsePoints} SP.</p><p>Approved revision: {record.approvedConfigurationRevision}. Digest: {record.configurationDigest}.</p>{record.revokedAt && <p>Revoked by administrator {record.revokedByAdminUserId} at {record.revokedAt} (UTC).</p>}</> : <p>No recorded approval.</p>}
-          {actionable && <><label className="block"><input type="checkbox" checked={!!confirmed[category.category]} onChange={event => setConfirmed(values => ({ ...values, [category.category]: event.target.checked }))} aria-label={`Confirm ${label} ${revoke ? "revocation" : "approval"}`} /> I confirm {revoke ? "revocation of this recorded approval" : "review of this exact configuration, schedule, claim windows and XP/SP amounts"}.</label><button className="cz-btn" type="button" disabled={!confirmed[category.category] || loading || busy} onClick={() => void mutate(category, revoke)}>{revoke ? "Revoke" : "Grant"} {label} approval</button></>}
+        const label = category.category === "PRODUCT" ? "Product" : "Reward budget";
+        return <article className="mm-panel" key={category.category}><span className="mm-eyebrow">{category.category === "PRODUCT" ? "STEP 3" : "STEP 4"}</span><h4>{label} approval</h4><span className={"mm-badge " + (category.status === "APPROVED" ? "mm-ready" : "mm-approval")}>{category.status === "MISSING" ? "Awaiting approval" : category.status === "INVALIDATED" ? "Review changed configuration" : category.status}</span>
+          <p>{category.category === "PRODUCT" ? "Review the objective, activity threshold, eligibility and schedule." : "Authorize exactly " + (report.rewards.xp ?? "unset") + " XP and " + (report.rewards.synapsePoints ?? "unset") + " Synapse Points. Storage limits are not a reward budget."}</p>
+          {record && <p>Recorded {utc(record.approvedAt)}{record.revokedAt && " ? Revoked " + utc(record.revokedAt)}</p>}
+          {actionable && <><label className="mm-confirm"><input type="checkbox" checked={!!confirmed[category.category]} onChange={e => setConfirmed(v => ({ ...v, [category.category]: e.target.checked }))} aria-label={"Confirm " + label.toLowerCase() + (revoke ? " revocation" : " approval")} />{revoke ? "I authorize revoking this recorded approval." : "I have reviewed this exact mission configuration and reward amounts."}</label><button className={revoke ? "mm-secondary" : "mm-primary"} disabled={!confirmed[category.category] || busy || loading} onClick={() => void mutate(category, revoke)}>{revoke ? "Revoke " : "Approve "}{label.toLowerCase()}</button></>}
+          <details><summary>Approval record details</summary><p>Revision: {report.binding.approvedConfigurationRevision}</p><p className="mm-break">Digest: {report.binding.configurationDigest}</p>{record && <p>Record {record.approvalId} / Administrator {record.approverAdminUserId}</p>}</details>
         </article>;
-      })}
-      <p>Approvals do not expire automatically. Configuration changes invalidate them, including later revisions that revert earlier values. History remains append-only.</p>
-      <p>Unsafe payouts fail atomically and preserve earned eligibility and original deadlines. No automatic compensation or deadline extension is provided.</p>
+      })}</div><p className="mm-muted">Configuration changes invalidate approvals. Reverting fields does not revive an old approval. No approval expires automatically.</p>
     </>}
   </section>;
 }

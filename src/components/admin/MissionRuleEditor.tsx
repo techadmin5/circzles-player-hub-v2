@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { activityLabels } from "./missionManagerModel";
 import { request } from "@/lib/apiClient";
 import type { AdminMissionDto, AdminMissionRuleInput, AdminMissionRuleOptions } from "@/types/adminMissions";
 
@@ -36,15 +37,16 @@ export function MissionRuleEditor({ mission, busy, onSave }: { mission: AdminMis
     }}>
       {error && <p role="alert">{error}</p>}
       <fieldset disabled={busy || mission.active} className="space-y-3">
-        <legend className="cz-display text-lg">Matching event rule</legend>
-        <label className="block">Event<select name="eventType" className="cz-inset ml-3 p-2" required value={eventType} onChange={event => setEventType(event.target.value)}><option value="" disabled>Choose an event</option>{options.options.map(option => <option value={option.eventType} key={option.eventType}>{option.label}</option>)}</select></label>
-        <label className="block">Number of matching events<input className="cz-inset ml-3 p-2" name="targetCount" type="number" min={1} max={2147483647} step={1} required defaultValue={mission.rule?.targetCount ?? 1} /></label>
+        <legend className="cz-display text-lg">Player activity and completion requirement</legend>
+        <label className="block">Player activity<select name="eventType" className="cz-inset ml-3 p-2" required value={eventType} onChange={event => setEventType(event.target.value)}><option value="" disabled>Choose an activity</option>{options.options.map(option => <option value={option.eventType} key={option.eventType}>{activityLabels[option.eventType] ?? option.label}</option>)}</select></label>
+        <label className="block">Required number of activities<input className="cz-inset ml-3 p-2" name="targetCount" type="number" min={1} max={2147483647} step={1} required defaultValue={mission.rule?.targetCount ?? 1} /></label>
         <p>Each matching event adds one. This does not sum XP, points or time, or count distinct CircZles. Rejected and resubmission events follow their existing review semantics.</p>
-        <label className="block">Canonical CircZles ID (optional)<input className="cz-inset block w-full p-2" name="puzzleId" defaultValue={mission.rule?.puzzleId ?? ""} maxLength={36} pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}" /></label>
+        <details><summary>Advanced activity filters</summary>        <label className="block">Canonical CircZles ID (optional)<input className="cz-inset block w-full p-2" name="puzzleId" defaultValue={mission.rule?.puzzleId ?? ""} maxLength={36} pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}" /></label>
         <label className="block">Exact level (optional)<input className="cz-inset ml-3 p-2" name="levelId" type="number" min={0.1} max={999.9} step={0.1} defaultValue={mission.rule?.levelId ?? ""} /></label>
         <label className="block"><input name="filterSource" type="checkbox" defaultChecked={!!mission.rule?.sourceType} /> Restrict to this event&apos;s source{option ? ` (${option.sourceType})` : ""}</label>
+</details>
         <label className="block"><input name="active" type="checkbox" defaultChecked={mission.rule?.active ?? false} /> Enable this rule for future mission activation</label>
-        <p>The mission stays inactive. Advanced equality conditions and other M1 event types are read-only in this slice.</p>
+        <p>The mission stays inactive. Existing advanced conditions remain read-only.</p>
         <button className="cz-btn" type="submit" disabled={!option}>Save rule configuration</button>
       </fieldset>
     </form>)}
