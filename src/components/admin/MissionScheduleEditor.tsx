@@ -3,7 +3,8 @@ import { useState } from "react";
 import type { AdminMissionDto, AdminMissionScheduleInput } from "@/types/adminMissions";
 
 function utcInput(value: FormDataEntryValue | null): string | null {
-  const text = String(value ?? "").trim();
+  let text = String(value ?? "").trim();
+  if (text && !text.endsWith("Z")) text += (text.length === 16 ? ":00" : "") + "Z";
   if (!text) return null;
   const date = new Date(text);
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(text) || text.startsWith("0000-") || !Number.isFinite(date.getTime()) || date.toISOString().slice(0, 19) !== text.slice(0, 19)) throw new Error("Use real ISO UTC dates ending in Z, with seconds and at most three fractional digits. Local times and UTC offsets are not accepted.");
@@ -35,12 +36,12 @@ export function MissionScheduleEditor({ mission, busy, onSave }: { mission: Admi
       {error && <p role="alert">{error}</p>}
       <fieldset disabled={busy || mission.active} className="space-y-3">
         <legend className="cz-display text-lg">Inactive mission schedule (UTC)</legend>
-        <p>Availability includes the start and excludes the end. Use YYYY-MM-DDTHH:mm:ss.sssZ; optional blank fields mean no limit.</p>
-        <label className="block">Availability start (UTC){fixed ? " - required" : " - optional"}<input className="cz-inset block w-full p-2" name="startsAt" type="text" autoComplete="off" spellCheck={false} maxLength={24} required={fixed} placeholder="2030-02-10T00:00:00.000Z" defaultValue={mission.startsAt ?? ""} /></label>
-        <label className="block">Availability end (UTC){fixed ? " - required" : " - optional"}<input className="cz-inset block w-full p-2" name="endsAt" type="text" autoComplete="off" spellCheck={false} maxLength={24} required={fixed} placeholder="2030-02-11T00:00:00.000Z" defaultValue={mission.endsAt ?? ""} /></label>
-        <p>Existing event cutoff (read-only): {mission.activationEffectiveAt}. This is an event eligibility cutoff, not an automatic activation time.</p>
+        <p>Availability includes the start and excludes the end. Choose dates and times in UTC, not your device timezone. Optional blank fields mean no limit.</p>
+        <label className="block">Availability start (UTC){fixed ? " - required" : " - optional"}<input className="cz-inset block w-full p-2" name="startsAt" type="datetime-local" step="1" autoComplete="off" spellCheck={false} maxLength={24} required={fixed} placeholder="2030-02-10T00:00:00.000Z" defaultValue={(mission.startsAt ?? "").replace(/Z$/, "")} /></label>
+        <label className="block">Availability end (UTC){fixed ? " - required" : " - optional"}<input className="cz-inset block w-full p-2" name="endsAt" type="datetime-local" step="1" autoComplete="off" spellCheck={false} maxLength={24} required={fixed} placeholder="2030-02-11T00:00:00.000Z" defaultValue={(mission.endsAt ?? "").replace(/Z$/, "")} /></label>
+        <details><summary>Advanced event eligibility cutoff</summary><p>{mission.activationEffectiveAt} UTC. This is not an automatic activation time.</p></details>
         <p>{mission.periodType === "DAILY" ? "Period boundaries: midnight UTC to the next midnight UTC." : mission.periodType === "WEEKLY" ? "Period boundaries: ISO weeks, Monday 00:00 UTC to the following Monday 00:00 UTC." : fixed ? "One fixed period uses the required availability window." : "One lifetime period; availability dates are optional."} Availability does not shift daily or weekly period boundaries.</p>
-        <label className="block">Explicit reward claim deadline (UTC) - optional<input className="cz-inset block w-full p-2" name="claimDeadline" type="text" autoComplete="off" spellCheck={false} maxLength={24} disabled={recurring} placeholder={recurring ? "Derived per UTC period" : "Blank means no explicit claim expiry"} defaultValue={mission.claimDeadline ?? ""} /></label>
+        <label className="block">Explicit reward claim deadline (UTC) - optional<input className="cz-inset block w-full p-2" name="claimDeadline" type="datetime-local" step="1" autoComplete="off" spellCheck={false} maxLength={24} disabled={recurring} placeholder={recurring ? "Derived per UTC period" : "Blank means no explicit claim expiry"} defaultValue={(mission.claimDeadline ?? "").replace(/Z$/, "")} /></label>
         <p>{recurring ? "Daily/weekly rewards expire 24 hours after their UTC period ends. An explicit deadline is not supported; saving leaves it empty." : "Fixed/lifetime rewards use the optional explicit claim deadline, with no automatic 24-hour grace. A deadline equal to availability end is allowed."} Claims expire at the deadline itself. Existing earned snapshots keep their recorded deadlines.</p>
         <p>Chest grace is separate: daily/weekly chest claims use 24 hours after their own period end. This form does not change chests, eligibility or earned chest deadlines.</p>
         <button className="cz-btn" type="submit">Save inactive schedule</button>

@@ -16,7 +16,7 @@ async function setup(t){
  t.after(async()=>{await act(async()=>root.unmount());usePlayerUiState.getState().clear();dom.window.close();for(const[k,d]of saved){if(d)Object.defineProperty(globalThis,k,d);else delete globalThis[k];}});
  return root;
 }
-async function click(text){const button=[...document.querySelectorAll("button")].find(b=>b.textContent===text);assert.ok(button,text);await act(async()=>button.click());}
+async function click(text){const button=[...document.querySelectorAll("button")].find(b=>b.textContent===text||b.getAttribute("aria-label")===text);assert.ok(button,text);await act(async()=>button.click());}
 test("Daily/Weekly cards show unique progress, exact rewards, UTC resets and manual claims without automatic payout",async t=>{
  const root=await setup(t),calls=[];t.mock.method(globalThis,"fetch",async(url,init)=>{calls.push([url,init]);return Response.json(String(url).includes("history")?{entries:[],nextCursor:null}:{chests:[chest,{...chest,chestId:"weekly",periodType:"WEEKLY",title:"Synthetic Weekly",progress:{current:2,target:4},status:"IN_PROGRESS",claimable:false}]});});
  await act(async()=>root.render(createElement(MissionChests,{mode:"api"})));
@@ -48,7 +48,7 @@ test("admin chest draft creation has no default rewards or implicit approval and
  const root=await setup(t),writes=[];const draft={...chest,active:false,revision:"2030-01-07T00:00:00Z",configurationDigest:"a".repeat(64),targetCount:3,rewards:null,missions:[],approvals:["PRODUCT","REWARD_BUDGET"].map(category=>({category,eventId:null,status:"MISSING"})),blockers:["CHEST_APPROVALS_REQUIRED"],activationReady:false,activationEffectiveAt:"2030-01-07T00:00:00Z",startsAt:null,endsAt:null};
  t.mock.method(globalThis,"fetch",async(url,init={})=>{if(init.method==="POST"){writes.push(JSON.parse(init.body));return Response.json(draft);}return Response.json(String(url).includes("/history")?{entries:[],hasMore:false}:String(url).includes("/api/admin/missions?")?{missions:[],hasMore:false}:{chests:[],hasMore:false});});await act(async()=>root.render(createElement(ChestAdmin)));
  await act(async()=>{const input=document.querySelector('input[name="title"]');Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,"value").set.call(input,"Synthetic draft");document.querySelector('form[aria-label="Create chest draft"]').dispatchEvent(new window.Event("submit",{bubbles:true,cancelable:true}));});
- assert.deepEqual(writes,[{title:"Synthetic draft",periodType:"DAILY"}]);assert.match(document.body.textContent,/Storage bounds are not a budget approval/);assert.equal(document.querySelector('input[name="xp"]').value,"");assert.equal([...document.querySelectorAll("button")].find(b=>b.textContent==="Review chest activation").disabled,true);
+ assert.deepEqual(writes,[{title:"Synthetic draft",periodType:"DAILY"}]);assert.match(document.body.textContent,/Storage bounds are not a budget approval/);assert.equal(document.querySelector('input[name="xp"]').value,"");await click("Review & Publish"); assert.equal([...document.querySelectorAll("button")].find(b=>b.textContent==="Review chest activation").disabled,true);
 });
 for(const [periodType,xp,sp]of [["DAILY",50,100],["WEEKLY",200,250]])test(`${periodType} approved product template is explicit, saves exact amounts inactive and records no approvals`,async t=>{
  const root=await setup(t),writes=[];
@@ -60,10 +60,10 @@ for(const [periodType,xp,sp]of [["DAILY",50,100],["WEEKLY",200,250]])test(`${per
   if(init.method==="POST")throw Error("Template must not approve or activate");
   return Response.json(path.endsWith("/product-policy")?policy:path.endsWith("/history")?{entries:[],hasMore:false}:path==="/api/admin/missions"?{missions:[],hasMore:false}:path.endsWith(draft.chestId)?draft:{chests:[draft],hasMore:false});
  });
- await act(async()=>root.render(createElement(ChestAdmin)));await click("View chest Synthetic Daily");
+ await act(async()=>root.render(createElement(ChestAdmin)));await click("Manage chest Synthetic Daily");
  assert.equal(document.querySelector('input[name="xp"]').value,"");assert.equal(document.querySelector('input[name="sp"]').value,"");assert.equal(writes.length,0);
  await click("Use approved initial-release reward template");assert.equal(document.querySelector('input[name="xp"]').value,String(xp));assert.equal(document.querySelector('input[name="sp"]').value,String(sp));assert.equal(writes.length,0);
  await act(async()=>document.querySelector('form[aria-label="Chest configuration"]').dispatchEvent(new window.Event("submit",{bubbles:true,cancelable:true})));
  assert.equal(writes.length,1);assert.equal(writes[0].xp,xp);assert.equal(writes[0].synapsePoints,sp);assert.equal(writes[0].expectedUpdatedAt,draft.revision);assert.ok(!("active"in writes[0]));
- assert.match(document.body.textContent,/PRODUCT approval: MISSING/);assert.equal([...document.querySelectorAll("button")].find(b=>b.textContent==="Review chest activation").disabled,true);
+ await click("Review & Publish"); assert.match(document.body.textContent,/Product approval: MISSING/); assert.equal([...document.querySelectorAll("button")].find(b=>b.textContent==="Review chest activation").disabled,true);
 });

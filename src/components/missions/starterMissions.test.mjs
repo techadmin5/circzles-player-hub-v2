@@ -39,7 +39,7 @@ test("tracking loads on demand, retains UTC mode, and submits only configuration
   const root = await setup(t), reads = [], saves = [];
   t.mock.method(globalThis, "fetch", async url => { reads.push(url); return Response.json({ mode: "DISTINCT_UTC_DAYS", firstEver: false, eligibleMissionIds: [], collectibleId: null }); });
   await act(async () => root.render(createElement(MissionTrackingEditor, { mission, busy: false, onSave: input => saves.push(input) })));
-  assert.equal(reads.length, 0); await click("Inspect tracking"); assert.equal(reads.length, 1);
+  assert.equal(reads.length, 0); await click("Edit tracking & collectible"); assert.equal(reads.length, 1);
   await act(async () => document.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
   assert.deepEqual(saves, [{ mode: "DISTINCT_UTC_DAYS", firstEver: false, eligibleMissionIds: [], collectibleId: null, expectedUpdatedAt: mission.updatedAt }]);
 });

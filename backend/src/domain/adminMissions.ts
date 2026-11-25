@@ -60,6 +60,20 @@ const draft = metadata.omit({ expectedUpdatedAt: true }).extend({ category: z.en
 export class AdminMissionService {
   constructor(private db: Database) {}
 
+  async collectibles(filter: { limit: number; offset: number }) {
+    const rows = await this.db.select({
+      rewardDefinitionId: rewardDefinitions.rewardDefinitionId, code: rewardDefinitions.code,
+      name: rewardDefinitions.name, rewardType: rewardDefinitions.rewardType,
+      imageUrl: rewardDefinitions.imageUrl, active: rewardDefinitions.active,
+    }).from(rewardDefinitions).where(inArray(rewardDefinitions.rewardType, ["BADGE", "FRAME"]))
+      .orderBy(asc(rewardDefinitions.name), asc(rewardDefinitions.rewardDefinitionId)).limit(filter.limit + 1).offset(filter.offset);
+    const collectibles = rows.slice(0, filter.limit).map(row => {
+      if (row.rewardType !== "BADGE" && row.rewardType !== "FRAME") throw new AppError("COLLECTIBLE_CATALOG_INVALID", "Unsupported collectible catalog result.", 500);
+      return { ...row, rewardType: row.rewardType };
+    });
+    return { collectibles, hasMore: rows.length > filter.limit, ...filter };
+  }
+
   async tracking(id: string) { return readTracking(this.db, id); }
   async updateTracking(id: string, input: unknown, actor: string, now = new Date()) {
     const parsed = trackingInput.extend({ expectedUpdatedAt: z.string().datetime({ offset: true }) }).safeParse(input);

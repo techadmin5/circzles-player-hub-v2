@@ -74,6 +74,11 @@ export function registerAdminMissionRoutes(app: FastifyInstance, deps: { env: En
       if(!z.object({}).strict().safeParse(request.query).success)throw validationFailed("Recovery accepts no query parameters.");
       return chestCapacity.recover(exceptionId(request.params),request.body,actorId(request));
     });
+    scope.get("/api/admin/missions/collectibles", async request => {
+      const filter = adminMissionHistoryFilters.safeParse(request.query);
+      if (!filter.success) throw validationFailed("Invalid collectible pagination.");
+      return deps.adminMissions.collectibles(filter.data);
+    });
     scope.get("/api/admin/missions/access", async () => ({ allowed: true }));
     scope.get("/api/admin/missions/rule-options", async () => ({ options: adminMissionRuleOptions }));
     scope.get("/api/admin/missions", async request => {
